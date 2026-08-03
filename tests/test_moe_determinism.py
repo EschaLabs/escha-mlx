@@ -42,7 +42,7 @@ def _fake_block(monkeypatch=None):
         top_k = TOP_K
 
         def _rows(self, xf, ids):
-            from escha_mlx.moe import EschaSparseMoeBlock
+            from escha_mlx.models.qwen3_5_moe import EschaSparseMoeBlock
             return EschaSparseMoeBlock._rows(self, xf, ids)
 
     return B()

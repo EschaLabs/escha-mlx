@@ -1,16 +1,11 @@
-"""Load an escha (eschamoe) checkpoint into an mlx-lm qwen3_5_moe model.
+"""Load an escha checkpoint into a module-swapped mlx-lm model.
 
-Consumes the public HF export directly (no conversion artifact):
-  * routed experts: `...mlp.experts.{gate_up_proj,down_proj}.escha_{code,rin,rout}`
-    (E-stacked; `escha_s_in`/`escha_s_out` are all-ones and `escha_config` is
-    redundant — both dropped, like every other escha runtime).
-  * dense linears / embed / lm_head: `weight_int8` + `weight_scale` pairs ->
-    exact MLX affine-Q8 repack (escha_mlx.quant).
-  * everything else fp16 -> mlx-lm's own sanitize (language_model renames,
-    conv1d layout, the (1+w) norm shift) + update.
-
-The model skeleton, GDN kernels, attention and KV/state caches are mlx-lm's;
-only the MoE block and the quantized dense modules are replaced.
+Architecture-agnostic side of loading: checkpoint detection, per-tensor
+streaming, the wired-limit policy, and shared post-load helpers. Everything
+architecture-specific — the mlx-lm skeleton, tensor-name mapping, module
+swaps, routing — lives in one plugin per `model_type` under
+escha_mlx/models/ (contract: escha_mlx/models/__init__.py), resolved from
+the checkpoint's config.json.
 """
 from __future__ import annotations
 
@@ -23,14 +18,10 @@ from pathlib import Path
 
 import mlx.core as mx
 import mlx.nn as nn
-import numpy as np
-from mlx.utils import tree_unflatten
 
-from . import gdn_cache, moe, quant
+from . import quant
 
 logger = logging.getLogger(__name__)
-
-_DROP_LEAVES = {"escha_s_in", "escha_s_out", "escha_config"}
 
 
 def is_escha_checkpoint(path: str | Path) -> bool:
@@ -58,8 +49,18 @@ def _iter_tensors(path: Path):
                 yield name, f.get_tensor(name)
 
 
-def _strip(name: str) -> str:
+def strip_lm_prefix(name: str) -> str:
+    """Drop the VLM wrapper prefix HF exports carry on language-model tensors."""
     return name[len("model.language_model."):] if name.startswith("model.language_model.") else name
+
+
+def resolve_module(owner, dotted: str):
+    """Walk `owner` along a dotted path; returns (parent, last_attr_name)."""
+    obj = owner
+    parts = dotted.split(".")
+    for p in parts[:-1]:
+        obj = obj[int(p)] if p.isdigit() else getattr(obj, p)
+    return obj, parts[-1]
 
 
 def apply_wired_limit() -> float | None:
@@ -140,7 +141,7 @@ def use_last_logit() -> bool:
 
 def load_model(path: str | Path):
     """Build the model. Returns the mlx-lm Model instance (module-swapped)."""
-    from mlx_lm.models import qwen3_5_moe
+    from . import models   # function-level: plugins import this module
 
     # Before any allocation, so the weights themselves land wired.
     apply_wired_limit()
@@ -148,131 +149,23 @@ def load_model(path: str | Path):
     path = Path(path)
     t0 = time.time()
     config = json.loads((path / "config.json").read_text())
-    args = qwen3_5_moe.ModelArgs.from_dict(config)
-    model = qwen3_5_moe.Model(args)
-    text_args = model.language_model.args
-    n_layers = text_args.num_hidden_layers
-    top_k = text_args.num_experts_per_tok
+    arch = models.resolve(config)
     group_size = int(os.environ.get("ESCHA_MLX_Q8_GROUP", str(quant.DEFAULT_GROUP)))
 
-    layers = model.language_model.model.layers
-
-    def _resolve(owner, dotted: str):
-        obj = owner
-        parts = dotted.split(".")
-        for p in parts[:-1]:
-            obj = obj[int(p)] if p.isdigit() else getattr(obj, p)
-        return obj, parts[-1]
-
-    # Streaming single pass: every tensor is converted to its final (mx) form
-    # as soon as its dependency group completes, then the numpy copy is freed.
-    experts_np: dict[tuple[int, str], dict[str, np.ndarray]] = {}
-    experts_mx: dict[tuple[int, str], moe.EschaExperts] = {}
-    int8_np: dict[str, dict[str, np.ndarray]] = {}
-    shared_np: dict[str, dict[str, np.ndarray]] = {}   # small, held to block build
-    mlp_fp16: dict[tuple[int, str], np.ndarray] = {}
-    base: dict[str, np.ndarray] = {}
-    n_q8 = 0
-    dropped = 0
+    plugin = arch.CheckpointLoader(config, group_size)
     n_read = 0
-
-    def _install_q8(base_name: str, pair: dict[str, np.ndarray]) -> None:
-        nonlocal n_q8
-        w8, scale = pair["weight_int8"], pair["weight_scale"]
-        if base_name == "lm_head":
-            model.language_model.lm_head = quant.make_linear(w8, scale, group_size)
-        elif base_name == "embed_tokens":
-            model.language_model.model.embed_tokens = quant.make_embedding(w8, scale, group_size)
-        elif base_name.startswith("layers."):
-            rest = base_name[len("layers."):]
-            idx, dotted = rest.split(".", 1)
-            parent, attr = _resolve(layers[int(idx)], dotted)
-            setattr(parent, attr, quant.make_linear(w8, scale, group_size))
-        else:
-            raise ValueError(f"unexpected int8 tensor: {base_name}")
-        n_q8 += 1
-
     for name, w in _iter_tensors(path):
+        plugin.consume(name, w)
         n_read += 1
-        if name.startswith("mtp.") or ".visual." in name or name.startswith("visual."):
-            dropped += 1
-            continue
-        s = _strip(name)
-        parts = s.split(".")
-        if ".mlp.experts." in s:
-            layer = int(parts[1])
-            proj, leaf = parts[4], parts[5]
-            if leaf in _DROP_LEAVES:
-                dropped += 1
-                continue
-            group = experts_np.setdefault((layer, proj), {})
-            group[leaf] = w
-            if len(group) == 3:
-                experts_mx[(layer, proj)] = moe.EschaExperts(
-                    group["escha_code"], group["escha_rin"], group["escha_rout"])
-                del experts_np[(layer, proj)]
-            continue
-        if s.endswith(".weight_int8") or s.endswith(".weight_scale"):
-            base_name, leaf = s.rsplit(".", 1)
-            if ".shared_expert." in s:
-                shared_np.setdefault(base_name, {})[leaf] = w
-                continue
-            pair = int8_np.setdefault(base_name, {})
-            pair[leaf] = w
-            if len(pair) == 2:
-                _install_q8(base_name, pair)
-                del int8_np[base_name]
-            continue
-        if s.endswith(".mlp.gate.weight") or s.endswith(".mlp.shared_expert_gate.weight"):
-            mlp_fp16[(int(parts[1]), parts[3])] = w
-            continue
-        base[name] = w
-    assert not experts_np and not int8_np, (list(experts_np), list(int8_np))
     logger.info("escha_mlx: streamed %d tensors in %.1fs", n_read, time.time() - t0)
 
-    # ---- MoE blocks ------------------------------------------------------
-    escha_arrays: list[mx.array] = []
-    for i in range(n_layers):
-        gu = experts_mx.pop((i, "gate_up_proj"))
-        dn = experts_mx.pop((i, "down_proj"))
-        assert gu.K == 2 and dn.K == 3, (gu.K, dn.K)
-        pref = f"layers.{i}.mlp.shared_expert"
-        shared = {}
-        for p in ("gate", "up", "down"):
-            pair = shared_np.pop(f"{pref}.{p}_proj")
-            shared[f"{p}_w8"] = pair["weight_int8"]
-            shared[f"{p}_scale"] = pair["weight_scale"]
-        block = moe.EschaSparseMoeBlock(
-            hidden_size=text_args.hidden_size,
-            num_experts=text_args.num_experts,
-            top_k=top_k,
-            gu=gu, dn=dn,
-            gate_w=mlp_fp16.pop((i, "gate")),
-            shg_w=mlp_fp16.pop((i, "shared_expert_gate")),
-            shared=shared,
-            group_size=group_size,
-        )
-        layers[i].mlp = block
-        escha_arrays += gu.arrays() + dn.arrays()
-    assert not experts_mx, f"unconsumed expert tensors: {list(experts_mx)[:4]}"
-
-    # ---- fp16 remainder through mlx-lm's own sanitize -------------------
-    assert any(k.endswith("conv1d.weight") and v.shape[-1] != 1 for k, v in base.items()), \
-        "conv1d already sanitized? norm (1+w) shift heuristic would not fire"
-    sanitized = model.sanitize({k: mx.array(v) for k, v in base.items()})
-    model.update(tree_unflatten(list(sanitized.items())))
-
-    if use_last_logit():
-        model.language_model.lm_head = LastPositionHead(
-            model.language_model.lm_head)
-        logger.info("escha_mlx: LM head restricted to the last position "
-                    "(ESCHA_MLX_LAST_LOGIT=0 for per-position logits)")
-
+    escha_arrays = plugin.finalize()
+    model = plugin.model
     mx.eval(model.parameters())
     mx.eval(escha_arrays)
     model.eval()
-    logger.info("escha_mlx: model ready in %.1fs (%d MoE layers, %d Q8 dense, %d dropped)",
-                time.time() - t0, n_layers, n_q8, dropped)
+    logger.info("escha_mlx: %s model ready in %.1fs",
+                arch.MODEL_TYPE, time.time() - t0)
     return model
 
 
@@ -301,7 +194,6 @@ def load(path: str | Path, tokenizer_config: dict | None = None, **_ignored):
         if eos is not None:
             eos_ids = eos if isinstance(eos, list) else [eos]
     model = load_model(path)
-    gdn_cache.install(model)
     tokenizer = load_tokenizer(path, tokenizer_config_extra=tokenizer_config or {},
                                eos_token_ids=eos_ids)
     return model, tokenizer

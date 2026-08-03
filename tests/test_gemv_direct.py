@@ -91,7 +91,7 @@ def test_direct_matches_staged(K, IC, OC, m, lut):
 def test_direct_matches_golden():
     """The default path must still reproduce the committed goldens."""
     from pathlib import Path
-    d = Path(__file__).parent / "data"
+    d = Path(__file__).parent / "data" / "codec"
     if not (d / "packed_gu_e0_k2.i16").exists():
         pytest.skip("goldens not present")
     # decode-side golden is covered by test_metal.py; here we assert the direct

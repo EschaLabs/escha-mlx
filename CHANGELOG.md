@@ -6,6 +6,9 @@ First public release.
 
 - Runtime for `EschaLabs/Qwen3.6-35B-A3B-Escha-W2` (2-bit trellis experts + int8 dense),
   consuming the Hugging Face export directly — no conversion step.
+- Architecture plugin registry (`escha_mlx/models/`): the codec engine is shared, each
+  supported `model_type` is one plugin module (skeleton, tensor map, router, quirks);
+  a synthetic mini-checkpoint test runs the full load-and-forward path per plugin in CI.
 - Metal kernels via `mx.fast.metal_kernel`: trellis decode (hash + LUT), staged and
   direct expert GEMV, row-blocked GEMM, fused gather+scale+transform+cast — every path
   gated bit-identical to the committed reference goldens (`np.array_equal`, not a tolerance).

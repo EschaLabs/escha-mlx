@@ -87,21 +87,30 @@ differ in what's *fastest*, not in what's *correct*, so chip support is data, no
 ## Adding a new model architecture
 
 This repo is meant to grow one architecture at a time (Qwen3.5-VLM dense next; MoE
-architectures like Kimi K3 / GLM / DeepSeek after). The pattern that worked for
-`qwen3_5_moe`:
+architectures like Kimi K3 / GLM / DeepSeek after). The runtime is a codec engine plus
+**one plugin module per architecture** — `escha_mlx/models/<model_type>.py`, resolved
+from the checkpoint's `config.json` (contract: `escha_mlx/models/__init__.py`). Copy
+`models/qwen3_5_moe.py` as the template:
 
 1. **Skeleton from mlx-lm**: the model class, attention/SSM, caches and chat template come
-   from `mlx_lm.models.<arch>` untouched. If mlx-lm can't load the fp16 version of the
-   architecture, fix that upstream first.
-2. **Loader mapping** (`escha_mlx/loader.py`): map the escha export's tensor names into
-   the skeleton, swapping in `EschaSparseMoeBlock` / `EschaQ8Linear` where the export is
-   coded. Keep the load streaming (per-tensor `safe_open`), never materialize the
-   checkpoint twice.
+   from `mlx_lm.models.<model_type>` untouched. If mlx-lm can't load the fp16 version of
+   the architecture, fix that upstream first.
+2. **Write the plugin**: a `CheckpointLoader` that builds the skeleton in `__init__`,
+   maps the export's tensor names in `consume` (coded trios / Q8 pairs / fp16
+   remainder), and installs modules + post-load quirks in `finalize`. Routing
+   conventions live in the plugin's MoE block over the shared
+   `escha_mlx.moe.EschaExperts` toolkit — the kernels never fork per architecture.
+   Loading stays streaming (per-tensor `safe_open`); never materialize the checkpoint
+   twice.
 3. **Goldens before Metal**: obtain per-layer golden inputs/outputs for the new export
    (open a model-request issue — we generate and supply goldens for published escha
-   exports), commit them under `tests/data/` (they are small), and make the NumPy
-   reference reproduce them bit-exactly. Only then wire the kernels.
-4. **Gate everything** the same way `tests/test_metal.py` does: every kernel path
+   exports), commit them under `tests/data/<model_type>/` (they are small), and make the
+   NumPy reference reproduce them bit-exactly. Only then wire anything new.
+4. **Synthetic-checkpoint test**: extend `tests/test_models.py` with a tiny
+   format-faithful export for your plugin, so CI runs your entire load-and-forward path
+   on every PR without the real model.
+5. **Register and gate**: add the module to `REGISTRY` in `escha_mlx/models/__init__.py`,
+   and gate every kernel-touching path the way `tests/test_metal.py` does —
    bit-identical to the reference and to each other.
 
 If you want an architecture but can't build all of this, open a

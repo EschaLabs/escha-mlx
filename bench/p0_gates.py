@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 
 HERE = Path(__file__).parent
-DATA = HERE.parent / "tests" / "data"
+DATA = HERE.parent / "tests" / "data" / "codec"
 sys.path.insert(0, str(HERE.parent))
 
 RESULTS: list[bool] = []

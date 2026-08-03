@@ -116,7 +116,8 @@ campaign — including every negative result, so you don't repeat them:
 |---|---|
 | `escha_mlx/ref.py` | NumPy bit-exact codec reference — **the semantic contract** |
 | `escha_mlx/msl.py` | the Metal kernels (`mx.fast.metal_kernel`): decode, GEMV ×2, row-blocked GEMM, fused transform |
-| `escha_mlx/quant.py` / `moe.py` / `loader.py` | int8→Q8 repack · MoE block · streaming HF loader |
+| `escha_mlx/quant.py` / `moe.py` / `loader.py` | int8→Q8 repack · expert toolkit · streaming loader — all architecture-agnostic |
+| `escha_mlx/models/` | one plugin per architecture (`qwen3_5_moe` today): skeleton, tensor map, router, quirks |
 | `escha_mlx/gdn_cache.py` | recurrent-state cache (fp16 state) |
 | `escha_mlx/{generate,server}.py` | CLI / OpenAI-compatible server |
 | `tests/` + `tests/data/` | golden-gated suite + the committed reference vectors |

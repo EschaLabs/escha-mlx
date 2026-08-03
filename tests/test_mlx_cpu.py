@@ -100,8 +100,9 @@ def test_moe_block_ops_vs_ref_synthetic():
         shared[f"{p}_scale"] = (rng.random(o) * 0.01 + 1e-3).astype(np.float16)
 
     import os
+    from escha_mlx.models.qwen3_5_moe import EschaSparseMoeBlock
     os.environ["ESCHA_MLX_MOE"] = "ops"
-    blk = moe.EschaSparseMoeBlock(H, E, top_k, gu, dn, gate_w, shg_w, shared)
+    blk = EschaSparseMoeBlock(H, E, top_k, gu, dn, gate_w, shg_w, shared)
     x = (rng.standard_normal((1, N, H)) * 0.5).astype(np.float16)
     got = np.array(blk(mx.array(x)))[0]
 
@@ -136,6 +137,7 @@ def test_moe_block_ops_vs_ckpt_golden(moeblk_golden):
     import mlx.core as mx
     from safetensors.numpy import load_file
     from escha_mlx import moe
+    from escha_mlx.models.qwen3_5_moe import EschaSparseMoeBlock
 
     x, want, ids_g, scores_g = moeblk_golden
     ckpt = Path(DEFAULT_CKPT)
@@ -160,9 +162,9 @@ def test_moe_block_ops_vs_ckpt_golden(moeblk_golden):
         shared[f"{p}_w8"] = get(f"shared_expert.{p}_proj.weight_int8")
         shared[f"{p}_scale"] = get(f"shared_expert.{p}_proj.weight_scale")
     os.environ["ESCHA_MLX_MOE"] = "ops"
-    blk = moe.EschaSparseMoeBlock(2048, 256, 8, gu, dn,
-                                  get("gate.weight"), get("shared_expert_gate.weight"),
-                                  shared)
+    blk = EschaSparseMoeBlock(2048, 256, 8, gu, dn,
+                              get("gate.weight"), get("shared_expert_gate.weight"),
+                              shared)
     got = np.array(blk(mx.array(x[None])))[0]
 
     # routing agreement first (set-wise; order differs by convention)
