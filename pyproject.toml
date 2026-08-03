@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "escha-mlx"
+version = "0.1.0"
+description = "escha 2-bit trellis-quantized LLM runtime for Apple Silicon (MLX)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [{ name = "Escha Labs" }]
+keywords = [
+    "mlx", "apple-silicon", "metal", "quantization", "eschamoe",
+    "qwen3", "mixture-of-experts", "inference", "llm",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: GPU",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "mlx>=0.32.0,<0.40",
+    "mlx-lm>=0.31.3",
+    "numpy>=2.0",
+    "safetensors>=0.4",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.urls]
+Homepage = "https://github.com/EschaLabs/escha-mlx"
+Repository = "https://github.com/EschaLabs/escha-mlx"
+Issues = "https://github.com/EschaLabs/escha-mlx/issues"
+Changelog = "https://github.com/EschaLabs/escha-mlx/blob/main/CHANGELOG.md"
+Models = "https://huggingface.co/EschaLabs"
+
+[project.scripts]
+escha-mlx-generate = "escha_mlx.generate:main"
+escha-mlx-server = "escha_mlx.server:main"
+
+[tool.setuptools.packages.find]
+include = ["escha_mlx*"]

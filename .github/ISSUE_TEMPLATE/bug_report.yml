@@ -1,0 +1,48 @@
+name: Bug report
+description: Something is wrong — a gate fails, generation is garbage, a crash, a memory cliff
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The fastest route to a fix is knowing **which gate is the first to fail**.
+        If you can, run `pytest tests/ -v` and `python bench/p0_gates.py` before filing.
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware
+      placeholder: "e.g. M4 Pro, 48 GB"
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: macOS / mlx / mlx-lm / escha-mlx versions
+      placeholder: "e.g. macOS 15.5 / mlx 0.32.0 / mlx-lm 0.31.3 / escha-mlx 0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      placeholder: "e.g. EschaLabs/Qwen3.6-35B-A3B-Escha-W2"
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Non-default ESCHA_MLX_* environment variables and server flags
+      placeholder: "e.g. ESCHA_MLX_WIRED_GB=20, --prefill-step-size 256 --decode-concurrency 16"
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+      description: Include the exact command. For wrong output, include the prompt and the output.
+    validations:
+      required: true
+  - type: textarea
+    id: gates
+    attributes:
+      label: Gate output
+      description: "`pytest tests/ -v` tail + `python bench/p0_gates.py` output, if you ran them"
+      render: text

@@ -1,0 +1,224 @@
+[
+  {
+    "path": "/Users/<user>/models/escha-w2",
+    "kind": "escha-W2",
+    "resident_gb": 12.25,
+    "points": [
+      {
+        "isl": 128,
+        "batch": 1,
+        "prefill_s": 0.57,
+        "prefill_tok_s": 224.4,
+        "decode_tok_s": 26.65,
+        "ms_per_token": 37.52,
+        "peak_prefill_gb": 12.8,
+        "peak_decode_gb": 12.3
+      },
+      {
+        "isl": 128,
+        "batch": 1,
+        "prefill_s": 0.552,
+        "prefill_tok_s": 232.0,
+        "decode_tok_s": 26.39,
+        "ms_per_token": 37.9,
+        "peak_prefill_gb": 12.8,
+        "peak_decode_gb": 12.3
+      },
+      {
+        "isl": 128,
+        "batch": 2,
+        "prefill_s": 1.188,
+        "prefill_tok_s": 215.4,
+        "decode_tok_s": 45.31,
+        "ms_per_token": 44.14,
+        "peak_prefill_gb": 13.18,
+        "peak_decode_gb": 12.35
+      },
+      {
+        "isl": 128,
+        "batch": 4,
+        "prefill_s": 1.985,
+        "prefill_tok_s": 258.0,
+        "decode_tok_s": 58.3,
+        "ms_per_token": 68.61,
+        "peak_prefill_gb": 13.89,
+        "peak_decode_gb": 12.44
+      },
+      {
+        "isl": 128,
+        "batch": 8,
+        "prefill_s": 3.817,
+        "prefill_tok_s": 268.3,
+        "decode_tok_s": 58.53,
+        "ms_per_token": 136.68,
+        "peak_prefill_gb": 14.57,
+        "peak_decode_gb": 12.63
+      },
+      {
+        "isl": 128,
+        "batch": 16,
+        "prefill_s": 7.442,
+        "prefill_tok_s": 275.2,
+        "decode_tok_s": 105.88,
+        "ms_per_token": 151.12,
+        "peak_prefill_gb": 15.69,
+        "peak_decode_gb": 13.0
+      },
+      {
+        "isl": 128,
+        "batch": 32,
+        "prefill_s": 14.716,
+        "prefill_tok_s": 278.3,
+        "decode_tok_s": 150.96,
+        "ms_per_token": 211.97,
+        "peak_prefill_gb": 18.36,
+        "peak_decode_gb": 13.74
+      }
+    ],
+    "label": "A (escha W2)"
+  },
+  {
+    "path": "/Users/<user>/models/qwen36-4bit",
+    "kind": "stock-mlx",
+    "resident_gb": 19.51,
+    "points": [
+      {
+        "isl": 128,
+        "batch": 1,
+        "prefill_s": 0.596,
+        "prefill_tok_s": 214.8,
+        "decode_tok_s": 42.47,
+        "ms_per_token": 23.54,
+        "peak_prefill_gb": 19.79,
+        "peak_decode_gb": 19.65
+      },
+      {
+        "isl": 128,
+        "batch": 1,
+        "prefill_s": 0.438,
+        "prefill_tok_s": 292.3,
+        "decode_tok_s": 42.14,
+        "ms_per_token": 23.73,
+        "peak_prefill_gb": 19.79,
+        "peak_decode_gb": 19.65
+      },
+      {
+        "isl": 128,
+        "batch": 2,
+        "prefill_s": 0.734,
+        "prefill_tok_s": 349.0,
+        "decode_tok_s": 65.16,
+        "ms_per_token": 30.69,
+        "peak_prefill_gb": 20.06,
+        "peak_decode_gb": 19.8
+      },
+      {
+        "isl": 128,
+        "batch": 4,
+        "prefill_s": 1.365,
+        "prefill_tok_s": 375.2,
+        "decode_tok_s": 85.5,
+        "ms_per_token": 46.78,
+        "peak_prefill_gb": 20.59,
+        "peak_decode_gb": 20.08
+      },
+      {
+        "isl": 128,
+        "batch": 8,
+        "prefill_s": 2.507,
+        "prefill_tok_s": 408.5,
+        "decode_tok_s": 101.95,
+        "ms_per_token": 78.47,
+        "peak_prefill_gb": 21.52,
+        "peak_decode_gb": 20.66
+      },
+      {
+        "batch": 16,
+        "error": "RuntimeError"
+      },
+      {
+        "batch": 32,
+        "error": "RuntimeError"
+      }
+    ],
+    "label": "B (stock 4-bit)"
+  },
+  {
+    "path": "/Users/<user>/models/escha-w2",
+    "kind": "escha-W2",
+    "resident_gb": 12.25,
+    "points": [
+      {
+        "isl": 128,
+        "batch": 1,
+        "prefill_s": 0.576,
+        "prefill_tok_s": 222.0,
+        "decode_tok_s": 27.3,
+        "ms_per_token": 36.63,
+        "peak_prefill_gb": 12.8,
+        "peak_decode_gb": 12.3
+      },
+      {
+        "isl": 128,
+        "batch": 1,
+        "prefill_s": 0.551,
+        "prefill_tok_s": 232.4,
+        "decode_tok_s": 27.26,
+        "ms_per_token": 36.69,
+        "peak_prefill_gb": 12.8,
+        "peak_decode_gb": 12.3
+      },
+      {
+        "isl": 128,
+        "batch": 2,
+        "prefill_s": 1.051,
+        "prefill_tok_s": 243.5,
+        "decode_tok_s": 45.39,
+        "ms_per_token": 44.06,
+        "peak_prefill_gb": 13.18,
+        "peak_decode_gb": 12.35
+      },
+      {
+        "isl": 128,
+        "batch": 4,
+        "prefill_s": 1.974,
+        "prefill_tok_s": 259.3,
+        "decode_tok_s": 58.22,
+        "ms_per_token": 68.71,
+        "peak_prefill_gb": 13.89,
+        "peak_decode_gb": 12.44
+      },
+      {
+        "isl": 128,
+        "batch": 8,
+        "prefill_s": 3.798,
+        "prefill_tok_s": 269.6,
+        "decode_tok_s": 64.11,
+        "ms_per_token": 124.78,
+        "peak_prefill_gb": 14.57,
+        "peak_decode_gb": 12.63
+      },
+      {
+        "isl": 128,
+        "batch": 16,
+        "prefill_s": 7.418,
+        "prefill_tok_s": 276.1,
+        "decode_tok_s": 104.72,
+        "ms_per_token": 152.79,
+        "peak_prefill_gb": 15.69,
+        "peak_decode_gb": 13.0
+      },
+      {
+        "isl": 128,
+        "batch": 32,
+        "prefill_s": 14.839,
+        "prefill_tok_s": 276.0,
+        "decode_tok_s": 146.61,
+        "ms_per_token": 218.27,
+        "peak_prefill_gb": 18.36,
+        "peak_decode_gb": 13.74
+      }
+    ],
+    "label": "A again [drift control]"
+  }
+]

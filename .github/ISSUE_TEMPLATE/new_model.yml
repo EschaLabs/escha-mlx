@@ -1,0 +1,34 @@
+name: Model / architecture request
+description: Ask for a new escha model or architecture to be supported by this runtime
+labels: [new-model]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The runtime grows one architecture at a time — see
+        [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md#adding-a-new-model-architecture)
+        for what a port involves. Requests here help us prioritize.
+  - type: input
+    id: model
+    attributes:
+      label: Model / architecture
+      placeholder: "e.g. Kimi K3, GLM-5, DeepSeek V4 MoE"
+    validations:
+      required: true
+  - type: dropdown
+    id: mlxlm
+    attributes:
+      label: Can stock mlx-lm load the fp16/bf16 version of this architecture today?
+      options: ["yes", "no", "don't know"]
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why this one?
+      description: Hardware you'd run it on, and what it displaces.
+  - type: dropdown
+    id: help
+    attributes:
+      label: Would you contribute to the port?
+      options: ["yes — code", "yes — testing on my hardware", "no"]

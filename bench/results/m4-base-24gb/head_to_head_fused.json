@@ -1,0 +1,254 @@
+[
+  {
+    "path": "/Users/<user>/models/escha-w2",
+    "kind": "escha-W2",
+    "resident_gb": 12.25,
+    "points": [
+      {
+        "isl": 512,
+        "batch": 1,
+        "prefill_s": 1.936,
+        "prefill_tok_s": 264.4,
+        "decode_tok_s": 28.47,
+        "ms_per_token": 35.12,
+        "peak_prefill_gb": 13.04,
+        "peak_decode_gb": 12.31
+      },
+      {
+        "isl": 2048,
+        "batch": 1,
+        "prefill_s": 7.769,
+        "prefill_tok_s": 263.6,
+        "decode_tok_s": 27.7,
+        "ms_per_token": 36.1,
+        "peak_prefill_gb": 13.1,
+        "peak_decode_gb": 12.34
+      },
+      {
+        "isl": 128,
+        "batch": 1,
+        "prefill_s": 0.512,
+        "prefill_tok_s": 250.2,
+        "decode_tok_s": 27.31,
+        "ms_per_token": 36.62,
+        "peak_prefill_gb": 12.72,
+        "peak_decode_gb": 12.3
+      },
+      {
+        "isl": 128,
+        "batch": 2,
+        "prefill_s": 0.962,
+        "prefill_tok_s": 266.0,
+        "decode_tok_s": 46.53,
+        "ms_per_token": 42.98,
+        "peak_prefill_gb": 13.1,
+        "peak_decode_gb": 12.35
+      },
+      {
+        "isl": 128,
+        "batch": 4,
+        "prefill_s": 1.804,
+        "prefill_tok_s": 283.8,
+        "decode_tok_s": 58.16,
+        "ms_per_token": 68.78,
+        "peak_prefill_gb": 13.82,
+        "peak_decode_gb": 12.44
+      },
+      {
+        "isl": 128,
+        "batch": 8,
+        "prefill_s": 3.448,
+        "prefill_tok_s": 297.0,
+        "decode_tok_s": 59.63,
+        "ms_per_token": 134.16,
+        "peak_prefill_gb": 14.39,
+        "peak_decode_gb": 12.63
+      },
+      {
+        "isl": 128,
+        "batch": 16,
+        "prefill_s": 6.704,
+        "prefill_tok_s": 305.5,
+        "decode_tok_s": 103.97,
+        "ms_per_token": 153.89,
+        "peak_prefill_gb": 15.54,
+        "peak_decode_gb": 12.98
+      },
+      {
+        "isl": 128,
+        "batch": 32,
+        "prefill_s": 13.23,
+        "prefill_tok_s": 309.6,
+        "decode_tok_s": 162.05,
+        "ms_per_token": 197.47,
+        "peak_prefill_gb": 18.27,
+        "peak_decode_gb": 13.72
+      }
+    ],
+    "label": "A (escha W2)"
+  },
+  {
+    "path": "/Users/<user>/models/qwen36-4bit",
+    "kind": "stock-mlx",
+    "resident_gb": 19.51,
+    "points": [
+      {
+        "isl": 512,
+        "batch": 1,
+        "prefill_s": 1.488,
+        "prefill_tok_s": 344.2,
+        "decode_tok_s": 43.46,
+        "ms_per_token": 23.01,
+        "peak_prefill_gb": 20.0,
+        "peak_decode_gb": 19.73
+      },
+      {
+        "isl": 2048,
+        "batch": 1,
+        "prefill_s": 6.0,
+        "prefill_tok_s": 341.3,
+        "decode_tok_s": 41.67,
+        "ms_per_token": 24.0,
+        "peak_prefill_gb": 20.05,
+        "peak_decode_gb": 19.76
+      },
+      {
+        "isl": 128,
+        "batch": 1,
+        "prefill_s": 0.438,
+        "prefill_tok_s": 292.4,
+        "decode_tok_s": 42.91,
+        "ms_per_token": 23.31,
+        "peak_prefill_gb": 19.79,
+        "peak_decode_gb": 19.65
+      },
+      {
+        "isl": 128,
+        "batch": 2,
+        "prefill_s": 0.731,
+        "prefill_tok_s": 350.0,
+        "decode_tok_s": 66.12,
+        "ms_per_token": 30.25,
+        "peak_prefill_gb": 20.06,
+        "peak_decode_gb": 19.8
+      },
+      {
+        "isl": 128,
+        "batch": 4,
+        "prefill_s": 1.333,
+        "prefill_tok_s": 384.2,
+        "decode_tok_s": 86.43,
+        "ms_per_token": 46.28,
+        "peak_prefill_gb": 20.59,
+        "peak_decode_gb": 20.08
+      },
+      {
+        "isl": 128,
+        "batch": 8,
+        "prefill_s": 2.478,
+        "prefill_tok_s": 413.2,
+        "decode_tok_s": 101.53,
+        "ms_per_token": 78.79,
+        "peak_prefill_gb": 21.52,
+        "peak_decode_gb": 20.66
+      },
+      {
+        "batch": 16,
+        "error": "RuntimeError"
+      },
+      {
+        "batch": 32,
+        "error": "RuntimeError"
+      }
+    ],
+    "label": "B (stock 4-bit)"
+  },
+  {
+    "path": "/Users/<user>/models/escha-w2",
+    "kind": "escha-W2",
+    "resident_gb": 12.25,
+    "points": [
+      {
+        "isl": 512,
+        "batch": 1,
+        "prefill_s": 1.951,
+        "prefill_tok_s": 262.4,
+        "decode_tok_s": 28.08,
+        "ms_per_token": 35.61,
+        "peak_prefill_gb": 13.04,
+        "peak_decode_gb": 12.31
+      },
+      {
+        "isl": 2048,
+        "batch": 1,
+        "prefill_s": 7.766,
+        "prefill_tok_s": 263.7,
+        "decode_tok_s": 27.78,
+        "ms_per_token": 35.99,
+        "peak_prefill_gb": 13.1,
+        "peak_decode_gb": 12.34
+      },
+      {
+        "isl": 128,
+        "batch": 1,
+        "prefill_s": 0.509,
+        "prefill_tok_s": 251.7,
+        "decode_tok_s": 27.9,
+        "ms_per_token": 35.84,
+        "peak_prefill_gb": 12.72,
+        "peak_decode_gb": 12.3
+      },
+      {
+        "isl": 128,
+        "batch": 2,
+        "prefill_s": 0.961,
+        "prefill_tok_s": 266.3,
+        "decode_tok_s": 46.4,
+        "ms_per_token": 43.11,
+        "peak_prefill_gb": 13.1,
+        "peak_decode_gb": 12.35
+      },
+      {
+        "isl": 128,
+        "batch": 4,
+        "prefill_s": 1.795,
+        "prefill_tok_s": 285.2,
+        "decode_tok_s": 58.08,
+        "ms_per_token": 68.88,
+        "peak_prefill_gb": 13.82,
+        "peak_decode_gb": 12.44
+      },
+      {
+        "isl": 128,
+        "batch": 8,
+        "prefill_s": 3.436,
+        "prefill_tok_s": 298.0,
+        "decode_tok_s": 64.75,
+        "ms_per_token": 123.55,
+        "peak_prefill_gb": 14.39,
+        "peak_decode_gb": 12.63
+      },
+      {
+        "isl": 128,
+        "batch": 16,
+        "prefill_s": 6.706,
+        "prefill_tok_s": 305.4,
+        "decode_tok_s": 113.33,
+        "ms_per_token": 141.18,
+        "peak_prefill_gb": 15.54,
+        "peak_decode_gb": 12.98
+      },
+      {
+        "isl": 128,
+        "batch": 32,
+        "prefill_s": 13.757,
+        "prefill_tok_s": 297.7,
+        "decode_tok_s": 155.72,
+        "ms_per_token": 205.5,
+        "peak_prefill_gb": 18.27,
+        "peak_decode_gb": 13.72
+      }
+    ],
+    "label": "A again [drift control]"
+  }
+]

@@ -1,0 +1,19 @@
+name: Feature request
+description: A capability the runtime should have (serving features, tuning, tooling)
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What should it do?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What does it unblock for you?
+      description: Concrete workload/setup beats abstract generality.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Workarounds you've tried
