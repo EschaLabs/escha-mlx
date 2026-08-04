@@ -1,0 +1,117 @@
+{
+  "mlx": "0.32.0",
+  "model": "/Users/apple/.cache/huggingface/hub/models--EschaLabs--Qwen3.6-35B-A3B-Escha-W2/snapshots/1b7237f0886a10b4bd92cd7653090cd7381ae199",
+  "A_correctness": {
+    "paris_raw": {
+      "text": "Paris, a city renowned for its iconic landmarks such as the Eiffel Tower,",
+      "gen_tps": 53.37,
+      "prompt_tps": 43.94,
+      "peak_gb": 12.37
+    },
+    "mult_chat": {
+      "text": "391",
+      "gen_tps": 66.08,
+      "prompt_tps": 185.69,
+      "peak_gb": 12.46
+    },
+    "haiku_think": {
+      "text": "Thinking Process:\n\n1.  **Deconstruct the topic:** Tokyo.\n    *   Keywords/Associations: Neon, skyscrapers, Shibuya crossing, cherry blossoms, temples, trains, crowds, rain, sushi, Mount Fuji (distant), old vs. new, energy, silence in alleys.\n\n2.  **Brainstorm imagery and themes:**\n    *   *Contrast:* Ancient temples vs. modern lights.\n    *   *Sensory:* Bright lights, noise of trains, smell of food, rain on pavement.\n    *   *Structure:* 5-7-5 syllables.\n\n3.  **Drafting - Attempt 1:**\n    *   Neon lights shine bright (5)\n    *   Old temples stand in the rain (7)\n    *   Tokyo is great (5) -> *Too generic, \"great\" is weak.*\n\n4.  **Drafting - Attempt 2",
+      "gen_tps": 50.87,
+      "prompt_tps": 144.9,
+      "peak_gb": 12.46
+    }
+  },
+  "B_bs1": {
+    "128": {
+      "prefill_s": 0.273,
+      "prefill_tps": 469.5,
+      "decode_tps": 40.59,
+      "ms_per_token": 24.63,
+      "peak_gb": 11.95
+    },
+    "512": {
+      "prefill_s": 1.941,
+      "prefill_tps": 263.8,
+      "decode_tps": 41.29,
+      "ms_per_token": 24.22,
+      "peak_gb": 12.25
+    },
+    "2048": {
+      "prefill_s": 7.909,
+      "prefill_tps": 258.9,
+      "decode_tps": 39.86,
+      "ms_per_token": 25.09,
+      "peak_gb": 12.28
+    }
+  },
+  "C_batch": {
+    "1": {
+      "prefill_s": 0.277,
+      "prefill_tps": 461.6,
+      "aggregate_decode_tps": 41.68,
+      "per_seq_decode_tps": 41.68,
+      "ms_per_step": 23.99,
+      "rows_identical": true,
+      "matches_b1": true,
+      "peak_gb": 11.95
+    },
+    "2": {
+      "prefill_s": 0.927,
+      "prefill_tps": 276.1,
+      "aggregate_decode_tps": 68.8,
+      "per_seq_decode_tps": 34.4,
+      "ms_per_step": 29.07,
+      "rows_identical": true,
+      "matches_b1": true,
+      "peak_gb": 12.3
+    },
+    "4": {
+      "prefill_s": 1.624,
+      "prefill_tps": 315.2,
+      "aggregate_decode_tps": 93.64,
+      "per_seq_decode_tps": 23.41,
+      "ms_per_step": 42.72,
+      "rows_identical": true,
+      "matches_b1": true,
+      "peak_gb": 13.07
+    },
+    "8": {
+      "prefill_s": 3.087,
+      "prefill_tps": 331.7,
+      "aggregate_decode_tps": 104.67,
+      "per_seq_decode_tps": 13.08,
+      "ms_per_step": 76.43,
+      "rows_identical": true,
+      "matches_b1": true,
+      "peak_gb": 13.72
+    },
+    "16": {
+      "prefill_s": 6.819,
+      "prefill_tps": 300.4,
+      "aggregate_decode_tps": 179.64,
+      "per_seq_decode_tps": 11.23,
+      "ms_per_step": 89.07,
+      "rows_identical": true,
+      "matches_b1": true,
+      "peak_gb": 14.67
+    }
+  },
+  "D_cache": {
+    "isl": 512,
+    "total_mb": 43.42,
+    "kinds": {
+      "GDNStateCache": {
+        "layers": 30,
+        "mb": 32.93,
+        "bytes_per_token": 64320.0,
+        "trimmable": false
+      },
+      "KVCache": {
+        "layers": 10,
+        "mb": 10.49,
+        "bytes_per_token": 20480.0,
+        "trimmable": true
+      }
+    }
+  }
+}
