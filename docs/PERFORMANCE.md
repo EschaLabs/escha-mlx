@@ -161,6 +161,159 @@ for long context and other applications alongside the model.
 
 ---
 
+## Apple M5 Pro 24 GB — original-code baseline
+
+This is a separate machine section, not a scaled projection from the base M4. All
+committed measurements below were repeated after an unrelated 7.3 GB model service
+was stopped and disabled; the earlier M5 files are not used.
+
+| | |
+|---|---|
+| Machine | MacBook Pro (Mac17,9), **Apple M5 Pro**, 16-core GPU, 24 GB unified memory |
+| Power | AC attached; battery 80% |
+| macOS / MLX | 26.5.2 (25F84) / `mlx` 0.32.0, `mlx-lm` 0.31.3 |
+| Metal | `applegpu_g17s`; recommended working set 19.07 GB |
+| Model | local `Qwen3.6-35B-A3B-Escha-W2` revision `32016b7946fa1a1965c40deed9daac071b512a64`; 11.41 GB resident |
+| Runtime revision | `79ba35e84517b2770ca00a1fe76091ff4144de37` |
+| Runtime settings | repository defaults; MLX memory limit 19.0 GB; wired limit 0 except 19.0 GB for B=128 |
+
+### Correctness status
+
+The Paris, 17×23=391 and thinking-text anchors pass. Replicated rows are identical
+and match the B=1 sequence at B=1/8/16/32. `bench/p0_gates.py` reports `ALL GATES
+PASS`, including hash/LUT decode, GEMV values and Q8 repack; its K2/K3 DRAM-side
+microbench varied across three consecutive runs: K2 24–49 GB/s and K3 33–54 GB/s.
+The value gates passed every time; these short microbench figures are retained as a
+stability observation and are not used for the throughput headlines below.
+
+The complete suite is nevertheless **158 passed, 4 failed, 1 skipped**. All four
+failures are `tests/test_fused_had.py::test_fused_matches_op_chain`: the primary
+`2e-3` relative-error bound passes, but 60.35–61.11% of fp16 bit patterns differ
+from the dense-matmul op chain on this M5 Pro, exceeding the test's 1% secondary
+bound. The fused path remains bit-reproducible and its independent NumPy-reference
+test passes. No gate was excluded or loosened, so this is machine-characterization
+data rather than a merge-green validation result.
+
+### In-process ABCD baseline
+
+```bash
+.venv/bin/python -u -c \
+    'import mlx.core as mx; mx.set_memory_limit(19_000_000_000); from bench.baseline import main; main()' \
+    --model ./escha-w2 --phases ABCD \
+    --isls 128,512,2048 --batches 1,8,16,32 --decode-steps 32 \
+    --batch-isl 128 --prefill-chunk 256 \
+    --out bench/results/m5-pro-24gb/baseline_abcd.json
+```
+
+| ISL | prefill tok/s | decode tok/s | peak memory |
+|---:|---:|---:|---:|
+| 128 | 624.0 | **46.66** | 11.95 GB |
+| 512 | **684.2** | 46.56 | 12.25 GB |
+| 2048 | 677.3 | 46.30 | 12.28 GB |
+
+| batch | prefill tok/s | aggregate decode tok/s | per-sequence tok/s | peak memory | correctness |
+|---:|---:|---:|---:|---:|---|
+| 1 | 623.2 | 46.63 | 46.63 | 11.95 GB | OK |
+| 8 | 843.6 | 179.08 | 22.38 | 13.71 GB | OK |
+| 16 | **852.1** | 239.10 | 14.94 | 14.67 GB | OK |
+| 32 | 765.1 | **347.72** | 10.87 | 17.16 GB | OK |
+
+After an ISL-512 prefill the caches total 43.42 MB: 32.93 MB across 30
+`GDNStateCache` layers and 10.49 MB across 10 trimmable `KVCache` layers.
+
+### Step-synchronized decode and repeatability
+
+`bench.sweep_kernel_variants.run` uses a 16-token prefill, eight warmups, 24 timed
+steps and an `mx.eval` synchronization after every decode step. B=1/8/16/32 were
+called five times per batch without changing any runtime strategy. B=128 was added
+as one memory-constrained run with the same workload, repository defaults, a 19 GB
+MLX memory limit and a 19 GB wired limit.
+
+| batch | runs | median tok/s | min–max | spread | peak memory |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 5 | 45.52 | 45.39–46.02 | 1.39% | 12.30 GB |
+| 8 | 5 | 178.97 | 178.25–179.63 | 0.77% | 12.65 GB |
+| 16 | 5 | 226.23 | 225.64–226.83 | 0.53% | 13.00 GB |
+| 32 | 5 | 328.81 | 326.97–329.50 | 0.77% | 13.75 GB |
+| 128 | 1 | **545.31** | — | — | **18.04 GB** |
+
+The ABCD Phase C loop and this step-synchronized loop have different synchronization
+semantics, so their absolute throughput figures are reported separately. The five-run
+rows establish within-session stability; the single B=128 row does not and did not run
+Phase C replication-invariance checks. This is not a candidate-vs-baseline A/B.
+
+### Roofline
+
+The committed roofline harness measured 270.6 GB/s peak streaming read bandwidth,
+88% of the chip's advertised 307 GB/s, and a 187.3 us dispatch floor. The loaded
+model's byte ledger is 2.386 GB/token.
+
+```bash
+.venv/bin/python -u bench/roofline.py --model ./escha-w2 \
+    --out bench/results/m5-pro-24gb/roofline.json
+```
+
+| batch | measured tok/s | modeled GB/step | effective GB/s | roofline efficiency |
+|---:|---:|---:|---:|---:|
+| 1 | 44.87 | 2.386 | 107.1 | 40% |
+| 8 | 177.14 | 4.492 | 99.5 | 37% |
+| 16 | 221.15 | 6.899 | 95.4 | 35% |
+
+### Served endpoint
+
+The M4 result set contains both a historical unfused baseline and the current
+default-fused grid, so the same two artifacts were captured here. Both use the
+same server settings: decode concurrency 16, prompt concurrency 2 and prefill
+step size 256. `baseline.json` fixes every point at 16 requests with
+`ESCHA_MLX_FUSED_HAD=0`; `grid_fused.json` uses the harness default of 4/16/32
+requests at C=1/8/16. Because request counts differ and no closing drift-control
+arm was run, these columns are reported side by side, not as a causal A/B claim.
+
+```bash
+# Terminal 1: prepend ESCHA_MLX_FUSED_HAD=0 for baseline.json; omit it for grid_fused.json.
+ESCHA_MLX_FUSED_HAD=0 .venv/bin/python -m escha_mlx.server \
+    --model ./escha-w2 --port 8080 --decode-concurrency 16 \
+    --prompt-concurrency 2 --prefill-step-size 256
+
+# Terminal 2: the unfused historical-baseline request shape.
+.venv/bin/python bench/isl_osl_grid.py --model ./escha-w2 \
+    --grid 128:128,128:1024,1000:1000,2048:128 --concurrency 1,8,16 \
+    --requests-per-point 16 --out bench/results/m5-pro-24gb/baseline.json
+
+# Restart Terminal 1 without ESCHA_MLX_FUSED_HAD, then use the harness request defaults.
+.venv/bin/python bench/isl_osl_grid.py --model ./escha-w2 \
+    --grid 128:128,128:1024,1000:1000,2048:128 --concurrency 1,8,16 \
+    --out bench/results/m5-pro-24gb/grid_fused.json
+```
+
+| ISL | OSL | C | fused TTFT p50/p99 | fused TPOT | unfused output tok/s | fused output tok/s | fused total tok/s |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 128 | 128 | 1 | 0.451 / 0.633 s | 24.01 ms | 35.10 | 36.20 | 75.94 |
+| 128 | 128 | 8 | 3.273 / 3.480 s | 51.76 ms | 107.20 | 108.17 | 226.59 |
+| 128 | 128 | 16 | 2.596 / 7.233 s | 101.62 ms | 122.65 | 124.70 | 261.36 |
+| 128 | 1024 | 1 | 0.506 / 0.510 s | 24.65 ms | 37.73 | 39.73 | 45.16 |
+| 128 | 1024 | 8 | 3.272 / 3.476 s | 49.41 ms | 149.95 | 152.85 | 173.78 |
+| 128 | 1024 | 16 | 3.213 / 7.300 s | 81.16 ms | 177.62 | **188.01** | 213.76 |
+| 1000 | 1000 | 1 | 1.817 / 1.914 s | 25.35 ms | 35.85 | 36.79 | 74.04 |
+| 1000 | 1000 | 8 | 8.730 / 13.119 s | 54.16 ms | 124.56 | 127.80 | 257.17 |
+| 1000 | 1000 | 16 | 6.253 / 27.297 s | 99.42 ms | 142.97 | 147.82 | 297.44 |
+| 2048 | 128 | 1 | 3.347 / 3.640 s | 24.46 ms | 18.66 | 19.62 | 335.43 |
+| 2048 | 128 | 8 | 11.422 / 25.109 s | 153.26 ms | 29.49 | 33.06 | 565.17 |
+| 2048 | 128 | 16 | 9.099 / 52.203 s | 379.17 ms | 29.88 | 33.68 | **575.86** |
+
+All 24 served rows completed with zero errors, no cached prompt tokens and OSL hit
+rate 1.00. The stock-4-bit `head_to_head` artifacts were intentionally skipped for
+this machine and are not inferred from the M4 data. B=128 was measured separately with
+the step-synchronized in-process harness above, not with the served endpoint.
+
+Raw JSON: [ABCD baseline](../bench/results/m5-pro-24gb/baseline_abcd.json),
+[decode repeats](../bench/results/m5-pro-24gb/baseline_repeats.json),
+[roofline](../bench/results/m5-pro-24gb/roofline.json),
+[unfused served baseline](../bench/results/m5-pro-24gb/baseline.json), and
+[default-fused served grid](../bench/results/m5-pro-24gb/grid_fused.json).
+
+---
+
 ## Quality
 
 Quantization quality is a property of the checkpoint, not this runtime, and is
@@ -196,6 +349,12 @@ python bench/baseline.py       --model ./escha-w2 --phases ABCD
 python bench/isl_osl_grid.py   --model ./escha-w2 --grid nvidia --concurrency 1,8,16
 python bench/head_to_head.py   --a ./escha-w2 --b ./qwen36-4bit --isls 512,2048 --batches 1,2,4,8,16,32
 ```
+
+Every JSON-producing benchmark records `escha_mlx_git_revision` and
+`model_hf_revision`. The model revision is read locally from Hugging Face
+download metadata (or a Hub snapshot path), so collecting it does not require
+network access. Reports that were previously arrays store their measurement rows
+under `results`, leaving exactly one top-level set of revision fields.
 
 Measurement notes, learned the hard way and worth repeating if you benchmark
 this yourself: warm up per prompt shape (Metal specialises kernels per shape),

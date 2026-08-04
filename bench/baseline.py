@@ -22,6 +22,8 @@ import time
 
 import mlx.core as mx
 
+from escha_mlx.benchmark_metadata import annotate_report, benchmark_metadata
+
 
 def _gb(x: float) -> float:
     return x / 1024**3
@@ -298,6 +300,7 @@ def main() -> None:
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
     PREFILL_CHUNK = args.prefill_chunk
+    metadata = benchmark_metadata(args.model)
 
     from escha_mlx.loader import load
 
@@ -328,7 +331,7 @@ def main() -> None:
 
     if args.out:
         with open(args.out, "w") as f:
-            json.dump(report, f, indent=2)
+            json.dump(annotate_report(report, metadata), f, indent=2)
         print(f"wrote {args.out}")
 
 

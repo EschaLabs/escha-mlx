@@ -86,23 +86,26 @@ collapses 23× near the cap. Memory settings and the full tuning-knob reference:
 
 ## Benchmarks
 
-Measured on the **entry-level** Apple M4 (10-core GPU, 120 GB/s, 24 GB unified memory).
-Decode is bandwidth-bound and scales close to linearly with memory bandwidth
-(M4 Pro 2.3×, M4 Max 4.5×, M3 Ultra 6.8×) — read these as the floor for the product line.
+Original-code measurements on 24 GB Macs using macOS 26.5.2, MLX 0.32.0 and
+mlx-lm 0.31.3. The M4 is the entry-level 10-core-GPU model; the M5 Pro has a 16-core GPU.
+Every M5 Pro run used runtime revision `79ba35e84517b2770ca00a1fe76091ff4144de37`
+and Hugging Face model revision `32016b7946fa1a1965c40deed9daac071b512a64`.
 
-| | escha W2 (this runtime) | stock MLX 4-bit, same box |
-|---|---|---|
-| resident memory | **12.25 GB** | 19.51 GB |
-| decode, single stream | 27.3 tok/s | **42.9 tok/s** |
-| aggregate @ batch 8 | 59.6 tok/s | **101.5 tok/s** |
-| aggregate @ batch 16 | **104.0 tok/s** | out of memory |
-| aggregate @ batch 128 | **185.6 tok/s** (18.1 GB peak) | out of memory |
-| served peak output / total | 99.5 / 244.5 tok/s | — |
+| workload | M4 base, escha W2 | M4 base, stock MLX 4-bit | M5 Pro, escha W2 |
+|---|---:|---:|---:|
+| resident memory | **12.25 GB** | 19.51 GB | **11.41 GB** |
+| prefill, ISL 512 | 264 tok/s | — | **684.2 tok/s** |
+| decode, single stream | 27.3 tok/s | **42.9 tok/s** | **46.63 tok/s** |
+| aggregate @ batch 8 | 59.6 tok/s | **101.5 tok/s** | **179.08 tok/s** |
+| aggregate @ batch 16 | **104.0 tok/s** | out of memory | **239.10 tok/s** |
+| aggregate @ batch 128 | **185.6 tok/s** (18.1 GB peak) | out of memory | **545.31 tok/s** (18.04 GB peak) |
+| served peak output / total | 99.5 / 244.5 tok/s | — | **188.01 / 575.86 tok/s** |
 
-Prefill runs ~264 tok/s; single-stream decode reaches 69% of this chip's 39.3 tok/s
-bandwidth ceiling. Read the comparison honestly in both directions: below batch 16 the
-4-bit build is faster; from batch 16 up **only escha runs at all** on 24 GB — that is the
-regime the 1.59× footprint buys, and where a Mac serving more than one user lives.
+These are separate machine characterizations, not a paired cross-chip A/B. The B=128 row
+uses the same 16-token prefill and step-synchronized decode harness on both chips; the M5 Pro
+result is a single run. M5 Pro P0 gates pass, while the complete suite is **158 passed,
+4 failed, 1 skipped** because of the documented fused-Hadamard comparison failures, so its
+results are not yet merge-qualified validation data.
 
 Full tables (ISL/OSL serving grid, prefill scaling, drift controls):
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md). The complete bring-up and optimization
@@ -130,8 +133,8 @@ mlx-lm untouched.
 ## Contributing
 
 Contributions are welcome — kernels, new model architectures, serving features, and
-especially perf on wider GPUs (M-series Pro/Max/Ultra are uncharted; all committed
-numbers are from a base M4). The short version of [CONTRIBUTING.md](CONTRIBUTING.md):
+especially broader perf campaigns on Pro/Max/Ultra GPUs; the M5 Pro results above are an
+initial machine characterization. The short version of [CONTRIBUTING.md](CONTRIBUTING.md):
 
 - **Correctness bar**: kernel changes stay bit-identical to the goldens, or the deviation
   is measured, documented, and behind a flag with the old behavior recoverable.
