@@ -103,15 +103,29 @@ and Hugging Face model revision `32016b7946fa1a1965c40deed9daac071b512a64`.
 
 These are separate machine characterizations, not a paired cross-chip A/B. The B=128 row
 uses the same 16-token prefill and step-synchronized decode harness on both chips; the M5 Pro
-result is a single run. M5 Pro P0 gates pass, while the complete suite is **158 passed,
+result is a single run. M5 Pro P0 gates pass, while the complete suite is **165 passed,
 4 failed, 1 skipped** because of the documented fused-Hadamard comparison failures, so its
-results are not yet merge-qualified validation data.
+results are not yet merge-qualified validation data. See [Known issues](#known-issues).
 
 Full tables (ISL/OSL serving grid, prefill scaling, drift controls):
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md). The complete bring-up and optimization
 campaign — including every negative result, so you don't repeat them:
 [docs/BRINGUP_AND_PERF.md](docs/BRINGUP_AND_PERF.md). Raw result JSONs per machine:
 [`bench/results/`](bench/results/).
+
+## Known issues
+
+- **M5 Pro, MLX 0.32.0, fused-Hadamard comparison:** with MLX's default TF32 path,
+  60.35–61.11% of fused fp16 outputs have a different bit pattern from the MLX
+  dense-matmul op chain, although the relative-error gate passes and the fused kernel
+  is bit-reproducible. Starting the process with `MLX_ENABLE_TF32=0` makes the complete
+  suite pass (169 passed, 1 skipped) and reduces the mismatch to 0.113–0.122%, but
+  does **not** make the two paths bit-exact; the test passes because its limit is 1%.
+  The fused output
+  was bit-exact with the independent NumPy reference in all four analysed shapes.
+  This is recorded as an unresolved backend-path comparison issue, not treated as a
+  gate fix. Per-shape counts and the paired throughput cost are in
+  [docs/PERFORMANCE.md](docs/PERFORMANCE.md#m5-pro-known-issue-fused-hadamard-versus-mlx-tf32).
 
 ## Repository layout
 

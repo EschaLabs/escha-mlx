@@ -186,13 +186,63 @@ microbench varied across three consecutive runs: K2 24–49 GB/s and K3 33–54 
 The value gates passed every time; these short microbench figures are retained as a
 stability observation and are not used for the throughput headlines below.
 
-The complete suite is nevertheless **158 passed, 4 failed, 1 skipped**. All four
+The complete suite is nevertheless **165 passed, 4 failed, 1 skipped**. All four
 failures are `tests/test_fused_had.py::test_fused_matches_op_chain`: the primary
 `2e-3` relative-error bound passes, but 60.35–61.11% of fp16 bit patterns differ
 from the dense-matmul op chain on this M5 Pro, exceeding the test's 1% secondary
 bound. The fused path remains bit-reproducible and its independent NumPy-reference
 test passes. No gate was excluded or loosened, so this is machine-characterization
 data rather than a merge-green validation result.
+
+#### M5 Pro known issue: fused Hadamard versus MLX TF32
+
+On this M5 Pro, MLX 0.32.0 selects its NAX/TF32 path for the FP32 dense matmul in
+the comparison op chain when `MLX_ENABLE_TF32` is unset. The fused Metal kernel
+continues to perform an explicit FP32 butterfly. The two paths therefore combine
+different operation order with different FP32 matmul precision, making the raw
+fp16 comparison fail widely even though the maximum-error gate remains green.
+
+The four test shapes were measured again in fresh processes with TF32 at its
+default and with `MLX_ENABLE_TF32=0`. Counts compare the raw fp16 bit patterns;
+the test requires the op-chain mismatch rate to be below 1%.
+
+| rows × IC | default TF32: fused vs op chain | TF32=0: fused vs op chain | TF32=0: fused vs NumPy |
+|---:|---:|---:|---:|
+| 8 × 512 | 2,472 / 4,096 (60.3516%) | 5 / 4,096 (0.1221%) | 0 / 4,096 |
+| 96 × 2048 | 119,555 / 196,608 (60.8088%) | 222 / 196,608 (0.1129%) | 0 / 196,608 |
+| 300 × 1024 | 187,741 / 307,200 (61.1136%) | 369 / 307,200 (0.1201%) | 0 / 307,200 |
+| 2048 × 2048 | 2,557,851 / 4,194,304 (60.9839%) | 4,933 / 4,194,304 (0.1176%) | 0 / 4,194,304 |
+
+`MLX_ENABLE_TF32=0 .venv/bin/python -m pytest tests/ -v` reports **169 passed,
+1 skipped**; the targeted `tests/test_fused_had.py` subset is **8 passed**. This
+is not a bit-exact resolution: 0.113–0.122% of the
+fused/op-chain outputs still differ, and the current test passes only because
+that tail is below 1%. Repeated fused evaluations remain bit-identical. Runtime
+users who require the previous op chain can instead set `ESCHA_MLX_FUSED_HAD=0`;
+no correctness gate was loosened or skipped.
+
+Turning off TF32 also has a measurable cost. A same-session default/off/default
+A/B/A used `bench.baseline` phases B and C at runtime revision `aec1ea8` and model
+revision `1b7237f`; the three model safetensor LFS SHA-256 values are identical to
+revision `32016b7`, so this is not a weight change.
+
+| metric | default A1 | TF32=0 B | default A2 | B vs mean(A1,A2) |
+|---|---:|---:|---:|---:|
+| prefill, ISL 512 | 686.6 | 550.3 | 689.2 | −20.0% |
+| prefill, ISL 2048 | 675.6 | 542.8 | 663.2 | −18.9% |
+| decode, ISL 512 | 46.91 | 45.54 | 46.31 | −2.3% |
+| decode, ISL 2048 | 47.47 | 45.81 | 46.06 | −2.0% |
+| aggregate decode, B=1 | 47.96 | 46.28 | 46.72 | −2.2% |
+| aggregate decode, B=8 | 180.51 | 178.05 | 179.04 | −1.0% |
+| aggregate decode, B=16 | 239.57 | 228.24 | 237.94 | −4.4% |
+| aggregate decode, B=32 | 349.34 | 336.81 | 350.49 | −3.7% |
+
+Peak memory was unchanged at every corresponding point. The first ISL-128 arm
+was cold and the batched-prefill closing arm drifted substantially, so neither is
+used for a performance claim. The stable observations are a roughly 19–20%
+long-prompt prefill loss and a 1–4% decode loss; disabling TF32 is therefore a
+diagnostic/workaround, not the default-performance recommendation. Raw A/B/A JSON:
+[tf32_aba.json](../bench/results/m5-pro-24gb/tf32_aba.json).
 
 ### In-process ABCD baseline
 
