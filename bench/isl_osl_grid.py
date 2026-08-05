@@ -29,6 +29,8 @@ import time
 
 import httpx
 
+from escha_mlx.benchmark_metadata import annotate_report, benchmark_metadata
+
 # NVIDIA's published ISL/OSL pairs for LLM inference perf tables.
 NVIDIA_GRID: list[tuple[int, int]] = [
     (128, 128),
@@ -202,6 +204,7 @@ def main() -> None:
                     help="skip grid points above this ISL")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
+    metadata = benchmark_metadata(args.model)
 
     if args.grid == "nvidia":
         grid = NVIDIA_GRID
@@ -246,7 +249,7 @@ def main() -> None:
                       f"{r['osl_hit_rate']:>8.2f} {r['cached_tok_mean']:>7.0f}")
             if args.out:
                 with open(args.out, "w") as f:
-                    json.dump(results, f, indent=2)
+                    json.dump(annotate_report(results, metadata), f, indent=2)
 
     if args.out:
         print(f"\nwrote {args.out}")

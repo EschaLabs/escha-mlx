@@ -38,6 +38,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from escha_mlx.benchmark_metadata import annotate_report, benchmark_metadata
+
 WARMUP = 4
 
 
@@ -129,6 +131,7 @@ def main() -> None:
                     help="use random token ids instead of real text (see below)")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
+    metadata = benchmark_metadata(args.model)
 
     from escha_mlx.gdn_cache import _DTYPES
     from escha_mlx.loader import load
@@ -226,7 +229,7 @@ def main() -> None:
                                    "tok_s": round(tps, 2), "peak_gb": round(peak, 2)})
 
     if args.out:
-        Path(args.out).write_text(json.dumps(report, indent=2))
+        Path(args.out).write_text(json.dumps(annotate_report(report, metadata), indent=2))
         print(f"\nwrote {args.out}")
 
 

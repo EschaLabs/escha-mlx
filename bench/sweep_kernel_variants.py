@@ -32,6 +32,8 @@ import mlx.core as mx
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from escha_mlx.benchmark_metadata import annotate_report, benchmark_metadata
+
 PREFILL = 16
 WARMUP = 8
 STEPS = 24
@@ -127,6 +129,7 @@ def main() -> None:
     ap.add_argument("--out", default=None)
     ap.add_argument("--table", choices=("levers", "splitk", "sortx", "prefetch"), default="levers")
     args = ap.parse_args()
+    metadata = benchmark_metadata(args.model)
 
     table = {"levers": VARIANTS, "splitk": VARIANTS_SPLITK,
              "sortx": VARIANTS_SORTX,
@@ -164,7 +167,7 @@ def main() -> None:
         apply_env({})
 
     if args.out:
-        Path(args.out).write_text(json.dumps(rows, indent=2))
+        Path(args.out).write_text(json.dumps(annotate_report(rows, metadata), indent=2))
         print(f"\nwrote {args.out}")
     print("\nA variant delta smaller than the base-vs-drift-control gap is NOT "
           "a result.")

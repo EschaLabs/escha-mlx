@@ -54,6 +54,8 @@ import mlx.core as mx
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from escha_mlx.benchmark_metadata import annotate_report, benchmark_metadata
+
 PREFILL = 16          # short prompt: we are measuring decode, not prefill
 WARMUP = 8            # per-shape Metal specialization must not land in timing
 STEPS = 24
@@ -177,6 +179,7 @@ def main() -> None:
                     help="measurements per config; the median is reported")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
+    metadata = benchmark_metadata(args.model)
 
     if args.wired:
         info = mx.device_info()
@@ -246,7 +249,7 @@ def main() -> None:
     print(f"\n{len(rows)} configs, {len(bad)} with non-bit-identical GEMM"
           f"{' — INVESTIGATE' if bad else ' (all bit-identical)'}")
     if args.out:
-        Path(args.out).write_text(json.dumps(rows, indent=2))
+        Path(args.out).write_text(json.dumps(annotate_report(rows, metadata), indent=2))
         print(f"wrote {args.out}")
 
 
