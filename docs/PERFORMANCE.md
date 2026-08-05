@@ -173,7 +173,7 @@ was stopped and disabled; the earlier M5 files are not used.
 | Power | AC attached; battery 80% |
 | macOS / MLX | 26.5.2 (25F84) / `mlx` 0.32.0, `mlx-lm` 0.31.3 |
 | Metal | `applegpu_g17s`; recommended working set 19.07 GB |
-| Model | local `Qwen3.6-35B-A3B-Escha-W2` revision `32016b7946fa1a1965c40deed9daac071b512a64`; 11.41 GB resident |
+| Model | local `Qwen3.6-35B-A3B-Escha-W2` revisions `32016b7946fa1a1965c40deed9daac071b512a64` / `1b7237f0886a10b4bd92cd7653090cd7381ae199` (manifests differ only in `README.md`); 11.41 GB resident |
 | Runtime revision | `79ba35e84517b2770ca00a1fe76091ff4144de37` |
 | Runtime settings | repository defaults; MLX memory limit 19.0 GB; wired limit 0 except 19.0 GB for B=128 |
 
@@ -274,10 +274,9 @@ After an ISL-512 prefill the caches total 43.42 MB: 32.93 MB across 30
 ### Step-synchronized decode and repeatability
 
 `bench.sweep_kernel_variants.run` uses a 16-token prefill, eight warmups, 24 timed
-steps and an `mx.eval` synchronization after every decode step. B=1/8/16/32 were
-called five times per batch without changing any runtime strategy. B=128 was added
-as one memory-constrained run with the same workload, repository defaults, a 19 GB
-MLX memory limit and a 19 GB wired limit.
+steps and an `mx.eval` synchronization after every decode step. Every batch was called
+five times without changing any runtime strategy. B=128 used the same workload and
+repository defaults with a 19 GB MLX memory limit and a 19 GB wired limit.
 
 | batch | runs | median tok/s | min–max | spread | peak memory |
 |---:|---:|---:|---:|---:|---:|
@@ -285,12 +284,12 @@ MLX memory limit and a 19 GB wired limit.
 | 8 | 5 | 178.97 | 178.25–179.63 | 0.77% | 12.65 GB |
 | 16 | 5 | 226.23 | 225.64–226.83 | 0.53% | 13.00 GB |
 | 32 | 5 | 328.81 | 326.97–329.50 | 0.77% | 13.75 GB |
-| 128 | 1 | **545.31** | — | — | **18.04 GB** |
+| 128 | 5 | **537.08** | 522.83–553.61 | 5.89% | **18.04 GB** |
 
 The ABCD Phase C loop and this step-synchronized loop have different synchronization
 semantics, so their absolute throughput figures are reported separately. The five-run
-rows establish within-session stability; the single B=128 row does not and did not run
-Phase C replication-invariance checks. This is not a candidate-vs-baseline A/B.
+rows establish within-session stability but do not run Phase C replication-invariance
+checks. This is not a candidate-vs-baseline A/B.
 
 ### Roofline
 

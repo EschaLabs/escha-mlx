@@ -1,6 +1,21 @@
 {
   "escha_mlx_git_revision": "79ba35e84517b2770ca00a1fe76091ff4144de37",
   "model_hf_revision": "32016b7946fa1a1965c40deed9daac071b512a64",
+  "equivalent_model_hf_revision": "1b7237f0886a10b4bd92cd7653090cd7381ae199",
+  "model_revision_note": "The B=128 repeat rerun used the equivalent revision; the HF tree manifests differ only in README.md.",
+  "experiment": {
+    "harness": "bench.sweep_kernel_variants.run",
+    "prefill_tokens": 16,
+    "warmup_steps": 8,
+    "timed_steps": 24,
+    "synchronization": "mx.eval(tok) after every decode step",
+    "tf32": "default (MLX_ENABLE_TF32 unset)",
+    "mlx_memory_limit_gb": 19,
+    "wired_limit_gb": {
+      "default": 0,
+      "batch_128": 19
+    }
+  },
   "results": [
     {
       "batch": 1,
@@ -125,7 +140,31 @@
     {
       "batch": 128,
       "repeat": 1,
-      "tok_s": 545.31,
+      "tok_s": 553.61,
+      "peak_gb": 18.04
+    },
+    {
+      "batch": 128,
+      "repeat": 2,
+      "tok_s": 544.8,
+      "peak_gb": 18.04
+    },
+    {
+      "batch": 128,
+      "repeat": 3,
+      "tok_s": 522.83,
+      "peak_gb": 18.04
+    },
+    {
+      "batch": 128,
+      "repeat": 4,
+      "tok_s": 537.08,
+      "peak_gb": 18.04
+    },
+    {
+      "batch": 128,
+      "repeat": 5,
+      "tok_s": 536.07,
       "peak_gb": 18.04
     }
   ]

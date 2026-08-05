@@ -2,7 +2,7 @@
   "escha_mlx_git_revision": "aec1ea8110084de07c705e5ca05b4b6e4fa975e7",
   "model_hf_revision": "1b7237f0886a10b4bd92cd7653090cd7381ae199",
   "mlx": "0.32.0",
-  "model": "/Users/tu/Dev/repos/models/EschaLabs",
+  "model": "/Users/<user>/models/escha-w2",
   "experiment": {
     "design": "A/B/A",
     "harness": "bench.baseline",
