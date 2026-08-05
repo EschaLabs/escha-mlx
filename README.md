@@ -86,29 +86,53 @@ collapses 23× near the cap. Memory settings and the full tuning-knob reference:
 
 ## Benchmarks
 
-Measured on the **entry-level** Apple M4 (10-core GPU, 120 GB/s, 24 GB unified memory).
-Decode is bandwidth-bound and scales close to linearly with memory bandwidth
-(M4 Pro 2.3×, M4 Max 4.5×, M3 Ultra 6.8×) — read these as the floor for the product line.
+Original-code measurements on 24 GB Macs using macOS 26.5.2, MLX 0.32.0 and
+mlx-lm 0.31.3. The M4 is the entry-level 10-core-GPU model; the M5 Pro has a 16-core GPU.
+Every M5 Pro result in this summary table used runtime revision
+`79ba35e84517b2770ca00a1fe76091ff4144de37` and inference-identical Hugging Face
+model revisions `32016b7946fa1a1965c40deed9daac071b512a64` and
+`1b7237f0886a10b4bd92cd7653090cd7381ae199` (their manifests differ only in `README.md`).
 
-| | escha W2 (this runtime) | stock MLX 4-bit, same box |
-|---|---|---|
-| resident memory | **12.25 GB** | 19.51 GB |
-| decode, single stream | 27.3 tok/s | **42.9 tok/s** |
-| aggregate @ batch 8 | 59.6 tok/s | **101.5 tok/s** |
-| aggregate @ batch 16 | **104.0 tok/s** | out of memory |
-| aggregate @ batch 128 | **185.6 tok/s** (18.1 GB peak) | out of memory |
-| served peak output / total | 99.5 / 244.5 tok/s | — |
+| workload | M4 base, escha W2 | M4 base, stock MLX 4-bit | M5 Pro, escha W2 |
+|---|---:|---:|---:|
+| resident memory | **12.25 GB** | 19.51 GB | **11.41 GB** |
+| prefill, ISL 512 | 264 tok/s | — | **684.2 tok/s** |
+| decode, single stream | 27.3 tok/s | **42.9 tok/s** | **45.52 tok/s** |
+| aggregate @ batch 8 | 59.6 tok/s | **101.5 tok/s** | **178.97 tok/s** |
+| aggregate @ batch 16 | **104.0 tok/s** | out of memory | **226.23 tok/s** |
+| aggregate @ batch 128 | **185.6 tok/s** (18.1 GB peak) | out of memory | **537.08 tok/s** (18.04 GB peak) |
+| served peak output / total | 99.5 / 244.5 tok/s | — | **188.01 / 575.86 tok/s** |
 
 Prefill runs ~264 tok/s; single-stream decode reaches 69% of this chip's 39.3 tok/s
 bandwidth ceiling. Read the comparison honestly in both directions: below batch 16 the
 4-bit build is faster; from batch 16 up **only escha runs at all** on 24 GB — that is the
 regime the 1.59× footprint buys, and where a Mac serving more than one user lives.
 
+The M5 Pro results are a separate machine characterization, not a paired cross-chip A/B.
+Its B=1/8/16/128 entries are five-run medians from the 16-token, step-synchronized
+repeatability harness. M5 Pro P0 gates pass, while the complete suite is **165 passed,
+4 failed, 1 skipped** because of the documented fused-Hadamard comparison failures, so its
+results are not yet merge-qualified validation data. See [Known issues](#known-issues).
+
 Full tables (ISL/OSL serving grid, prefill scaling, drift controls):
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md). The complete bring-up and optimization
 campaign — including every negative result, so you don't repeat them:
 [docs/BRINGUP_AND_PERF.md](docs/BRINGUP_AND_PERF.md). Raw result JSONs per machine:
 [`bench/results/`](bench/results/).
+
+## Known issues
+
+- **M5 Pro, MLX 0.32.0, fused-Hadamard comparison:** with MLX's default TF32 path,
+  60.35–61.11% of fused fp16 outputs have a different bit pattern from the MLX
+  dense-matmul op chain, although the relative-error gate passes and the fused kernel
+  is bit-reproducible. Starting the process with `MLX_ENABLE_TF32=0` makes the complete
+  suite pass (169 passed, 1 skipped) and reduces the mismatch to 0.113–0.122%, but
+  does **not** make the two paths bit-exact; the test passes because its limit is 1%.
+  The fused output
+  was bit-exact with the independent NumPy reference in all four analysed shapes.
+  This is recorded as an unresolved backend-path comparison issue, not treated as a
+  gate fix. Per-shape counts and the paired throughput cost are in
+  [docs/PERFORMANCE.md](docs/PERFORMANCE.md#m5-pro-known-issue-fused-hadamard-versus-mlx-tf32).
 
 ## Repository layout
 
@@ -130,8 +154,8 @@ mlx-lm untouched.
 ## Contributing
 
 Contributions are welcome — kernels, new model architectures, serving features, and
-especially perf on wider GPUs (M-series Pro/Max/Ultra are uncharted; all committed
-numbers are from a base M4). The short version of [CONTRIBUTING.md](CONTRIBUTING.md):
+especially broader perf campaigns on Pro/Max/Ultra GPUs; the M5 Pro results above are an
+initial machine characterization. The short version of [CONTRIBUTING.md](CONTRIBUTING.md):
 
 - **Correctness bar**: kernel changes stay bit-identical to the goldens, or the deviation
   is measured, documented, and behind a flag with the old behavior recoverable.

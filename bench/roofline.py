@@ -26,6 +26,8 @@ import time
 import mlx.core as mx
 import mlx.nn as nn
 
+from escha_mlx.benchmark_metadata import annotate_report, benchmark_metadata
+
 PEAK_GBPS = {  # advertised DRAM bandwidth, GB/s
     "Apple M4": 120.0, "Apple M4 Pro": 273.0, "Apple M4 Max": 546.0,
     "Apple M5": 153.0, "Apple M5 Pro": 307.0, "Apple M5 Max": 614.0,
@@ -209,6 +211,7 @@ def main() -> None:
     ap.add_argument("--model", default=None, help="if given, compute the byte ledger + step time")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
+    metadata = benchmark_metadata(args.model or ".")
 
     info = mx.device_info()
     chip = info.get("device_name", "?")
@@ -307,7 +310,7 @@ def main() -> None:
 
     if args.out:
         with open(args.out, "w") as f:
-            json.dump(report, f, indent=2)
+            json.dump(annotate_report(report, metadata), f, indent=2)
         print(f"\nwrote {args.out}")
 
 

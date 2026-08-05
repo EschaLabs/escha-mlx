@@ -33,6 +33,8 @@ import mlx.core as mx
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from escha_mlx.benchmark_metadata import annotate_report, benchmark_metadata
+
 WARMUP = 3
 ITERS = 6
 
@@ -67,6 +69,7 @@ def main() -> None:
                     help="comma list of R values to sweep instead of ablating")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
+    metadata = benchmark_metadata(args.model)
 
     from escha_mlx.loader import load
     from mlx_lm.models.cache import make_prompt_cache
@@ -213,7 +216,7 @@ def main() -> None:
                      "full_tok_s": tps(base), "last_logit_tok_s": tps(t_last)})
 
     if args.out:
-        Path(args.out).write_text(json.dumps(rows, indent=2))
+        Path(args.out).write_text(json.dumps(annotate_report(rows, metadata), indent=2))
         print(f"\nwrote {args.out}")
 
 
