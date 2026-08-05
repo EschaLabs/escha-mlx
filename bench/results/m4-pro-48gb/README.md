@@ -56,7 +56,31 @@ Everything passes.
 - Serving smoke test correct (`17*23` returns `391`), generations coherent.
 - Resident memory 11.41 GB, identical to the committed base-M4 figure.
 
-## Finding 1: time to first token regresses in absolute terms
+## Headline
+
+Aggregate output tok/s at 128:128, with Zihao's M5 Pro from PR #1 for context:
+
+| chip | bandwidth | C=1 | vs base | C=8 | vs base |
+|---|---|---|---|---|---|
+| base M4 | 101 GB/s | 23.53 | 1.00x | 47.31 | 1.00x |
+| M4 Pro (this dir) | 242.8 GB/s | 36.14 | **1.54x** | 71.83 | 1.52x |
+| M5 Pro (#1) | 270.6 GB/s | 36.20 | **1.54x** | 108.17 | 2.29x |
+
+**Single stream lands on 1.54x on both Pro chips**, despite bandwidth ratios of 2.40x and
+2.68x. Relative to its own bandwidth the M5 Pro is further from linear than this machine,
+57% against 64%. Neither reaches the 2.3x the README projects for M4 Pro.
+
+**Under concurrency the two diverge** and this machine does not scale. Ruled out here:
+`ESCHA_MLX_WIRED_GB` (67.84 without it against 71.83 with) and `--prefill-step-size 256`
+(TTFT 84.6s without against 48.5s with). Both documented settings help rather than hurt.
+
+Three uncontrolled differences against #1, in the order worth checking: model revision
+(#1 records `32016b79`, this used snapshot `1b7237f`), code revision (`79ba35e` on his
+branch against `2ef9238` on main), and memory (24 GB against 48 GB). Agreement to three
+significant figures at C=1 argues against a checkpoint difference but does not rule it
+out.
+
+## Detail: time to first token under concurrency
 
 Comparing `m4-base-24gb/grid_fused.json` against this machine at identical grid points,
 same script, same fused config, same request counts:
@@ -89,7 +113,7 @@ From the full grid, TTFT growth with concurrency at fixed ISL:
 Worse than linear at every ISL, consistent with prefill not batching across requests.
 At 20k input and concurrency 8, first token takes 9.3 minutes.
 
-## Finding 2: decode scaling is 1.40x against a published 2.3x
+## Detail: scaling against base M4 across shared grid points
 
 Median across the six grid points shared with `m4-base-24gb/grid_fused.json`, fused
 config both sides:

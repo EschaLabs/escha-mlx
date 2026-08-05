@@ -1,0 +1,132 @@
+{
+  "escha_mlx_git_revision": "79ba35e84517b2770ca00a1fe76091ff4144de37",
+  "model_hf_revision": "32016b7946fa1a1965c40deed9daac071b512a64",
+  "results": [
+    {
+      "batch": 1,
+      "repeat": 1,
+      "tok_s": 45.41,
+      "peak_gb": 12.3
+    },
+    {
+      "batch": 1,
+      "repeat": 2,
+      "tok_s": 45.39,
+      "peak_gb": 12.3
+    },
+    {
+      "batch": 1,
+      "repeat": 3,
+      "tok_s": 45.53,
+      "peak_gb": 12.3
+    },
+    {
+      "batch": 1,
+      "repeat": 4,
+      "tok_s": 45.52,
+      "peak_gb": 12.3
+    },
+    {
+      "batch": 1,
+      "repeat": 5,
+      "tok_s": 46.02,
+      "peak_gb": 12.3
+    },
+    {
+      "batch": 8,
+      "repeat": 1,
+      "tok_s": 179.32,
+      "peak_gb": 12.65
+    },
+    {
+      "batch": 8,
+      "repeat": 2,
+      "tok_s": 178.25,
+      "peak_gb": 12.65
+    },
+    {
+      "batch": 8,
+      "repeat": 3,
+      "tok_s": 179.63,
+      "peak_gb": 12.65
+    },
+    {
+      "batch": 8,
+      "repeat": 4,
+      "tok_s": 178.97,
+      "peak_gb": 12.65
+    },
+    {
+      "batch": 8,
+      "repeat": 5,
+      "tok_s": 178.82,
+      "peak_gb": 12.65
+    },
+    {
+      "batch": 16,
+      "repeat": 1,
+      "tok_s": 226.43,
+      "peak_gb": 13.0
+    },
+    {
+      "batch": 16,
+      "repeat": 2,
+      "tok_s": 226.83,
+      "peak_gb": 13.0
+    },
+    {
+      "batch": 16,
+      "repeat": 3,
+      "tok_s": 225.64,
+      "peak_gb": 13.0
+    },
+    {
+      "batch": 16,
+      "repeat": 4,
+      "tok_s": 226.23,
+      "peak_gb": 13.0
+    },
+    {
+      "batch": 16,
+      "repeat": 5,
+      "tok_s": 225.97,
+      "peak_gb": 13.0
+    },
+    {
+      "batch": 32,
+      "repeat": 1,
+      "tok_s": 329.5,
+      "peak_gb": 13.75
+    },
+    {
+      "batch": 32,
+      "repeat": 2,
+      "tok_s": 328.81,
+      "peak_gb": 13.75
+    },
+    {
+      "batch": 32,
+      "repeat": 3,
+      "tok_s": 328.98,
+      "peak_gb": 13.75
+    },
+    {
+      "batch": 32,
+      "repeat": 4,
+      "tok_s": 328.72,
+      "peak_gb": 13.75
+    },
+    {
+      "batch": 32,
+      "repeat": 5,
+      "tok_s": 326.97,
+      "peak_gb": 13.75
+    },
+    {
+      "batch": 128,
+      "repeat": 1,
+      "tok_s": 545.31,
+      "peak_gb": 18.04
+    }
+  ]
+}
