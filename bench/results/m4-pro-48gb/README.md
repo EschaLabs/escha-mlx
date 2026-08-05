@@ -86,6 +86,17 @@ ESCHA_MLX_WIRED_GB=30 escha-mlx-server \
     --out bench/results/m4-pro-48gb/grid_matched_flags.json
 ```
 
+For the headline repeatability check, the server stayed on those matched flags. After
+one unrecorded warm-up at the same shape, the harness measured five consecutive
+`128:128` trials at C=1 and C=8:
+
+```bash
+.venv/bin/python -u bench/isl_osl_grid.py \
+    --model /Users/<user>/models/escha-w2 \
+    --grid 128:128,128:128,128:128,128:128,128:128 --concurrency 1,8 \
+    --out bench/results/m4-pro-48gb/grid_matched_flags_repeats.json
+```
+
 ## Correctness
 
 Everything passes.
@@ -98,19 +109,20 @@ Everything passes.
 
 ## Headline
 
-Aggregate output tok/s at 128:128. The M4 Pro row uses the baseline-matched server
-flags in `grid_matched_flags.json`; the M5 Pro result from PR #1 is included for context:
+Aggregate output tok/s at 128:128. The M4 Pro row is the median of five consecutive
+trials with the baseline-matched server flags in `grid_matched_flags_repeats.json`; the
+M5 Pro result from PR #1 is included for context:
 
 | chip | bandwidth | C=1 | vs base | C=8 | vs base |
 |---|---|---|---|---|---|
 | base M4 | 101 GB/s | 23.53 | 1.00x | 47.31 | 1.00x |
-| M4 Pro (matched flags) | 243.7 GB/s | 33.46 | **1.42x** | 65.94 | 1.39x |
+| M4 Pro (matched flags, median of 5) | 243.7 GB/s | 31.90 | **1.36x** | 60.07 | 1.27x |
 | M5 Pro (#1) | 270.6 GB/s | 36.20 | **1.54x** | 108.17 | 2.29x |
 
-The matched M4 Pro run reaches 1.42x the base M4 at C=1 and 1.39x at C=8. The M5 Pro
-scales much further at C=8, but this is not a paired hardware A/B: the runs differ in
-macOS version, runtime revision, GPU configuration and memory capacity. The original
-M4 Pro serving runs also show material run-to-run spread, documented below.
+The matched M4 Pro medians reach 1.36x the base M4 at C=1 and 1.27x at C=8. The five
+M4 Pro measurements span 31.75-32.04 tok/s at C=1 and 59.91-60.12 tok/s at C=8. The
+M5 Pro scales much further at C=8, but this is not a paired hardware A/B: the runs
+differ in macOS version, runtime revision, GPU configuration and memory capacity.
 
 ## Detail: time to first token under concurrency
 
@@ -136,9 +148,11 @@ The matched 2048:128 C=8 p50/p99 split is 23.793/56.850 s, close to the base M4'
 18.133/61.6 s queueing pattern. In-process prefill at ISL 2048 is 258.9 tok/s here
 against 264 tok/s on the base M4, so single-stream prefill remains roughly flat.
 
-## Detail: scaling against base M4 across shared grid points
+## Detail: single-run scaling sweep across shared grid points
 
-Six matched-flag points shared with `m4-base-24gb/grid_fused.json`:
+The original matched-flags file contains one measurement at each of six points shared
+with `m4-base-24gb/grid_fused.json`. It is retained for workload-shape context, but the
+128:128 headline above uses the five-trial medians instead:
 
 | point | base M4 | M4 Pro | ratio |
 |---|---|---|---|
@@ -149,7 +163,8 @@ Six matched-flag points shared with `m4-base-24gb/grid_fused.json`:
 | 2048:128 C=1 | 10.04 | 11.32 | 1.13x |
 | 2048:128 C=8 | 13.47 | 15.57 | 1.16x |
 
-**Median 1.39x, mean 1.33x, range 1.13x to 1.50x.** No point reaches 2.3x.
+Across this single sweep, the median ratio is 1.39x, the mean is 1.33x and the range is
+1.13x to 1.50x. No point reaches 2.3x.
 
 The mechanism is visible in roofline utilization, which *falls* on the faster chip:
 
@@ -194,20 +209,27 @@ data but is not used for the matched headline comparison.
 | 5000:500 | 8 | 130.2 s | 22.41 |
 | 20000:2000 | 8 | 560.1 s | 20.78 |
 
-### Repeated 128:128 C=8 measurements
+### Repeated 128:128 measurements
 
-The same point varies materially across committed runs:
+The two original C=8 files disagree materially despite using the same 32/8 server
+settings. The initial matched-flags result is also a single observation:
 
-| file | server decode/prompt concurrency | aggregate tok/s |
+| file | server decode/prompt concurrency | C=8 aggregate tok/s |
 |---|---|---:|
 | `grid_short.json` | 32/8 | 64.80 |
 | `grid.json` | 32/8 | 71.83 |
 | `grid_matched_flags.json` | 16/2 | 65.94 |
+| `grid_matched_flags_repeats.json` | 16/2 | **60.07 median**, 59.91-60.12 range |
 
 The two original same-configuration runs span 64.80 to 71.83 tok/s, a 10.8% increase
-relative to the lower measurement. Against the base M4's 47.31 tok/s, they imply a
-1.37x to 1.52x range. The headline uses 65.94 tok/s, or 1.39x, because that run matches
-the base-M4 server flags. An additional unwired run was not archived and is excluded.
+relative to the lower measurement. The committed artifacts do not establish the cause,
+so neither value is used for the headline. The single 65.94 tok/s matched result is also
+excluded from the headline. In the controlled five-trial matched-flags repeat, C=8 is
+60.07 / 60.12 / 59.91 / 59.96 / 60.11 tok/s: median 60.07 and range 59.91-60.12.
+C=1 is 31.94 / 32.04 / 31.79 / 31.75 / 31.90 tok/s: median 31.90 and range
+31.75-32.04. Every trial hit the exact OSL with zero cached prompt tokens. The warm-up
+was excluded. This establishes a repeatable same-session headline under matched flags;
+it does not identify the cause of the earlier 32/8 discrepancy.
 
 Using `grid_short.json` for served throughput and the opening `baseline.json` for the
 same box's in-process throughput:
@@ -228,6 +250,7 @@ same box's in-process throughput:
 | `grid.json` | full `nvidia` serving grid, 30 points |
 | `grid_short.json` | `short` serving grid, 9 points |
 | `grid_matched_flags.json` | six shared points with base-M4 server flags |
+| `grid_matched_flags_repeats.json` | five measured 128:128 trials at matched flags |
 | `grid_2048x128_c8_nostep.json` | default prefill-step-size control |
 | `p0_gates.log` | gate output including measured trellis-stream bandwidth |
 | `roofline.log` | measured roofline and per-op bandwidth sweep |
@@ -248,8 +271,9 @@ separate PR.
 2. `p0_gates.py` and `roofline.py` do not archive results, so there was no committed
    base-M4 figure to compare against.
 3. The original serving files do not record runtime/model revisions or command flags.
-   `grid_matched_flags.json` records both revisions; the full command remains in this
-   README because the harness does not yet embed server flags.
+   `grid_matched_flags.json` and `grid_matched_flags_repeats.json` record both revisions;
+   the full commands remain in this README because the harness does not yet embed server
+   flags.
 4. `isl_osl_grid.py` writes a results JSON and exits zero when every point errors.
    Encountered three times across three distinct failure modes.
 5. Documented `pytest tests/ -v` fails on conda-managed macOS because the console script
