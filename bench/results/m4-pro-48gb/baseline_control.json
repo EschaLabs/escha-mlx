@@ -1,6 +1,6 @@
 {
   "mlx": "0.32.0",
-  "model": "/Users/apple/.cache/huggingface/hub/models--EschaLabs--Qwen3.6-35B-A3B-Escha-W2/snapshots/1b7237f0886a10b4bd92cd7653090cd7381ae199",
+  "model": "/Users/<user>/models/escha-w2",
   "A_correctness": {
     "paris_raw": {
       "text": "Paris, a city renowned for its iconic landmarks such as the Eiffel Tower,",
