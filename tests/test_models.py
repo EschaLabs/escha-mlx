@@ -159,11 +159,15 @@ def test_synthetic_checkpoint_end_to_end(tmp_path):
     def forward():
         cache = model.make_cache()
         out = model(mx.array([[1, 2, 3, 4]]), cache=cache)
-        mx.eval(out)
-        return np.array(out.astype(mx.float32))
+        mx.eval(out, [c.state for c in cache])
+        return np.array(out.astype(mx.float32)), cache
 
-    out1 = forward()
+    out1, cache1 = forward()
     assert out1.shape == (1, 1, VOCAB)          # LastPositionHead: final position only
     assert np.isfinite(out1).all()
-    out2 = forward()
+    # The allocation-free first GDN kernel must emit fp16 state directly. If it
+    # regresses to upstream, a large first forward briefly keeps both the f32
+    # output state and the cache's lazy fp16 cast alive.
+    assert cache1[0][1].dtype == mx.float16
+    out2, _ = forward()
     assert np.array_equal(out1, out2), "synthetic forward must be bit-deterministic"
