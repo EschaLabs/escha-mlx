@@ -132,9 +132,9 @@ identical grid points, server flags, script and request counts:
 | point | base M4 TTFT | M4 Pro TTFT | |
 |---|---|---|---|
 | 128:128, C=1 | 0.806 s | 0.619 s | Pro 1.30x faster |
-| 128:128, C=8 | 4.434 s | 4.888 s | Pro 1.10x slower |
+| 128:128, C=8 | 4.434 s | 4.888 s | level, within session spread |
 | 1000:1000, C=1 | 4.082 s | 3.674 s | Pro 1.11x faster |
-| 1000:1000, C=8 | 10.368 s | 9.766 s | Pro 1.06x faster |
+| 1000:1000, C=8 | 10.368 s | 9.766 s | level, within session spread |
 | 2048:128, C=1 | 8.109 s | 8.112 s | level |
 | 2048:128, C=8 | 18.133 s | 23.793 s | Pro 1.31x slower |
 
@@ -147,6 +147,45 @@ concurrency was therefore a configuration artifact.
 The matched 2048:128 C=8 p50/p99 split is 23.793/56.850 s, close to the base M4's
 18.133/61.6 s queueing pattern. In-process prefill at ISL 2048 is 258.9 tok/s here
 against 264 tok/s on the base M4, so single-stream prefill remains roughly flat.
+
+The two 1.1x rows above sit inside this machine's measured session-to-session spread
+(see "Repeated 128:128 measurements") and are reported as level rather than directional.
+
+### Prefill step size control
+
+`grid_2048x128_c8_nostep.json` repeats 2048:128 at C=8 under the original 32/8 server
+settings with `--prefill-step-size 256` omitted and nothing else changed:
+
+| 2048:128, C=8, 32/8 server | TTFT p50 | TTFT p99 | aggregate tok/s |
+|---|---:|---:|---:|
+| with `--prefill-step-size 256` (`grid.json`) | 48.525 s | 48.564 s | 17.36 |
+| without (`grid_2048x128_c8_nostep.json`) | 84.646 s | 84.737 s | 13.47 |
+
+Omitting the flag raises TTFT by 1.74x and costs 22.4% of aggregate throughput, so the
+documented setting helps on this machine rather than being 24 GB-specific. Both runs
+completed 16 requests with no errors and hit the exact OSL.
+
+### Where prefill time goes
+
+`prefill_profile.json` ablates the MoE block from a single-stream prefill at four
+sequence lengths. Share of prefill attributable to the MoE block, computed as
+`(full_ms - no_moe_ms) / full_ms`:
+
+| S | full prefill | MoE block share |
+|---|---:|---:|
+| 128 | 270.2 ms | 68.9% |
+| 256 | 928.4 ms | 83.3% |
+| 512 | 1657.9 ms | 81.5% |
+| 1024 | 3080.3 ms | 77.8% |
+
+The MoE block accounts for 77.8-83.3% of prefill at S=256-1024, falling to 68.9% at
+S=128 where fixed per-dispatch cost is a larger fraction of a shorter run. Ablating the
+expert FFNs alone (`no_experts_ms`) gives 63.9 / 81.5 / 79.4 / 75.7% across the same
+lengths, so router, dispatch and combine account for roughly 2 to 5 points. The LM head
+is negligible: `no_head_ms` is 261.9 ms against 270.2 ms full at S=128, about 3%.
+
+Prefill on this checkpoint is therefore an expert-path problem, which is consistent with
+the latency-bound decode picture below.
 
 ## Detail: single-run scaling sweep across shared grid points
 
@@ -164,7 +203,9 @@ with `m4-base-24gb/grid_fused.json`. It is retained for workload-shape context, 
 | 2048:128 C=8 | 13.47 | 15.57 | 1.16x |
 
 Across this single sweep, the median ratio is 1.39x, the mean is 1.33x and the range is
-1.13x to 1.50x. No point reaches 2.3x.
+1.13x to 1.50x. No point reaches 2.3x. Each row is one observation, so the 1.13x to
+1.50x spread is not separable from the ~10% session variation quantified below; read the
+sweep as workload-shape context, not as six measured ratios.
 
 The mechanism is visible in roofline utilization, which *falls* on the faster chip:
 
@@ -224,7 +265,17 @@ settings. The initial matched-flags result is also a single observation:
 The two original same-configuration runs span 64.80 to 71.83 tok/s, a 10.8% increase
 relative to the lower measurement. The committed artifacts do not establish the cause,
 so neither value is used for the headline. The single 65.94 tok/s matched result is also
-excluded from the headline. In the controlled five-trial matched-flags repeat, C=8 is
+excluded from the headline.
+
+The spread is not confined to the 32/8 runs. `grid_matched_flags.json` reads 65.94 tok/s
+and the five-trial median is 60.07 tok/s at **identical** 16/2 flags, a 9.8% gap between
+sessions, against a 0.35% spread within the repeat block. Session-to-session variation
+therefore dominates run-to-run variation on this machine by more than an order of
+magnitude. Only the 128:128 headline carries a measured error bar; every other figure in
+this directory is a single observation and should be read with roughly 10% uncertainty.
+That is wide enough to make differences below about 1.15x uninformative, but not wide
+enough to affect the headline conclusion, since even a 10% upward correction on the
+largest observed ratio falls well short of the 2.3x projection. In the controlled five-trial matched-flags repeat, C=8 is
 60.07 / 60.12 / 59.91 / 59.96 / 60.11 tok/s: median 60.07 and range 59.91-60.12.
 C=1 is 31.94 / 32.04 / 31.79 / 31.75 / 31.90 tok/s: median 31.90 and range
 31.75-32.04. Every trial hit the exact OSL with zero cached prompt tokens. The warm-up
@@ -252,6 +303,7 @@ same box's in-process throughput:
 | `grid_matched_flags.json` | six shared points with base-M4 server flags |
 | `grid_matched_flags_repeats.json` | five measured 128:128 trials at matched flags |
 | `grid_2048x128_c8_nostep.json` | default prefill-step-size control |
+| `prefill_profile.json` | MoE-block prefill ablation at S=128, 256, 512, 1024 |
 | `p0_gates.log` | gate output including measured trellis-stream bandwidth |
 | `roofline.log` | measured roofline and per-op bandwidth sweep |
 
