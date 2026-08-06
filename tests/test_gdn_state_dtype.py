@@ -5,6 +5,8 @@ recurrent state drifts from f32 over a long decode -- cannot be answered without
 the real model and lives in bench/sweep_gdn_state.py.
 
 What matters structurally:
+  * the first recurrence starts from zeros in Metal registers and emits the
+    configured storage dtype directly, so no full-sized f32 state is allocated,
   * slot 1 (the 2.1 MB/layer recurrent state) is cast; slot 0 (the ~50 KB conv
     state) is NOT -- it is not the f32-accumulated quantity and casting it buys
     nothing while risking the conv window,
@@ -20,7 +22,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from .conftest import needs_mlx
+from .conftest import needs_metal, needs_mlx
 
 pytestmark = needs_mlx
 
@@ -136,6 +138,48 @@ def test_nbytes_reflects_the_saving():
     half = gdn_cache.GDNStateCache(size=2, dtype=mx.float16)
     half[1] = mx.zeros(shape, dtype=mx.float32)
     assert half.nbytes * 2 == ref.nbytes
+
+
+@pytest.mark.parametrize("masked", [False, True])
+@pytest.mark.parametrize("dt_name", ["fp16", "bf16"])
+@needs_metal
+def test_zero_state_kernel_matches_upstream(masked, dt_name):
+    """Register-zero initialization must be bit-identical to a zero buffer."""
+    import mlx.core as mx
+    from escha_mlx import gdn_cache
+    from mlx_lm.models import gated_delta
+
+    rng = np.random.default_rng(7)
+    B, T, Hk, Hv, Dk, Dv = 2, 3, 1, 2, 32, 8
+
+    def f16(shape):
+        return mx.array(rng.standard_normal(shape).astype(np.float16))
+
+    q = f16((B, T, Hk, Dk))
+    k = f16((B, T, Hk, Dk))
+    v = f16((B, T, Hv, Dv))
+    g = mx.array(rng.uniform(0.8, 1.0, (B, T, Hv)).astype(np.float32))
+    beta = mx.array(rng.uniform(0.0, 1.0, (B, T, Hv)).astype(np.float16))
+    mask = (
+        mx.array([[True, True, False], [True, False, False]])
+        if masked else None
+    )
+    state_type = gdn_cache._DTYPES[dt_name]
+
+    got_y, got_state = gdn_cache.gated_delta_zero_kernel(
+        q, k, v, g, beta, state_type, mask)
+    want_y, want_state = gated_delta.gated_delta_kernel(
+        q, k, v, g, beta,
+        mx.zeros((B, Hv, Dv, Dk), dtype=state_type), mask)
+    mx.eval(got_y, got_state, want_y, want_state)
+
+    assert got_state.dtype == state_type
+    assert np.array_equal(np.array(got_y), np.array(want_y))
+    # NumPy cannot represent MLX bfloat16 directly; f32 conversion is exact.
+    assert np.array_equal(
+        np.array(got_state.astype(mx.float32)),
+        np.array(want_state.astype(mx.float32)),
+    )
 
 
 def test_cache_survives_deepcopy():

@@ -61,6 +61,13 @@ concurrency ceiling from B=64 (17.89 GB) to B=128 (18.98 GB) and with it
 aggregate throughput 140 -> 167.5 tok/s.  ESCHA_MLX_GDN_STATE=fp32 restores the
 previous numerics exactly.  Note this DOES change bs1 output relative to the f32
 build -- by the amount quantified above.
+
+FIRST-STATE PEAK.  Upstream creates a full f32 zero state when state=None, then
+GDNStateCache casts the kernel result to the configured storage dtype. At high
+batch sizes the lazy graph can therefore retain both full-sized states. The
+zero-state Metal kernel below initializes its f32 accumulator registers to zero
+without an input state and writes fp16/bf16 directly. Subsequent calls use the
+upstream kernel unchanged.
 """
 from __future__ import annotations
 
@@ -92,6 +99,156 @@ _DTYPES = {
 # batch splits. Holding a Dtype here killed the server on its first split.
 _NAME_OF = {mx.float32: "fp32", mx.float16: "fp16", mx.bfloat16: "bf16"}
 
+_ORIGINAL_GATED_DELTA_UPDATE = None
+_INITIAL_STATE_DTYPE_NAME: str | None = None
+
+
+def _make_zero_state_kernel(has_mask: bool = False):
+    """First-call GDN kernel with register-zero state and no state input."""
+    if not mx.metal.is_available():
+        return None
+
+    mask_source = "mask[b_idx * T + t]" if has_mask else "true"
+    source = f"""
+        auto n = thread_position_in_grid.z;
+        auto b_idx = n / Hv;
+        auto hv_idx = n % Hv;
+        auto hk_idx = hv_idx / (Hv / Hk);
+        constexpr int n_per_t = Dk / 32;
+
+        auto q_ = q + b_idx * T * Hk * Dk + hk_idx * Dk;
+        auto k_ = k + b_idx * T * Hk * Dk + hk_idx * Dk;
+        auto v_ = v + b_idx * T * Hv * Dv + hv_idx * Dv;
+        y += b_idx * T * Hv * Dv + hv_idx * Dv;
+
+        auto dk_idx = thread_position_in_threadgroup.x;
+        auto dv_idx = thread_position_in_grid.y;
+        auto o_state = state_out + (n * Dv + dv_idx) * Dk;
+
+        float state[n_per_t];
+        for (int i = 0; i < n_per_t; ++i) {{
+          state[i] = 0.0f;
+        }}
+
+        auto g_ = g + b_idx * T * Hv;
+        auto beta_ = beta + b_idx * T * Hv;
+        for (int t = 0; t < T; ++t) {{
+          if ({mask_source}) {{
+            float kv_mem = 0.0f;
+            for (int i = 0; i < n_per_t; ++i) {{
+              auto s_idx = n_per_t * dk_idx + i;
+              state[i] = state[i] * g_[hv_idx];
+              kv_mem += state[i] * k_[s_idx];
+            }}
+            kv_mem = simd_sum(kv_mem);
+
+            auto delta = (v_[dv_idx] - kv_mem) * beta_[hv_idx];
+            float out = 0.0f;
+            for (int i = 0; i < n_per_t; ++i) {{
+              auto s_idx = n_per_t * dk_idx + i;
+              state[i] = state[i] + k_[s_idx] * delta;
+              out += state[i] * q_[s_idx];
+            }}
+            out = simd_sum(out);
+            if (thread_index_in_simdgroup == 0) {{
+              y[dv_idx] = static_cast<InT>(out);
+            }}
+          }} else {{
+            y[dv_idx] = static_cast<InT>(0);
+          }}
+          q_ += Hk * Dk;
+          k_ += Hk * Dk;
+          v_ += Hv * Dv;
+          y += Hv * Dv;
+          g_ += Hv;
+          beta_ += Hv;
+        }}
+
+        for (int i = 0; i < n_per_t; ++i) {{
+          auto s_idx = n_per_t * dk_idx + i;
+          o_state[s_idx] = static_cast<StT>(state[i]);
+        }}
+    """
+    inputs = ["q", "k", "v", "g", "beta", "T"]
+    if has_mask:
+        inputs.append("mask")
+    suffix = "_mask" if has_mask else ""
+    return mx.fast.metal_kernel(
+        name=f"escha_gated_delta_zero{suffix}",
+        input_names=inputs,
+        output_names=["y", "state_out"],
+        source=source,
+    )
+
+
+_ZERO_STATE_KERNEL = _make_zero_state_kernel()
+_ZERO_STATE_MASKED_KERNEL = _make_zero_state_kernel(has_mask=True)
+
+
+def gated_delta_zero_kernel(q, k, v, g, beta, state_type, mask=None):
+    """Run the GDN recurrence from zero without allocating an input state."""
+    B, T, Hk, Dk = k.shape
+    Hv, Dv = v.shape[2:]
+    kernel = _ZERO_STATE_KERNEL
+    inputs = [q, k, v, g, beta, T]
+    if mask is not None:
+        kernel = _ZERO_STATE_MASKED_KERNEL
+        inputs.append(mask)
+    if kernel is None:
+        raise RuntimeError("zero-state GDN kernel requires Metal")
+    return kernel(
+        inputs=inputs,
+        template=[
+            ("InT", q.dtype),
+            ("StT", state_type),
+            ("Dk", Dk),
+            ("Dv", Dv),
+            ("Hk", Hk),
+            ("Hv", Hv),
+        ],
+        grid=(32, Dv, B * Hv),
+        threadgroup=(32, 4, 1),
+        output_shapes=[(B, T, Hv, Dv), (B, Hv, Dv, Dk)],
+        output_dtypes=[q.dtype, state_type],
+    )
+
+
+def _gated_delta_update(q, k, v, a, b, A_log, dt_bias, state=None,
+                        mask=None, use_kernel=True):
+    """Use the allocation-free kernel only for a missing initial state."""
+    original = _ORIGINAL_GATED_DELTA_UPDATE
+    if original is None:
+        raise RuntimeError("GDN zero-state patch installed without upstream function")
+    if (state is not None or not use_kernel or mx.default_device() != mx.gpu
+            or not mx.metal.is_available()):
+        return original(q, k, v, a, b, A_log, dt_bias, state, mask, use_kernel)
+
+    from mlx_lm.models import gated_delta
+
+    beta = mx.sigmoid(b)
+    g = gated_delta.compute_g(A_log, a, dt_bias)
+    state_type = _DTYPES[_INITIAL_STATE_DTYPE_NAME]
+    return gated_delta_zero_kernel(q, k, v, g, beta, state_type, mask)
+
+
+def _install_zero_state_patch(dtype: mx.Dtype) -> None:
+    """Patch the upstream symbol used by Qwen3.5's GDN modules."""
+    from mlx_lm.models import qwen3_5
+
+    global _ORIGINAL_GATED_DELTA_UPDATE, _INITIAL_STATE_DTYPE_NAME
+    if _ORIGINAL_GATED_DELTA_UPDATE is None:
+        _ORIGINAL_GATED_DELTA_UPDATE = qwen3_5.gated_delta_update
+    _INITIAL_STATE_DTYPE_NAME = _NAME_OF[dtype]
+    qwen3_5.gated_delta_update = _gated_delta_update
+
+
+def _restore_upstream_patch() -> None:
+    if _ORIGINAL_GATED_DELTA_UPDATE is None:
+        return
+    from mlx_lm.models import qwen3_5
+
+    qwen3_5.gated_delta_update = _ORIGINAL_GATED_DELTA_UPDATE
+
 
 def state_dtype() -> mx.Dtype:
     """Storage dtype for the GDN recurrent state (ESCHA_MLX_GDN_STATE)."""
@@ -105,10 +262,9 @@ def state_dtype() -> mx.Dtype:
 class GDNStateCache(ArraysCache):
     """ArraysCache that stores the recurrent state in a chosen dtype.
 
-    Casting on __setitem__ (rather than patching GatedDeltaNet.__call__) keeps
-    this to one override and leaves mlx-lm untouched: the model writes
-    `cache[1] = state` and the kernel reads whatever dtype it finds, because
-    `gated_delta_kernel` templates on `state.dtype` already.
+    The first recurrence is handled by the register-zero kernel above. Casting
+    on __setitem__ remains a safety net for other writes; subsequent upstream
+    kernel calls template on `state.dtype` and already emit the same dtype.
     """
 
     def __init__(self, size: int = 2, left_padding=None,
@@ -146,9 +302,12 @@ def install(model, dtype: mx.Dtype | None = None) -> mx.Dtype:
     """
     dt = dtype if dtype is not None else state_dtype()
     if dt == mx.float32:
+        _restore_upstream_patch()
         logger.info("escha_mlx: GDN state kept at f32 (ESCHA_MLX_GDN_STATE=fp32) "
                     "— restores pre-2026-07-30 numerics exactly")
         return dt
+
+    _install_zero_state_patch(dt)
 
     lm = model.language_model
     layers = lm.model.layers
@@ -161,7 +320,7 @@ def install(model, dtype: mx.Dtype | None = None) -> mx.Dtype:
     lm.make_cache = make_cache
     model.make_cache = make_cache
     n_linear = sum(1 for l in layers if l.is_linear)
-    logger.info("escha_mlx: GDN recurrent state -> %s across %d linear layers "
-                "(%.1f MB/seq saved)", dt, n_linear,
+    logger.info("escha_mlx: GDN recurrent state -> %s across %d linear layers; "
+                "allocation-free first state (%.1f MB/seq saved)", dt, n_linear,
                 n_linear * 32 * 128 * 128 * (4 - dt.size) / 1e6)
     return dt
