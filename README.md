@@ -110,9 +110,12 @@ regime the 1.59× footprint buys, and where a Mac serving more than one user liv
 
 The M5 Pro results are a separate machine characterization, not a paired cross-chip A/B.
 Its B=1/8/16/128 entries are five-run medians from the 16-token, step-synchronized
-repeatability harness. M5 Pro P0 gates pass, while the complete suite is **165 passed,
-4 failed, 1 skipped** because of the documented fused-Hadamard comparison failures, so its
-results are not yet merge-qualified validation data. See [Known issues](#known-issues).
+repeatability harness. M5 Pro P0 gates pass, while the complete suite was **165 passed,
+4 failed, 1 skipped** at the benchmarked revision because its dense-matmul Hadamard
+test oracle selected MLX's TF32 path. That historical validation caveat is now resolved
+by comparing the fused butterfly with the production native butterfly; see
+[Resolved issues](#resolved-issues). The current complete suite is **170 passed,
+1 skipped** with default TF32; the performance numbers themselves have not been rerun.
 
 Full tables (ISL/OSL serving grid, prefill scaling, drift controls):
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md). The complete bring-up and optimization
@@ -120,19 +123,19 @@ campaign — including every negative result, so you don't repeat them:
 [docs/BRINGUP_AND_PERF.md](docs/BRINGUP_AND_PERF.md). Raw result JSONs per machine:
 [`bench/results/`](bench/results/).
 
-## Known issues
+## Resolved issues
 
-- **M5 Pro, MLX 0.32.0, fused-Hadamard comparison:** with MLX's default TF32 path,
-  60.35–61.11% of fused fp16 outputs have a different bit pattern from the MLX
-  dense-matmul op chain, although the relative-error gate passes and the fused kernel
-  is bit-reproducible. Starting the process with `MLX_ENABLE_TF32=0` makes the complete
-  suite pass (169 passed, 1 skipped) and reduces the mismatch to 0.113–0.122%, but
-  does **not** make the two paths bit-exact; the test passes because its limit is 1%.
-  The fused output
-  was bit-exact with the independent NumPy reference in all four analysed shapes.
-  This is recorded as an unresolved backend-path comparison issue, not treated as a
-  gate fix. Per-shape counts and the paired throughput cost are in
-  [docs/PERFORMANCE.md](docs/PERFORMANCE.md#m5-pro-known-issue-fused-hadamard-versus-mlx-tf32).
+- **M5 Pro, MLX 0.32.0, fused-Hadamard comparison:** the old test compared an
+  explicit FP32 butterfly with a dense matmul that selected MLX's TF32/NAX path.
+  It therefore measured two reduction algorithms and precisions, not the production
+  fused/native equivalence. `moe.had_blocks` now uses `mx.hadamard_transform`, and
+  the fused test requires its final FP16 output to be bit exact with that native
+  butterfly under the default TF32 setting. The independent NumPy/reference check
+  remains as a tolerance test. Global `MLX_ENABLE_TF32=0` is no longer needed for
+  this gate; the complete suite now reports **170 passed, 1 skipped** both with
+  default TF32 and with `MLX_ENABLE_TF32=0`. Historical counts and the diagnostic
+  TF32 A/B are retained in
+  [docs/PERFORMANCE.md](docs/PERFORMANCE.md#m5-pro-resolved-issue-dense-matmul-test-oracle-and-tf32).
 
 ## Repository layout
 

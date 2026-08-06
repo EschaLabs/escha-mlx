@@ -16,28 +16,14 @@ from . import msl, ref
 RS = ref.RS
 
 
-def _h128_matrix() -> mx.array:
-    i = np.arange(128, dtype=np.uint32)
-    par = np.bitwise_count(i[:, None] & i[None, :]).astype(np.int64)
-    h = np.where(par % 2 == 0, 1.0, -1.0).astype(np.float32)
-    return mx.array(h)
-
-
-_H128: mx.array | None = None
-
-
 def had_blocks(x: mx.array) -> mx.array:
-    """Unnormalized 128-point WHT (Sylvester order) on 128-blocks of last dim.
-
-    Matmul-by-H formulation: order-exact vs ref.h128 on every backend
-    (mx.hadamard_transform is the P4 fast path, gated by G0.1).
-    """
-    global _H128
-    if _H128 is None:
-        _H128 = _h128_matrix()
+    """MLX-native unnormalized 128-point WHT on last-dimension blocks."""
     shape = x.shape
-    c = shape[-1]
-    y = x.reshape(-1, c // 128, 128) @ _H128
+    if shape[-1] % 128:
+        raise ValueError(
+            f"Hadamard dimension must be divisible by 128, got {shape[-1]}"
+        )
+    y = mx.hadamard_transform(x.reshape(-1, 128), scale=1.0)
     return y.reshape(shape)
 
 
