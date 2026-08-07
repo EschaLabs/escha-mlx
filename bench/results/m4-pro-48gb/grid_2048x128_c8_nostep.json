@@ -1,0 +1,22 @@
+[
+  {
+    "n_ok": 16,
+    "n_err": 0,
+    "errors": [],
+    "wall_s": 152.03,
+    "ttft_p50": 84.646,
+    "ttft_p99": 84.737,
+    "tpot_ms_p50": 77.52,
+    "per_user_tps": 1.79,
+    "aggregate_out_tps": 13.47,
+    "total_tps": 230.29,
+    "out_tok_mean": 128.0,
+    "osl_target": 128,
+    "osl_hit_rate": 1.0,
+    "cached_tok_mean": 0.0,
+    "isl": 2048,
+    "osl": 128,
+    "concurrency": 8,
+    "n_requests": 16
+  }
+]

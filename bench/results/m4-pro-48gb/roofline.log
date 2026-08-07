@@ -1,0 +1,48 @@
+=== roofline — Apple M4 Pro | mlx 0.32.0 ===
+advertised peak DRAM bandwidth: 273.0 GB/s
+wired limit 38.65 GB
+
+per-call dispatch floor: 129.0 us (ops faster than this are dispatch-bound, not bandwidth-bound)
+
+--- 1. peak achievable read bandwidth ---
+  read_256MB          216.2 GB/s  (79% of peak)
+  read_512MB          216.9 GB/s  (79% of peak)
+  read_1024MB         231.9 GB/s  (85% of peak)
+  read_2048MB         243.7 GB/s  (89% of peak)
+  ROOFLINE            243.7 GB/s  (89% of advertised)
+
+--- 2. MLX affine-Q8 quantized_matmul (the dense stream) ---
+  lm_head_248320x2048_b1              2.334 ms    231.5 GB/s  (95% of roofline)
+  lm_head_248320x2048_b8              3.861 ms    139.9 GB/s  (57% of roofline)
+  lm_head_248320x2048_b16             5.006 ms    107.9 GB/s  (44% of roofline)
+  lm_head_248320x2048_b32             5.015 ms    107.7 GB/s  (44% of roofline)
+  gdn_in_proj_2048x12288_b1           0.219 ms    122.2 GB/s  (50% of roofline)
+  gdn_in_proj_2048x12288_b8           0.285 ms     93.7 GB/s  (38% of roofline)
+  gdn_in_proj_2048x12288_b16          0.380 ms     70.4 GB/s  (29% of roofline)
+  gdn_in_proj_2048x12288_b32          0.387 ms     69.1 GB/s  (28% of roofline)
+  gdn_out_proj_4096x2048_b1           0.125 ms     71.3 GB/s  (29% of roofline)
+  gdn_out_proj_4096x2048_b8           0.168 ms     52.9 GB/s  (22% of roofline)
+  gdn_out_proj_4096x2048_b16          0.196 ms     45.4 GB/s  (19% of roofline)
+  gdn_out_proj_4096x2048_b32          0.189 ms     47.2 GB/s  (19% of roofline)
+  attn_qkv_2048x4096_b1               0.114 ms     78.4 GB/s  (32% of roofline)
+  attn_qkv_2048x4096_b8               0.178 ms     50.0 GB/s  (21% of roofline)
+  attn_qkv_2048x4096_b16              0.207 ms     43.1 GB/s  (18% of roofline)
+  attn_qkv_2048x4096_b32              0.191 ms     46.6 GB/s  (19% of roofline)
+  shared_gate_2048x512_b1             0.097 ms     11.5 GB/s  (5% of roofline)
+  shared_gate_2048x512_b8             0.103 ms     10.8 GB/s  (4% of roofline)
+  shared_gate_2048x512_b16            0.110 ms     10.1 GB/s  (4% of roofline)
+  shared_gate_2048x512_b32            0.148 ms      7.5 GB/s  (3% of roofline)
+
+--- 3. trellis moe_gemv (the expert stream) ---
+  gate_up_K2_rows8            0.172 ms     24.4 GB/s  streamed     4.2 MB (unique    4.2)  (10% of roofline)
+  gate_up_K2_rows16           0.248 ms     33.8 GB/s  streamed     8.4 MB (unique    8.4)  (14% of roofline)
+  gate_up_K2_rows32           0.269 ms     62.5 GB/s  streamed    16.8 MB (unique   16.8)  (26% of roofline)
+  gate_up_K2_rows64           0.445 ms     75.3 GB/s  streamed    33.6 MB (unique   33.6)  (31% of roofline)
+  gate_up_K2_rows128          0.757 ms     88.7 GB/s  streamed    67.1 MB (unique   67.1)  (36% of roofline)
+  gate_up_K2_rows256          1.400 ms     95.9 GB/s  streamed   134.2 MB (unique  134.2)  (39% of roofline)
+  down_K3_rows8               0.151 ms     20.9 GB/s  streamed     3.1 MB (unique    3.1)  (9% of roofline)
+  down_K3_rows16              0.176 ms     35.8 GB/s  streamed     6.3 MB (unique    6.3)  (15% of roofline)
+  down_K3_rows32              0.209 ms     60.3 GB/s  streamed    12.6 MB (unique   12.6)  (25% of roofline)
+  down_K3_rows64              0.292 ms     86.2 GB/s  streamed    25.2 MB (unique   25.2)  (35% of roofline)
+  down_K3_rows128             0.453 ms    111.1 GB/s  streamed    50.3 MB (unique   50.3)  (46% of roofline)
+  down_K3_rows256             0.796 ms    126.4 GB/s  streamed   100.7 MB (unique  100.7)  (52% of roofline)
