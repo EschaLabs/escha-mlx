@@ -75,6 +75,18 @@ def test_had_blocks_matches_ref():
     assert np.abs(got - want).max() < 1e-3 * np.abs(want).max()
 
 
+def test_had_blocks_matches_native_bit_exact():
+    import mlx.core as mx
+    from escha_mlx import moe
+    rng = np.random.default_rng(19)
+    x = mx.array(rng.standard_normal((3, 256)).astype(np.float32))
+    got = np.array(moe.had_blocks(x))
+    want = np.array(mx.hadamard_transform(x.reshape(-1, 128), scale=1.0))
+    assert np.array_equal(
+        got.reshape(-1, 128).view(np.uint32), want.view(np.uint32)
+    )
+
+
 def _synth_experts(rng, E, ic, oc, K):
     from escha_mlx import moe
     code = rng.integers(-32768, 32768, size=(E, ic // 16, oc // 16, 16 * K), dtype=np.int16)

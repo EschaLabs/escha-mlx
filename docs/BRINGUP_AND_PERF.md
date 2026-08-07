@@ -1295,6 +1295,13 @@ exactly.
 
 Correctness battery green (Paris / 391 / coherent thinking-mode haiku).
 
+> **Current status:** this subsection records the original dense-matmul op chain.
+> Production `moe.had_blocks` now uses `mx.hadamard_transform`, whose radix-2
+> butterfly order matches the fused kernel. The current gate requires their final
+> FP16 outputs to be bit exact under both default TF32 and `MLX_ENABLE_TF32=0`;
+> the dense-matmul/TF32 mismatch is retained only as historical diagnosis in
+> [PERFORMANCE.md](PERFORMANCE.md#m5-pro-resolved-issue-dense-matmul-test-oracle-and-tf32).
+
 ### 17.3 Why it was worth only 7–11% and not the 20% projected
 
 The ablation said the transform pipeline was ~20% of both prefill and decode, and

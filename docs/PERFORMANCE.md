@@ -186,21 +186,25 @@ microbench varied across three consecutive runs: K2 24–49 GB/s and K3 33–54 
 The value gates passed every time; these short microbench figures are retained as a
 stability observation and are not used for the throughput headlines below.
 
-The complete suite is nevertheless **165 passed, 4 failed, 1 skipped**. All four
-failures are `tests/test_fused_had.py::test_fused_matches_op_chain`: the primary
+At the benchmarked runtime revision, the complete suite was **165 passed, 4 failed,
+1 skipped**. All four failures were the former
+`tests/test_fused_had.py::test_fused_matches_op_chain`: the primary
 `2e-3` relative-error bound passes, but 60.35–61.11% of fp16 bit patterns differ
 from the dense-matmul op chain on this M5 Pro, exceeding the test's 1% secondary
 bound. The fused path remains bit-reproducible and its independent NumPy-reference
 test passes. No gate was excluded or loosened, so this is machine-characterization
-data rather than a merge-green validation result.
+data rather than a merge-green validation result. This was subsequently resolved
+by replacing the dense-matmul test oracle and production op chain with MLX's native
+butterfly; the performance tables below still describe the recorded revision and
+have not been rerun.
 
-#### M5 Pro known issue: fused Hadamard versus MLX TF32
+#### M5 Pro resolved issue: dense-matmul test oracle and TF32
 
-On this M5 Pro, MLX 0.32.0 selects its NAX/TF32 path for the FP32 dense matmul in
-the comparison op chain when `MLX_ENABLE_TF32` is unset. The fused Metal kernel
-continues to perform an explicit FP32 butterfly. The two paths therefore combine
-different operation order with different FP32 matmul precision, making the raw
-fp16 comparison fail widely even though the maximum-error gate remains green.
+On this M5 Pro, MLX 0.32.0 selected its NAX/TF32 path for the FP32 dense matmul in
+the old comparison op chain when `MLX_ENABLE_TF32` was unset. The fused Metal kernel
+performed an explicit FP32 butterfly. The test therefore combined different
+operation order with different FP32 matmul precision, making the raw fp16 comparison
+fail widely even though the maximum-error gate remained green.
 
 The four test shapes were measured again in fresh processes with TF32 at its
 default and with `MLX_ENABLE_TF32=0`. Counts compare the raw fp16 bit patterns;
@@ -213,13 +217,20 @@ the test requires the op-chain mismatch rate to be below 1%.
 | 300 × 1024 | 187,741 / 307,200 (61.1136%) | 369 / 307,200 (0.1201%) | 0 / 307,200 |
 | 2048 × 2048 | 2,557,851 / 4,194,304 (60.9839%) | 4,933 / 4,194,304 (0.1176%) | 0 / 4,194,304 |
 
-`MLX_ENABLE_TF32=0 .venv/bin/python -m pytest tests/ -v` reports **169 passed,
-1 skipped**; the targeted `tests/test_fused_had.py` subset is **8 passed**. This
-is not a bit-exact resolution: 0.113–0.122% of the
-fused/op-chain outputs still differ, and the current test passes only because
-that tail is below 1%. Repeated fused evaluations remain bit-identical. Runtime
-users who require the previous op chain can instead set `ESCHA_MLX_FUSED_HAD=0`;
-no correctness gate was loosened or skipped.
+In that historical implementation,
+`MLX_ENABLE_TF32=0 .venv/bin/python -m pytest tests/ -v` reported **169 passed,
+1 skipped** and the targeted subset reported **8 passed**. This was not a bit-exact
+resolution: 0.113–0.122% of fused/dense-matmul outputs still differed, and the test
+passed only because that tail was below 1%.
+
+The current implementation instead uses `mx.hadamard_transform` for the native
+op chain. Both paths now execute the same radix-2 butterfly order, and the fused
+test requires zero differing FP16 bits across the four shapes above with TF32 left
+at its default. `ESCHA_MLX_FUSED_HAD=0` selects this native chain. The independent
+NumPy comparison remains tolerance-based because its matrix multiplication has a
+different reduction order. The complete current suite reports **170 passed,
+1 skipped** both under default TF32 and with `MLX_ENABLE_TF32=0`. No correctness
+gate is loosened or skipped.
 
 Turning off TF32 also has a measurable cost. A same-session default/off/default
 A/B/A used `bench.baseline` phases B and C at runtime revision `aec1ea8` and model
@@ -240,8 +251,9 @@ revision `32016b7`, so this is not a weight change.
 Peak memory was unchanged at every corresponding point. The first ISL-128 arm
 was cold and the batched-prefill closing arm drifted substantially, so neither is
 used for a performance claim. The stable observations are a roughly 19–20%
-long-prompt prefill loss and a 1–4% decode loss; disabling TF32 is therefore a
-diagnostic/workaround, not the default-performance recommendation. Raw A/B/A JSON:
+long-prompt prefill loss and a 1–4% decode loss; disabling TF32 was therefore a
+useful diagnosis of the former dense-matmul oracle, not a current workaround or
+default-performance recommendation. Raw A/B/A JSON:
 [tf32_aba.json](../bench/results/m5-pro-24gb/tf32_aba.json).
 
 ### In-process ABCD baseline
@@ -382,12 +394,13 @@ precision, and each leaves decode bit-reproducible.
    run rather than accumulating. For calibration, changing batch size from 1 to
    16 perturbs logits *more* than this does. `ESCHA_MLX_GDN_STATE=fp32` restores
    the f32 behaviour at ~10% throughput cost above batch 32.
-3. **Fused expert input transform.** The Hadamard is computed by an in-register
-   butterfly rather than a dense 128×128 matmul — the same f32 arithmetic in a
-   different summation order, which avoids materialising ~150 MB of f32
-   intermediates per layer. Within 2e-3 relative of both the op chain and the
-   NumPy reference; 0.12% of f16 outputs differ by one ulp.
-   `ESCHA_MLX_FUSED_HAD=0` restores the op chain exactly.
+3. **Fused expert input transform.** Both the fused kernel and the native op chain
+   use a radix-2 butterfly instead of a dense 128×128 matmul. The fused kernel also
+   combines the gather, input scale, transform, output scale and cast, avoiding
+   ~150 MB of f32 intermediate traffic per layer. Its final f16 output is bit exact
+   with `mx.hadamard_transform`; both remain within the reference tolerance against
+   the independent NumPy implementation. `ESCHA_MLX_FUSED_HAD=0` selects the native
+   op chain.
 
 ## Reproducing
 
