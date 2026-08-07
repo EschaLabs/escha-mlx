@@ -119,6 +119,9 @@ class EschaSparseMoeBlock(nn.Module):
 
     def _output_rows(self, mid: mx.array, row_expert: mx.array,
                      ex: moe.EschaExperts) -> mx.array:
+        if self._fused_had and mid.dtype == mx.float32:
+            # Keep the transform, output scale gather and f16 cast in one kernel.
+            return msl.scaled_had_out(mid, ex.rout, row_expert, RS)
         y = moe.had_blocks(mid) * RS * ex.rout[row_expert]
         return y.astype(mx.float16)
 

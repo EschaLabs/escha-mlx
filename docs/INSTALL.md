@@ -130,7 +130,7 @@ these is gated bit-identical or documented where it is not.
 | variable | effect |
 |---|---|
 | `ESCHA_MLX_WIRED_GB=N` | wire N GB. **Required above a ~18 GB working set** (see the cliff above). Must be ≤ the cap. |
-| `ESCHA_MLX_FUSED_HAD=0` | use the unfused op chain for the expert input transform. Default is a single fused Metal kernel (+7-9% prefill, +11% at batch 128). The fused path reassociates a 128-term f32 sum, so outputs differ from the op chain by ~1e-2 relative while staying bit-reproducible; set this to 0 to reproduce the op chain exactly. |
+| `ESCHA_MLX_FUSED_HAD=0` | use native MLX op chains for the expert input and output transforms. The default fused Metal kernels combine the scale gathers, radix-2 Hadamard, scaling and f16 cast without changing the final f16 bits; set this to 0 for performance comparison or debugging. |
 | `ESCHA_MLX_GDN_STATE=fp32` | store the recurrent state in f32 instead of fp16. Costs ~10% throughput at batch ≥32 and 31.5 MB/sequence; use it if you need the pre-fp16 numerics exactly. |
 | `ESCHA_MLX_LAST_LOGIT=0` | compute logits for **all** prompt positions, not just the last. Needed for per-position scoring (loglikelihood eval); costs ~7% prefill. |
 | `ESCHA_MLX_Q8_GROUP=64` | 64-wide Q8 groups instead of 128. Identical numerics, +140 MB. |

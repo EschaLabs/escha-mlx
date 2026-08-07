@@ -114,8 +114,10 @@ repeatability harness. M5 Pro P0 gates pass, while the complete suite was **165 
 4 failed, 1 skipped** at the benchmarked revision because its dense-matmul Hadamard
 test oracle selected MLX's TF32 path. That historical validation caveat is now resolved
 by comparing the fused butterfly with the production native butterfly; see
-[Resolved issues](#resolved-issues). The current complete suite is **170 passed,
-1 skipped** with default TF32; the performance numbers themselves have not been rerun.
+[Resolved issues](#resolved-issues). The current complete suite is **176 passed,
+1 skipped** with default TF32. The historical table above still describes the
+recorded dense-matmul revision; a current native-vs-output-fused A/B/A through B=32
+is reported in [docs/PERFORMANCE.md](docs/PERFORMANCE.md#current-output-hadamard-fusion-aba).
 
 Full tables (ISL/OSL serving grid, prefill scaling, drift controls):
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md). The complete bring-up and optimization
@@ -132,7 +134,7 @@ campaign — including every negative result, so you don't repeat them:
   the fused test requires its final FP16 output to be bit exact with that native
   butterfly under the default TF32 setting. The independent NumPy/reference check
   remains as a tolerance test. Global `MLX_ENABLE_TF32=0` is no longer needed for
-  this gate; the complete suite now reports **170 passed, 1 skipped** both with
+  this gate; the complete suite now reports **176 passed, 1 skipped** with
   default TF32 and with `MLX_ENABLE_TF32=0`. Historical counts and the diagnostic
   TF32 A/B are retained in
   [docs/PERFORMANCE.md](docs/PERFORMANCE.md#m5-pro-resolved-issue-dense-matmul-test-oracle-and-tf32).

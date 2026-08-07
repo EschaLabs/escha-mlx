@@ -228,7 +228,7 @@ op chain. Both paths now execute the same radix-2 butterfly order, and the fused
 test requires zero differing FP16 bits across the four shapes above with TF32 left
 at its default. `ESCHA_MLX_FUSED_HAD=0` selects this native chain. The independent
 NumPy comparison remains tolerance-based because its matrix multiplication has a
-different reduction order. The complete current suite reports **170 passed,
+different reduction order. The complete current suite reports **176 passed,
 1 skipped** both under default TF32 and with `MLX_ENABLE_TF32=0`. No correctness
 gate is loosened or skipped.
 
@@ -302,6 +302,39 @@ The ABCD Phase C loop and this step-synchronized loop have different synchroniza
 semantics, so their absolute throughput figures are reported separately. The five-run
 rows establish within-session stability but do not run Phase C replication-invariance
 checks. This is not a candidate-vs-baseline A/B.
+
+### Current output Hadamard fusion A/B/A
+
+The summary and repeatability tables above are historical measurements from runtime
+revision `79ba35e`, whose expert output transform was a dense 128x128 matmul. They are
+not measurements of the native butterfly now on `main`. The current output-fusion
+candidate was therefore compared directly with that native `main` path in one loaded
+model process: native A1, fused B, then native A2 as the drift control. Each decode
+point uses a 16-token prefill, eight warmup steps, 24 timed steps, per-step evaluation
+and five repeats. The wired limit remained at zero; every completed arm produced the
+same token hash.
+
+```bash
+.venv/bin/python -u bench/sweep_output_had.py --model ./escha-w2 \
+    --isls 512 --batches 1,8,16,32 --repeats 5 --decode-steps 24 \
+    --out bench/results/m5-pro-24gb/output_had_ab.json
+```
+
+| workload | native A1 | output-fused | native A2 | fused vs mean(native) | fused spread | peak memory |
+|---|---:|---:|---:|---:|---:|---:|
+| prefill, ISL 512 | 551.45 | **583.09** | 550.69 | **+5.8%** | 0.42% | 13.09 GB |
+| decode, B=1 | 42.00 | **44.61** | 42.48 | **+5.6%** | 1.30% | 12.30 GB |
+| decode, B=8 | 147.25 | **151.25** | 147.51 | **+2.6%** | 0.74% | 12.64 GB |
+| decode, B=16 | 186.65 | **188.23** | 186.62 | **+0.9%** | 0.98% | 12.98 GB |
+| decode, B=32 | 267.67 | **271.48** | 264.90 | **+2.0%** | 1.16% | 13.72 GB |
+
+This isolates the current change: output fusion is faster than the native butterfly
+at every tested batch and is bit exact with it. It does not establish a comparison
+with the old dense-matmul table, whose NAX/TF32 execution and reduction order differ.
+An attempted B=128 extension was discarded after macOS panicked in `IOGPUFamily`
+(`IOGPUMemory.cpp:550`, `completeMemory() prepare count underflow`) during the first
+native arm. No B=128 result is claimed, and the rerun was deliberately limited to
+B<=32. Raw A/B/A JSON: [output_had_ab.json](../bench/results/m5-pro-24gb/output_had_ab.json).
 
 ### Roofline
 
@@ -394,13 +427,13 @@ precision, and each leaves decode bit-reproducible.
    run rather than accumulating. For calibration, changing batch size from 1 to
    16 perturbs logits *more* than this does. `ESCHA_MLX_GDN_STATE=fp32` restores
    the f32 behaviour at ~10% throughput cost above batch 32.
-3. **Fused expert input transform.** Both the fused kernel and the native op chain
-   use a radix-2 butterfly instead of a dense 128×128 matmul. The fused kernel also
-   combines the gather, input scale, transform, output scale and cast, avoiding
-   ~150 MB of f32 intermediate traffic per layer. Its final f16 output is bit exact
-   with `mx.hadamard_transform`; both remain within the reference tolerance against
-   the independent NumPy implementation. `ESCHA_MLX_FUSED_HAD=0` selects the native
-   op chain.
+3. **Fused expert transforms.** Both the fused kernels and the native op chains
+   use a radix-2 butterfly instead of a dense 128×128 matmul. The input kernel
+   combines the row/scale gather, transform, output scale and cast; the output
+   kernel combines the transform, output-scale gather and cast. Both preserve the
+   native chain's f32 operation order and produce bit-exact final f16 outputs while
+   avoiding the intermediate tensors. `ESCHA_MLX_FUSED_HAD=0` selects the native
+   input and output chains.
 
 ## Reproducing
 
