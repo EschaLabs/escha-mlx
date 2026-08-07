@@ -153,6 +153,44 @@ fine-tune — is what produces those checkpoints, and it is not part of this pro
 Runtimes for other platforms are linked from the
 [model cards](https://huggingface.co/EschaLabs).
 
+## Related projects — higgs
+
+If you want to *serve* escha models rather than embed this runtime,
+[**higgs**](https://github.com/panbanda/higgs) is worth a look. It's an MIT-licensed Rust
+server for **free local MLX inference on Apple Silicon**: a single static binary with no
+external dependencies that runs open-weight MLX models locally and exposes local and
+remote providers (OpenAI, Anthropic, Ollama) behind one endpoint, with API translation
+between the OpenAI and Anthropic formats, `higgs shellenv` / `higgs exec` for dropping it
+into existing tools, and a daemon mode with a metrics dashboard. It covers Qwen 3.6 and
+Qwen 3.x alongside Llama, Mistral, Gemma 2, Phi-3, Starcoder2, DeepSeek-V2 and
+LLaVA-Qwen2.
+
+[**@dusterbloom's fork**](https://github.com/dusterbloom/higgs) is where the escha-facing
+work lives: the [`nightly`](https://github.com/dusterbloom/higgs/commits/nightly/) branch
+has been adding **EschaLabs trellis-quantized checkpoint support** and its own trellis
+GEMM kernels, so escha users get a second, independent implementation of the codec to run
+against.
+
+**If you use escha models, give both a try** — it's free and it installs as one binary:
+
+```bash
+brew install panbanda/brews/higgs
+```
+
+A second runtime is the best thing that can happen to a format: independent
+implementations are how encoding bugs get found. Issues and results are welcome in any of
+these repositories.
+
+## Acknowledgements
+
+- [**@dusterbloom**](https://github.com/dusterbloom) — for help working through the NAX
+  (M5 Neural Accelerator) behaviour affecting bit-exact custom Metal kernels, and for the
+  NAX neutralization work on
+  [higgs `nightly`](https://github.com/dusterbloom/higgs/commits/nightly/). M5 is the
+  first chip where a custom Metal kernel's bit-exactness depends on whether the matrix
+  coprocessor is in play, and having someone mapping that terrain in parallel made it a
+  great deal less lonely.
+
 ## License
 
 [Apache-2.0](LICENSE).
