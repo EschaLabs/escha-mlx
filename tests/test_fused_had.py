@@ -4,11 +4,9 @@ Replaces ~5 MLX ops, each materialising an [m, IC] f32 tensor, with one kernel
 that keeps everything in threadgroup memory. Measured 15.8% of prefill and 11.3%
 of decode was the rin stage alone (doc §16.2).
 
-It is NOT bit-identical to the op chain: the butterfly sums 128 terms in a
-different order than the matmul-by-H. It IS the same f32 arithmetic — no
-precision is dropped — and it is held to the same tolerance the matmul itself is
-held to against ref.h128, plus reproducibility, which is the property this
-runtime actually guarantees.
+The fused and native op-chain paths use the same radix-2 butterfly order. The
+fused path must therefore be bit-identical at its final f16 output; the separate
+NumPy test keeps the butterfly's mathematical result tied to ref.h128.
 """
 from __future__ import annotations
 
@@ -32,7 +30,7 @@ def _case(m, IC, E, seed):
 
 @pytest.mark.parametrize("m,IC,E", [(8, 512, 256), (96, 2048, 64),
                                     (300, 1024, 128), (2048, 2048, 256)])
-def test_fused_matches_op_chain(m, IC, E):
+def test_fused_matches_native_chain_bit_exact(m, IC, E):
     import mlx.core as mx
     from escha_mlx import moe, msl, ref
 
@@ -45,14 +43,14 @@ def test_fused_matches_op_chain(m, IC, E):
     b = np.array(want).astype(np.float32)
     scale = max(np.abs(b).max(), 1e-6)
     assert np.abs(a - b).max() <= 2e-3 * scale, np.abs(a - b).max() / scale
-    # and the f16 outputs should agree almost everywhere
+    # The fused kernel and MLX native transform use the same butterfly order.
     nd = int((np.array(got).view(np.uint16) != np.array(want).view(np.uint16)).sum())
-    assert nd / a.size < 0.01, f"{100*nd/a.size:.2f}% of f16 elements differ"
+    assert nd == 0, f"{nd}/{a.size} f16 elements differ"
 
 
 @pytest.mark.parametrize("m,IC,E", [(96, 2048, 64), (300, 1024, 128)])
 def test_fused_is_bit_reproducible(m, IC, E):
-    """Determinism is the guarantee; reassociation is allowed, drift is not."""
+    """Repeated fused evaluations must produce identical output bits."""
     import mlx.core as mx
     from escha_mlx import msl, ref
 

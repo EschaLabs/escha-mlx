@@ -498,7 +498,7 @@ def _scaled_had_source(rs: float) -> str:
 
     The unfused chain is arithmetically trivial and memory-brutal: at m=2048,
     IC=2048 it materialises `[m, IC]` f32 for the cast, again for the rin gather,
-    again for the product, again for the matmul output, again for the RS scale --
+    again for the product, again for the native transform output, again for the RS scale --
     ~150 MB of traffic per layer per leg to do 128 adds per output.  Measured
     cost: 15.8% of prefill and 11.3% of decode for the rin stage alone, plus
     3.3%/8.9% for the Hadamard (doc §16.2).
@@ -508,10 +508,10 @@ def _scaled_had_source(rs: float) -> str:
     the input and the output ever reach DRAM.
 
     The transform is the in-place radix-2 butterfly, 7 stages, which computes
-    y[j] = sum_i (-1)^popcount(i&j) x[i] -- the same Sylvester-ordered
-    unnormalised WHT the matmul-by-H computes, in a different summation order.
-    Not bit-identical to the matmul (no reduction order is), and gated to the
-    same tolerance the matmul itself is held to against ref.h128.
+    y[j] = sum_i (-1)^popcount(i&j) x[i] -- the same Sylvester-ordered,
+    unnormalised WHT and reduction order as mx.hadamard_transform. The final f16
+    output is gated bit-for-bit against that native op chain; a separate
+    tolerance test ties both implementations to ref.h128.
     """
     return f"""
     uint tid = thread_position_in_threadgroup.x;

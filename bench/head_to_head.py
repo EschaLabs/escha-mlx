@@ -39,6 +39,12 @@ import mlx.core as mx
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from escha_mlx.benchmark_metadata import (
+    annotate_report,
+    benchmark_metadata,
+    model_hf_revision,
+)
+
 WARMUP_DECODE = 8
 PREFILL_CHUNK = 256
 
@@ -164,6 +170,11 @@ def main() -> None:
           f"wired={cur/1e9:.2f} GB, cap={cap:.2f} GB")
 
     results = []
+    metadata = benchmark_metadata(args.a)
+    metadata["model_hf_revision"] = {
+        args.a: metadata["model_hf_revision"],
+        args.b: model_hf_revision(args.b),
+    }
     # A/B/A so drift over the run is visible rather than charged to B
     for label, path in (("A (escha W2)", args.a),
                         ("B (stock 4-bit)", args.b),
@@ -178,7 +189,7 @@ def main() -> None:
         results.append(r)
 
     if args.out:
-        Path(args.out).write_text(json.dumps(results, indent=2))
+        Path(args.out).write_text(json.dumps(annotate_report(results, metadata), indent=2))
         print(f"\nwrote {args.out}")
 
 

@@ -106,19 +106,11 @@ def test_decode_hash_equals_lut(monkeypatch):
         "hash decode != LUT on this GPU/compiler — set ESCHA_MLX_LUT=1 and report"
 
 
-def test_mx_hadamard_transform_order():
-    """Informational (P4 fast path): does mx.hadamard_transform match Sylvester
-    order? The production path is the matmul in moe.had_blocks either way —
-    a mismatch here is a note for the perf campaign, NOT a failure."""
+def test_native_hadamard_transform_order():
+    """The production native transform must preserve the reference ordering."""
     import mlx.core as mx
     from escha_mlx import ref
     x = np.random.default_rng(1).standard_normal((2, 128)).astype(np.float32)
     want = ref.h128(x)
-    try:
-        got = np.array(mx.hadamard_transform(mx.array(x), scale=1.0))
-    except Exception as e:  # pragma: no cover
-        print(f"mx.hadamard_transform unavailable: {e!r}")
-        return
-    ok = np.abs(got - want).max() < 1e-3 * np.abs(want).max()
-    print(f"mx.hadamard_transform Sylvester-order match: {ok} "
-          f"({'fast path usable in P4' if ok else 'keep matmul path'})")
+    got = np.array(mx.hadamard_transform(mx.array(x), scale=1.0))
+    assert np.abs(got - want).max() < 1e-3 * np.abs(want).max()
