@@ -1,0 +1,348 @@
+{
+  "escha_mlx_git_revision": "2f834d7ce7a89bddb87f81a0c21041a0a3f81295",
+  "model_hf_revision": "1b7237f0886a10b4bd92cd7653090cd7381ae199",
+  "working_tree_diff_sha256": "e51ae3a9c8d1af6f3d388ae7706b17f60a0d751436688d49e3bcbb13e172b07a",
+  "hardware": {
+    "machine": "arm64",
+    "macos": "26.5.2",
+    "ram_gb": 25.77,
+    "mlx": "0.32.0",
+    "device": {
+      "device_name": "Apple M5 Pro",
+      "max_recommended_working_set_size": 19069665280,
+      "memory_size": 25769803776,
+      "architecture": "applegpu_g17s",
+      "max_buffer_length": 14302248960,
+      "resource_limit": 499000
+    },
+    "wired_limit_gb": 0.0
+  },
+  "settings": {
+    "repeats": 5,
+    "prefill_chunk": 256,
+    "prefill_warmup": 3,
+    "decode_prefill": 16,
+    "warmup": 8,
+    "decode_steps": 24,
+    "memory_limit_gb": 19.0
+  },
+  "prefill": [
+    {
+      "isl": 512,
+      "arm": "native A1",
+      "tok_s": {
+        "median": 551.45,
+        "min": 550.754,
+        "max": 551.769,
+        "spread_pct": 0.18,
+        "samples": [
+          550.958,
+          551.64,
+          551.769,
+          550.754,
+          551.45
+        ]
+      },
+      "peak_gb": 13.138,
+      "hashes": [
+        "a7d83e5f5884ebf93349156231cdbd53a57ee34d0e59369d2326f471c6f36e0b"
+      ]
+    },
+    {
+      "isl": 512,
+      "arm": "fused B",
+      "tok_s": {
+        "median": 583.085,
+        "min": 581.166,
+        "max": 583.597,
+        "spread_pct": 0.42,
+        "samples": [
+          582.049,
+          583.085,
+          581.166,
+          583.196,
+          583.597
+        ]
+      },
+      "peak_gb": 13.093,
+      "hashes": [
+        "a7d83e5f5884ebf93349156231cdbd53a57ee34d0e59369d2326f471c6f36e0b"
+      ]
+    },
+    {
+      "isl": 512,
+      "arm": "native A2 (drift control)",
+      "tok_s": {
+        "median": 550.692,
+        "min": 539.343,
+        "max": 557.159,
+        "spread_pct": 3.3,
+        "samples": [
+          550.692,
+          549.785,
+          539.343,
+          551.34,
+          557.159
+        ]
+      },
+      "peak_gb": 13.138,
+      "hashes": [
+        "a7d83e5f5884ebf93349156231cdbd53a57ee34d0e59369d2326f471c6f36e0b"
+      ]
+    }
+  ],
+  "decode": [
+    {
+      "batch": 1,
+      "arm": "native A1",
+      "aggregate_tok_s": {
+        "median": 41.996,
+        "min": 41.163,
+        "max": 43.06,
+        "spread_pct": 4.61,
+        "samples": [
+          41.996,
+          41.934,
+          41.163,
+          42.481,
+          43.06
+        ]
+      },
+      "peak_gb": 12.3,
+      "hashes": [
+        "980123c9c81949d866bba4000ab137ccc7e0e8957e674347ec48d882056b2c74"
+      ]
+    },
+    {
+      "batch": 1,
+      "arm": "fused B",
+      "aggregate_tok_s": {
+        "median": 44.608,
+        "min": 44.45,
+        "max": 45.026,
+        "spread_pct": 1.3,
+        "samples": [
+          44.975,
+          44.608,
+          44.45,
+          45.026,
+          44.477
+        ]
+      },
+      "peak_gb": 12.299,
+      "hashes": [
+        "980123c9c81949d866bba4000ab137ccc7e0e8957e674347ec48d882056b2c74"
+      ]
+    },
+    {
+      "batch": 1,
+      "arm": "native A2 (drift control)",
+      "aggregate_tok_s": {
+        "median": 42.478,
+        "min": 42.109,
+        "max": 42.774,
+        "spread_pct": 1.58,
+        "samples": [
+          42.478,
+          42.774,
+          42.109,
+          42.624,
+          42.375
+        ]
+      },
+      "peak_gb": 12.3,
+      "hashes": [
+        "980123c9c81949d866bba4000ab137ccc7e0e8957e674347ec48d882056b2c74"
+      ]
+    },
+    {
+      "batch": 8,
+      "arm": "native A1",
+      "aggregate_tok_s": {
+        "median": 147.248,
+        "min": 146.433,
+        "max": 148.628,
+        "spread_pct": 1.5,
+        "samples": [
+          146.433,
+          148.628,
+          147.248,
+          148.482,
+          146.973
+        ]
+      },
+      "peak_gb": 12.638,
+      "hashes": [
+        "01356be9a25daeb78d2c696c3cb12b16224cfffd51759f3a3d14ab8d8b43be23"
+      ]
+    },
+    {
+      "batch": 8,
+      "arm": "fused B",
+      "aggregate_tok_s": {
+        "median": 151.253,
+        "min": 150.542,
+        "max": 151.649,
+        "spread_pct": 0.74,
+        "samples": [
+          151.649,
+          150.961,
+          151.385,
+          150.542,
+          151.253
+        ]
+      },
+      "peak_gb": 12.635,
+      "hashes": [
+        "01356be9a25daeb78d2c696c3cb12b16224cfffd51759f3a3d14ab8d8b43be23"
+      ]
+    },
+    {
+      "batch": 8,
+      "arm": "native A2 (drift control)",
+      "aggregate_tok_s": {
+        "median": 147.511,
+        "min": 147.406,
+        "max": 148.143,
+        "spread_pct": 0.5,
+        "samples": [
+          147.511,
+          147.901,
+          147.406,
+          148.143,
+          147.456
+        ]
+      },
+      "peak_gb": 12.638,
+      "hashes": [
+        "01356be9a25daeb78d2c696c3cb12b16224cfffd51759f3a3d14ab8d8b43be23"
+      ]
+    },
+    {
+      "batch": 16,
+      "arm": "native A1",
+      "aggregate_tok_s": {
+        "median": 186.652,
+        "min": 184.725,
+        "max": 187.105,
+        "spread_pct": 1.29,
+        "samples": [
+          184.725,
+          186.652,
+          187.04,
+          187.105,
+          185.984
+        ]
+      },
+      "peak_gb": 12.982,
+      "hashes": [
+        "cda1d1ff37d13b18123125af6503b6833eb07bda8a66857dd8c7c3041dafb075"
+      ]
+    },
+    {
+      "batch": 16,
+      "arm": "fused B",
+      "aggregate_tok_s": {
+        "median": 188.23,
+        "min": 187.144,
+        "max": 188.975,
+        "spread_pct": 0.98,
+        "samples": [
+          187.173,
+          188.23,
+          188.945,
+          188.975,
+          187.144
+        ]
+      },
+      "peak_gb": 12.976,
+      "hashes": [
+        "cda1d1ff37d13b18123125af6503b6833eb07bda8a66857dd8c7c3041dafb075"
+      ]
+    },
+    {
+      "batch": 16,
+      "arm": "native A2 (drift control)",
+      "aggregate_tok_s": {
+        "median": 186.617,
+        "min": 185.453,
+        "max": 187.417,
+        "spread_pct": 1.06,
+        "samples": [
+          185.931,
+          186.617,
+          187.417,
+          187.094,
+          185.453
+        ]
+      },
+      "peak_gb": 12.982,
+      "hashes": [
+        "cda1d1ff37d13b18123125af6503b6833eb07bda8a66857dd8c7c3041dafb075"
+      ]
+    },
+    {
+      "batch": 32,
+      "arm": "native A1",
+      "aggregate_tok_s": {
+        "median": 267.672,
+        "min": 267.301,
+        "max": 267.988,
+        "spread_pct": 0.26,
+        "samples": [
+          267.361,
+          267.988,
+          267.934,
+          267.672,
+          267.301
+        ]
+      },
+      "peak_gb": 13.726,
+      "hashes": [
+        "b687f98555a60efd9b6913e392ebdfa0cc1c9a50acc8e03652c66cb94bfb13a7"
+      ]
+    },
+    {
+      "batch": 32,
+      "arm": "fused B",
+      "aggregate_tok_s": {
+        "median": 271.483,
+        "min": 269.01,
+        "max": 272.118,
+        "spread_pct": 1.16,
+        "samples": [
+          271.503,
+          272.118,
+          271.483,
+          270.871,
+          269.01
+        ]
+      },
+      "peak_gb": 13.716,
+      "hashes": [
+        "b687f98555a60efd9b6913e392ebdfa0cc1c9a50acc8e03652c66cb94bfb13a7"
+      ]
+    },
+    {
+      "batch": 32,
+      "arm": "native A2 (drift control)",
+      "aggregate_tok_s": {
+        "median": 264.903,
+        "min": 263.419,
+        "max": 265.426,
+        "spread_pct": 0.76,
+        "samples": [
+          264.903,
+          265.223,
+          264.652,
+          265.426,
+          263.419
+        ]
+      },
+      "peak_gb": 13.726,
+      "hashes": [
+        "b687f98555a60efd9b6913e392ebdfa0cc1c9a50acc8e03652c66cb94bfb13a7"
+      ]
+    }
+  ]
+}

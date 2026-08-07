@@ -540,6 +540,42 @@ def _scaled_had_source(rs: float) -> str:
 """
 
 
+def _scaled_had_out_source(rs: float) -> str:
+    """Fused  f16( H128(mid) * RS * rout[e] )  in one kernel.
+
+    Keep the two post-transform multiplies as separate f32 statements in the
+    same left-to-right order as the native MLX chain.  That preserves both f32
+    rounding points before the single final f16 cast.
+    """
+    return f"""
+    uint tid = thread_position_in_threadgroup.x;
+    uint blk = thread_position_in_grid.x >> 7;
+    uint row = thread_position_in_grid.y;
+
+    int e = row_expert[row];
+    ulong off = (ulong)row * OC + (ulong)blk * 128u + tid;
+    ulong roff = (ulong)e * OC + (ulong)blk * 128u + tid;
+
+    threadgroup float v[128];
+    v[tid] = mid[off];
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+#pragma clang loop unroll(full)
+    for (uint s = 0; s < 7u; ++s) {{
+        uint msk = 1u << s;
+        float mine = v[tid];
+        float other = v[tid ^ msk];
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        v[tid] = (tid & msk) ? (other - mine) : (mine + other);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }}
+
+    float scaled = v[tid] * {rs!r}f;
+    float weighted = scaled * rout[roff];
+    out[off] = (half)weighted;
+"""
+
+
 @lru_cache(maxsize=None)
 def _scaled_had_kernel(rs: float):
     return mx.fast.metal_kernel(
@@ -550,8 +586,18 @@ def _scaled_had_kernel(rs: float):
     )
 
 
+@lru_cache(maxsize=None)
+def _scaled_had_out_kernel(rs: float):
+    return mx.fast.metal_kernel(
+        name="escha_scaled_had_out",
+        input_names=["mid", "rout", "row_expert"],
+        output_names=["out"],
+        source=_scaled_had_out_source(rs),
+    )
+
+
 def use_fused_had() -> bool:
-    """Fused gather+scale+Hadamard+scale+cast (ESCHA_MLX_FUSED_HAD=0 disables)."""
+    """Fused expert Hadamard transforms (ESCHA_MLX_FUSED_HAD=0 disables)."""
     return os.environ.get("ESCHA_MLX_FUSED_HAD", "1") != "0"
 
 
@@ -566,6 +612,22 @@ def scaled_had(rows: mx.array, rin: mx.array, row_expert: mx.array,
         grid=(128 * (ic // 128), m, 1),
         threadgroup=(128, 1, 1),
         output_shapes=[(m, ic)],
+        output_dtypes=[mx.float16],
+    )
+    return out
+
+
+def scaled_had_out(mid: mx.array, rout: mx.array, row_expert: mx.array,
+                   rs: float) -> mx.array:
+    """mid [m, OC] f32, rout [E, OC] f32 -> transformed [m, OC] f16."""
+    m, oc = mid.shape
+    kern = _scaled_had_out_kernel(float(rs))
+    (out,) = kern(
+        inputs=[mid, rout, row_expert],
+        template=[("OC", oc)],
+        grid=(128 * (oc // 128), m, 1),
+        threadgroup=(128, 1, 1),
+        output_shapes=[(m, oc)],
         output_dtypes=[mx.float16],
     )
     return out

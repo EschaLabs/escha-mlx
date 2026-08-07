@@ -28,6 +28,16 @@ def _case(m, IC, E, seed):
     return rows, rin, re
 
 
+def _output_case(m, OC, E, seed):
+    import mlx.core as mx
+    rng = np.random.default_rng(seed)
+    mid = mx.array(rng.standard_normal((m, OC)).astype(np.float32))
+    rout = mx.array(rng.standard_normal((E, OC)).astype(np.float32))
+    re = mx.array(rng.integers(0, E, size=m).astype(np.int32))
+    mx.eval(mid, rout, re)
+    return mid, rout, re
+
+
 @pytest.mark.parametrize("m,IC,E", [(8, 512, 256), (96, 2048, 64),
                                     (300, 1024, 128), (2048, 2048, 256)])
 def test_fused_matches_native_chain_bit_exact(m, IC, E):
@@ -58,6 +68,39 @@ def test_fused_is_bit_reproducible(m, IC, E):
     ref_out = None
     for _ in range(16):
         out = msl.scaled_had(rows, rin, re, ref.RS)
+        mx.eval(out)
+        a = np.array(out)
+        if ref_out is None:
+            ref_out = a
+        else:
+            assert np.array_equal(a.view(np.uint16), ref_out.view(np.uint16))
+
+
+@pytest.mark.parametrize("m,OC,E", [(8, 1024, 256), (96, 2048, 64),
+                                    (300, 1024, 128), (2048, 2048, 256)])
+def test_fused_output_matches_native_chain_bit_exact(m, OC, E):
+    import mlx.core as mx
+    from escha_mlx import moe, msl, ref
+
+    mid, rout, re = _output_case(m, OC, E, m * 11 + OC)
+    got = msl.scaled_had_out(mid, rout, re, ref.RS)
+    want = (moe.had_blocks(mid) * ref.RS * rout[re]).astype(mx.float16)
+    mx.eval(got, want)
+    a = np.array(got)
+    b = np.array(want)
+    nd = int((a.view(np.uint16) != b.view(np.uint16)).sum())
+    assert nd == 0, f"{nd}/{a.size} f16 elements differ"
+
+
+@pytest.mark.parametrize("m,OC,E", [(96, 1024, 64), (300, 2048, 128)])
+def test_fused_output_is_bit_reproducible(m, OC, E):
+    import mlx.core as mx
+    from escha_mlx import msl, ref
+
+    mid, rout, re = _output_case(m, OC, E, 8675309)
+    ref_out = None
+    for _ in range(16):
+        out = msl.scaled_had_out(mid, rout, re, ref.RS)
         mx.eval(out)
         a = np.array(out)
         if ref_out is None:
