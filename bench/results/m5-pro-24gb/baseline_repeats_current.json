@@ -1,0 +1,96 @@
+{
+  "timestamp": "2026-08-07T19:35:10.260267+08:00",
+  "escha_mlx_git_revision": "bf86c10d4d91e5d4aaa7d4046983723e139f47cc",
+  "model_hf_revision": "1b7237f0886a10b4bd92cd7653090cd7381ae199",
+  "working_tree_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "runner_sha256": "4abfa6eacdd4ab18d9f16c1755b0e55aa72d16e3a29019525b78a5777c60ee1a",
+  "model": "/Users/<user>/models/escha-w2",
+  "hardware": {
+    "machine": "arm64",
+    "macos": "26.5.2",
+    "ram_gb": 25.77
+  },
+  "experiment": {
+    "harness": "bench.sweep_kernel_variants.run",
+    "prefill_tokens": 16,
+    "warmup_steps": 8,
+    "timed_steps": 24,
+    "repeats": 5,
+    "synchronization": "mx.eval(tok) after every decode step",
+    "tf32": "default (MLX_ENABLE_TF32 unset)",
+    "mlx_memory_limit_gb": 19.0,
+    "wired_limit_gb": {
+      "default": 0,
+      "batch_128": 19
+    }
+  },
+  "summary": [
+    {
+      "batch": 1,
+      "median_tok_s": 59.684,
+      "min_tok_s": 59.575,
+      "max_tok_s": 59.855,
+      "spread_pct": 0.47,
+      "peak_gb": 12.3
+    },
+    {
+      "batch": 8,
+      "median_tok_s": 193.025,
+      "min_tok_s": 187.138,
+      "max_tok_s": 193.372,
+      "spread_pct": 3.33,
+      "peak_gb": 12.639
+    },
+    {
+      "batch": 16,
+      "median_tok_s": 239.956,
+      "min_tok_s": 239.824,
+      "max_tok_s": 240.046,
+      "spread_pct": 0.09,
+      "peak_gb": 12.984
+    },
+    {
+      "batch": 32,
+      "median_tok_s": 352.896,
+      "min_tok_s": 352.779,
+      "max_tok_s": 353.152,
+      "spread_pct": 0.11,
+      "peak_gb": 13.732
+    },
+    {
+      "batch": 128,
+      "median_tok_s": 539.25,
+      "min_tok_s": 538.106,
+      "max_tok_s": 544.041,
+      "spread_pct": 1.1,
+      "peak_gb": 18.056
+    }
+  ],
+  "results": [
+    {"batch": 1, "repeat": 1, "tok_s": 59.575, "peak_gb": 12.3},
+    {"batch": 1, "repeat": 2, "tok_s": 59.701, "peak_gb": 12.3},
+    {"batch": 1, "repeat": 3, "tok_s": 59.656, "peak_gb": 12.3},
+    {"batch": 1, "repeat": 4, "tok_s": 59.855, "peak_gb": 12.3},
+    {"batch": 1, "repeat": 5, "tok_s": 59.684, "peak_gb": 12.3},
+    {"batch": 8, "repeat": 1, "tok_s": 193.372, "peak_gb": 12.639},
+    {"batch": 8, "repeat": 2, "tok_s": 187.138, "peak_gb": 12.639},
+    {"batch": 8, "repeat": 3, "tok_s": 193.025, "peak_gb": 12.639},
+    {"batch": 8, "repeat": 4, "tok_s": 193.149, "peak_gb": 12.639},
+    {"batch": 8, "repeat": 5, "tok_s": 192.979, "peak_gb": 12.639},
+    {"batch": 16, "repeat": 1, "tok_s": 240.024, "peak_gb": 12.984},
+    {"batch": 16, "repeat": 2, "tok_s": 239.945, "peak_gb": 12.984},
+    {"batch": 16, "repeat": 3, "tok_s": 239.956, "peak_gb": 12.984},
+    {"batch": 16, "repeat": 4, "tok_s": 240.046, "peak_gb": 12.984},
+    {"batch": 16, "repeat": 5, "tok_s": 239.824, "peak_gb": 12.984},
+    {"batch": 32, "repeat": 1, "tok_s": 353.152, "peak_gb": 13.732},
+    {"batch": 32, "repeat": 2, "tok_s": 352.834, "peak_gb": 13.732},
+    {"batch": 32, "repeat": 3, "tok_s": 352.779, "peak_gb": 13.732},
+    {"batch": 32, "repeat": 4, "tok_s": 352.896, "peak_gb": 13.732},
+    {"batch": 32, "repeat": 5, "tok_s": 353.004, "peak_gb": 13.732},
+    {"batch": 128, "repeat": 1, "tok_s": 544.041, "peak_gb": 18.056},
+    {"batch": 128, "repeat": 2, "tok_s": 543.566, "peak_gb": 18.056},
+    {"batch": 128, "repeat": 3, "tok_s": 538.863, "peak_gb": 18.056},
+    {"batch": 128, "repeat": 4, "tok_s": 538.106, "peak_gb": 18.056},
+    {"batch": 128, "repeat": 5, "tok_s": 539.25, "peak_gb": 18.056}
+  ]
+}

@@ -161,20 +161,20 @@ for long context and other applications alongside the model.
 
 ---
 
-## Apple M5 Pro 24 GB — original-code baseline
+## Apple M5 Pro 24 GB — current fused runtime
 
 This is a separate machine section, not a scaled projection from the base M4. All
-committed measurements below were repeated after an unrelated 7.3 GB model service
-was stopped and disabled; the earlier M5 files are not used.
+current headline measurements below were run back-to-back with other GPU-heavy
+applications closed. Historical diagnostic A/B results are labeled explicitly.
 
 | | |
 |---|---|
 | Machine | MacBook Pro (Mac17,9), **Apple M5 Pro**, 16-core GPU, 24 GB unified memory |
-| Power | AC attached; battery 80% |
+| Power | AC attached; High Power mode; battery 91% and charging at start |
 | macOS / MLX | 26.5.2 (25F84) / `mlx` 0.32.0, `mlx-lm` 0.31.3 |
 | Metal | `applegpu_g17s`; recommended working set 19.07 GB |
-| Model | local `Qwen3.6-35B-A3B-Escha-W2` revisions `32016b7946fa1a1965c40deed9daac071b512a64` / `1b7237f0886a10b4bd92cd7653090cd7381ae199` (manifests differ only in `README.md`); 11.41 GB resident |
-| Runtime revision | `79ba35e84517b2770ca00a1fe76091ff4144de37` |
+| Model | local `Qwen3.6-35B-A3B-Escha-W2` revision `1b7237f0886a10b4bd92cd7653090cd7381ae199`; 11.41 GiB resident |
+| Runtime revision | `bf86c10d4d91e5d4aaa7d4046983723e139f47cc` |
 | Runtime settings | repository defaults; MLX memory limit 19.0 GB; wired limit 0 except 19.0 GB for B=128 |
 
 ### Correctness status
@@ -182,21 +182,14 @@ was stopped and disabled; the earlier M5 files are not used.
 The Paris, 17×23=391 and thinking-text anchors pass. Replicated rows are identical
 and match the B=1 sequence at B=1/8/16/32. `bench/p0_gates.py` reports `ALL GATES
 PASS`, including hash/LUT decode, GEMV values and Q8 repack; its K2/K3 DRAM-side
-microbench varied across three consecutive runs: K2 24–49 GB/s and K3 33–54 GB/s.
-The value gates passed every time; these short microbench figures are retained as a
-stability observation and are not used for the throughput headlines below.
+microbench reported approximately 25/73 GB/s in the final pre-commit run. The value
+gates pass; these short microbench figures are retained as a stability observation
+and are not used for the throughput headlines below.
 
-At the benchmarked runtime revision, the complete suite was **165 passed, 4 failed,
-1 skipped**. All four failures were the former
-`tests/test_fused_had.py::test_fused_matches_op_chain`: the primary
-`2e-3` relative-error bound passes, but 60.35–61.11% of fp16 bit patterns differ
-from the dense-matmul op chain on this M5 Pro, exceeding the test's 1% secondary
-bound. The fused path remains bit-reproducible and its independent NumPy-reference
-test passes. No gate was excluded or loosened, so this is machine-characterization
-data rather than a merge-green validation result. This was subsequently resolved
-by replacing the dense-matmul test oracle and production op chain with MLX's native
-butterfly; the performance tables below still describe the recorded revision and
-have not been rerun.
+At the current runtime revision, the complete suite reports **180 passed, 1 skipped**.
+The ABCD correctness anchors pass, replicated rows are identical through B=32, and
+the output-fused Hadamard path is bit exact with the production native butterfly.
+The former dense-matmul/TF32 oracle issue is retained below as historical diagnosis.
 
 #### M5 Pro resolved issue: dense-matmul test oracle and TF32
 
@@ -228,7 +221,7 @@ op chain. Both paths now execute the same radix-2 butterfly order, and the fused
 test requires zero differing FP16 bits across the four shapes above with TF32 left
 at its default. `ESCHA_MLX_FUSED_HAD=0` selects this native chain. The independent
 NumPy comparison remains tolerance-based because its matrix multiplication has a
-different reduction order. The complete current suite reports **176 passed,
+different reduction order. The complete current suite reports **180 passed,
 1 skipped** both under default TF32 and with `MLX_ENABLE_TF32=0`. No correctness
 gate is loosened or skipped.
 
@@ -264,21 +257,21 @@ default-performance recommendation. Raw A/B/A JSON:
     --model ./escha-w2 --phases ABCD \
     --isls 128,512,2048 --batches 1,8,16,32 --decode-steps 32 \
     --batch-isl 128 --prefill-chunk 256 \
-    --out bench/results/m5-pro-24gb/baseline_abcd.json
+    --out bench/results/m5-pro-24gb/baseline_abcd_current.json
 ```
 
 | ISL | prefill tok/s | decode tok/s | peak memory |
 |---:|---:|---:|---:|
-| 128 | 624.0 | **46.66** | 11.95 GB |
-| 512 | **684.2** | 46.56 | 12.25 GB |
-| 2048 | 677.3 | 46.30 | 12.28 GB |
+| 128 | 672.1 | **57.69** | 11.83 GiB |
+| 512 | **756.5** | 56.86 | 12.17 GiB |
+| 2048 | 741.7 | 56.24 | 12.21 GiB |
 
 | batch | prefill tok/s | aggregate decode tok/s | per-sequence tok/s | peak memory | correctness |
 |---:|---:|---:|---:|---:|---|
-| 1 | 623.2 | 46.63 | 46.63 | 11.95 GB | OK |
-| 8 | 843.6 | 179.08 | 22.38 | 13.71 GB | OK |
-| 16 | **852.1** | 239.10 | 14.94 | 14.67 GB | OK |
-| 32 | 765.1 | **347.72** | 10.87 | 17.16 GB | OK |
+| 1 | 668.9 | 57.97 | 57.97 | 11.83 GiB | OK |
+| 8 | 955.0 | 190.80 | 23.85 | 13.34 GiB | OK |
+| 16 | 968.2 | 253.05 | 15.82 | 14.05 GiB | OK |
+| 32 | **975.4** | **369.85** | 11.56 | 15.99 GiB | OK |
 
 After an ISL-512 prefill the caches total 43.42 MB: 32.93 MB across 30
 `GDNStateCache` layers and 10.49 MB across 10 trimmable `KVCache` layers.
@@ -292,27 +285,26 @@ repository defaults with a 19 GB MLX memory limit and a 19 GB wired limit.
 
 | batch | runs | median tok/s | min–max | spread | peak memory |
 |---:|---:|---:|---:|---:|---:|
-| 1 | 5 | 45.52 | 45.39–46.02 | 1.39% | 12.30 GB |
-| 8 | 5 | 178.97 | 178.25–179.63 | 0.77% | 12.65 GB |
-| 16 | 5 | 226.23 | 225.64–226.83 | 0.53% | 13.00 GB |
-| 32 | 5 | 328.81 | 326.97–329.50 | 0.77% | 13.75 GB |
-| 128 | 5 | **537.08** | 522.83–553.61 | 5.89% | **18.04 GB** |
+| 1 | 5 | 59.68 | 59.58–59.86 | 0.47% | 12.30 GB |
+| 8 | 5 | 193.03 | 187.14–193.37 | 3.33% | 12.64 GB |
+| 16 | 5 | 239.96 | 239.82–240.05 | 0.09% | 12.98 GB |
+| 32 | 5 | 352.90 | 352.78–353.15 | 0.11% | 13.73 GB |
+| 128 | 5 | **539.25** | 538.11–544.04 | 1.10% | **18.06 GB** |
 
 The ABCD Phase C loop and this step-synchronized loop have different synchronization
 semantics, so their absolute throughput figures are reported separately. The five-run
 rows establish within-session stability but do not run Phase C replication-invariance
-checks. This is not a candidate-vs-baseline A/B.
+checks. B=8 contains one low 187.14 tok/s sample; the other four runs cluster around
+193 tok/s. This is not a candidate-vs-baseline A/B.
 
 ### Current output Hadamard fusion A/B/A
 
-The summary and repeatability tables above are historical measurements from runtime
-revision `79ba35e`, whose expert output transform was a dense 128x128 matmul. They are
-not measurements of the native butterfly now on `main`. The current output-fusion
-candidate was therefore compared directly with that native `main` path in one loaded
-model process: native A1, fused B, then native A2 as the drift control. Each decode
-point uses a 16-token prefill, eight warmup steps, 24 timed steps, per-step evaluation
-and five repeats. The wired limit remained at zero; every completed arm produced the
-same token hash.
+Before the current full-suite rerun, the output-fusion candidate was compared directly
+with the native `main` path in one loaded model process: native A1, fused B, then native
+A2 as the drift control. Each decode point uses a 16-token prefill, eight warmup steps,
+24 timed steps, per-step evaluation and five repeats. The wired limit remained at zero;
+every completed arm produced the same token hash. This earlier A/B/A isolates the
+fusion itself, while the current tables above characterize the combined shipped path.
 
 ```bash
 .venv/bin/python -u bench/sweep_output_had.py --model ./escha-w2 \
@@ -331,10 +323,12 @@ same token hash.
 This isolates the current change: output fusion is faster than the native butterfly
 at every tested batch and is bit exact with it. It does not establish a comparison
 with the old dense-matmul table, whose NAX/TF32 execution and reduction order differ.
-An attempted B=128 extension was discarded after macOS panicked in `IOGPUFamily`
-(`IOGPUMemory.cpp:550`, `completeMemory() prepare count underflow`) during the first
-native arm. No B=128 result is claimed, and the rerun was deliberately limited to
-B<=32. Raw A/B/A JSON: [output_had_ab.json](../bench/results/m5-pro-24gb/output_had_ab.json).
+An attempted native/fused A/B/A extension to B=128 was discarded after macOS
+panicked in `IOGPUFamily` (`IOGPUMemory.cpp:550`, `completeMemory() prepare count
+underflow`) during the first native arm. No B=128 A/B/A result is claimed. The
+current fused-only repeatability run does complete B=128 at 18.06 GB after the
+allocation-free GDN first-state change. Raw A/B/A JSON:
+[output_had_ab.json](../bench/results/m5-pro-24gb/output_had_ab.json).
 
 ### Roofline
 
@@ -355,16 +349,14 @@ model's byte ledger is 2.386 GB/token.
 
 ### Served endpoint
 
-The M4 result set contains both a historical unfused baseline and the current
-default-fused grid, so the same two artifacts were captured here. Both use the
-same server settings: decode concurrency 16, prompt concurrency 2 and prefill
-step size 256. `baseline.json` fixes every point at 16 requests with
-`ESCHA_MLX_FUSED_HAD=0`; `grid_fused.json` uses the harness default of 4/16/32
-requests at C=1/8/16. Because request counts differ and no closing drift-control
-arm was run, these columns are reported side by side, not as a causal A/B claim.
+The historical `baseline.json` used `ESCHA_MLX_FUSED_HAD=0` and fixed every point
+at 16 requests. The current `grid_current.json` uses the shipped fused path and
+the harness default of 4/16/32 requests at C=1/8/16. Both use decode concurrency
+16, prompt concurrency 2 and prefill step size 256. Because request counts and
+runtime revisions differ, the columns below are workload context, not a causal A/B.
 
 ```bash
-# Terminal 1: prepend ESCHA_MLX_FUSED_HAD=0 for baseline.json; omit it for grid_fused.json.
+# Terminal 1: this command reproduces the historical baseline.json arm.
 ESCHA_MLX_FUSED_HAD=0 .venv/bin/python -m escha_mlx.server \
     --model ./escha-w2 --port 8080 --decode-concurrency 16 \
     --prompt-concurrency 2 --prefill-step-size 256
@@ -374,37 +366,40 @@ ESCHA_MLX_FUSED_HAD=0 .venv/bin/python -m escha_mlx.server \
     --grid 128:128,128:1024,1000:1000,2048:128 --concurrency 1,8,16 \
     --requests-per-point 16 --out bench/results/m5-pro-24gb/baseline.json
 
-# Restart Terminal 1 without ESCHA_MLX_FUSED_HAD, then use the harness request defaults.
+# Restart Terminal 1 without ESCHA_MLX_FUSED_HAD for the current shipped path.
 .venv/bin/python bench/isl_osl_grid.py --model ./escha-w2 \
     --grid 128:128,128:1024,1000:1000,2048:128 --concurrency 1,8,16 \
-    --out bench/results/m5-pro-24gb/grid_fused.json
+    --out bench/results/m5-pro-24gb/grid_current.json
 ```
 
 | ISL | OSL | C | fused TTFT p50/p99 | fused TPOT | unfused output tok/s | fused output tok/s | fused total tok/s |
 |---:|---:|---:|---:|---:|---:|---:|---:|
-| 128 | 128 | 1 | 0.451 / 0.633 s | 24.01 ms | 35.10 | 36.20 | 75.94 |
-| 128 | 128 | 8 | 3.273 / 3.480 s | 51.76 ms | 107.20 | 108.17 | 226.59 |
-| 128 | 128 | 16 | 2.596 / 7.233 s | 101.62 ms | 122.65 | 124.70 | 261.36 |
-| 128 | 1024 | 1 | 0.506 / 0.510 s | 24.65 ms | 37.73 | 39.73 | 45.16 |
-| 128 | 1024 | 8 | 3.272 / 3.476 s | 49.41 ms | 149.95 | 152.85 | 173.78 |
-| 128 | 1024 | 16 | 3.213 / 7.300 s | 81.16 ms | 177.62 | **188.01** | 213.76 |
-| 1000 | 1000 | 1 | 1.817 / 1.914 s | 25.35 ms | 35.85 | 36.79 | 74.04 |
-| 1000 | 1000 | 8 | 8.730 / 13.119 s | 54.16 ms | 124.56 | 127.80 | 257.17 |
-| 1000 | 1000 | 16 | 6.253 / 27.297 s | 99.42 ms | 142.97 | 147.82 | 297.44 |
-| 2048 | 128 | 1 | 3.347 / 3.640 s | 24.46 ms | 18.66 | 19.62 | 335.43 |
-| 2048 | 128 | 8 | 11.422 / 25.109 s | 153.26 ms | 29.49 | 33.06 | 565.17 |
-| 2048 | 128 | 16 | 9.099 / 52.203 s | 379.17 ms | 29.88 | 33.68 | **575.86** |
+| 128 | 128 | 1 | 0.392 / 8.422 s | 17.29 ms | 35.10 | 27.90 | 58.52 |
+| 128 | 128 | 8 | 2.716 / 2.895 s | 47.41 ms | 107.20 | 122.13 | 255.84 |
+| 128 | 128 | 16 | 2.944 / 6.160 s | 92.03 ms | 122.65 | 140.23 | 293.91 |
+| 128 | 1024 | 1 | 0.431 / 0.433 s | 17.58 ms | 37.73 | 55.64 | 63.25 |
+| 128 | 1024 | 8 | 2.214 / 2.927 s | 45.43 ms | 149.95 | 168.50 | 191.57 |
+| 128 | 1024 | 16 | 2.557 / 6.253 s | 74.41 ms | 177.62 | **206.00** | 234.21 |
+| 1000 | 1000 | 1 | 1.587 / 1.668 s | 17.77 ms | 35.85 | 51.74 | 104.10 |
+| 1000 | 1000 | 8 | 6.878 / 11.494 s | 50.04 ms | 124.56 | 140.63 | 282.99 |
+| 1000 | 1000 | 16 | 5.933 / 23.944 s | 90.72 ms | 142.97 | 159.97 | 321.90 |
+| 2048 | 128 | 1 | 3.530 / 3.549 s | 17.81 ms | 18.66 | 22.16 | 378.76 |
+| 2048 | 128 | 8 | 9.229 / 25.276 s | 180.91 ms | 29.49 | 32.45 | 554.80 |
+| 2048 | 128 | 16 | 8.116 / 52.132 s | 384.85 ms | 29.88 | 34.46 | **589.08** |
 
-All 24 served rows completed with zero errors, no cached prompt tokens and OSL hit
-rate 1.00. The stock-4-bit `head_to_head` artifacts were intentionally skipped for
-this machine and are not inferred from the M4 data. B=128 was measured separately with
-the step-synchronized in-process harness above, not with the served endpoint.
+All 12 current served rows completed with zero errors, no cached prompt tokens and
+OSL hit rate 1.00. No warmup request was inserted, so the first C=1 row includes an
+8.42-second cold-start tail; steady-state peak output is 206.00 tok/s. The stock-4-bit
+`head_to_head` artifacts were intentionally skipped for this machine and are not
+inferred from the M4 data. B=128 was measured separately with the step-synchronized
+in-process harness above, not with the served endpoint.
 
-Raw JSON: [ABCD baseline](../bench/results/m5-pro-24gb/baseline_abcd.json),
-[decode repeats](../bench/results/m5-pro-24gb/baseline_repeats.json),
+Raw JSON: [current ABCD baseline](../bench/results/m5-pro-24gb/baseline_abcd_current.json),
+[current decode repeats](../bench/results/m5-pro-24gb/baseline_repeats_current.json),
+[run manifest](../bench/results/m5-pro-24gb/readme_current_manifest.json),
 [roofline](../bench/results/m5-pro-24gb/roofline.json),
 [unfused served baseline](../bench/results/m5-pro-24gb/baseline.json), and
-[default-fused served grid](../bench/results/m5-pro-24gb/grid_fused.json).
+[current fused served grid](../bench/results/m5-pro-24gb/grid_current.json).
 
 ---
 

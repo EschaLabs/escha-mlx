@@ -1,0 +1,38 @@
+{
+  "timestamp": "2026-08-07T19:16:20.639094+08:00",
+  "escha_mlx_git_revision": "bf86c10d4d91e5d4aaa7d4046983723e139f47cc",
+  "model_hf_revision": "1b7237f0886a10b4bd92cd7653090cd7381ae199",
+  "working_tree_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "runner_sha256": "4abfa6eacdd4ab18d9f16c1755b0e55aa72d16e3a29019525b78a5777c60ee1a",
+  "model": "/Users/<user>/models/escha-w2",
+  "hardware": {
+    "machine": "arm64",
+    "macos": "26.5.2",
+    "ram_gb": 25.77
+  },
+  "kind": "step_synchronized_decode",
+  "settings": {
+    "batch": 1,
+    "prefill_tokens": 16,
+    "warmup_steps": 8,
+    "timed_steps": 24,
+    "repeats": 5,
+    "memory_limit_gb": 19.0,
+    "wired_limit_gb": 0.0
+  },
+  "resident_gb": 12.252,
+  "tok_s": {
+    "samples": [
+      59.575,
+      59.701,
+      59.656,
+      59.855,
+      59.684
+    ],
+    "median": 59.684,
+    "min": 59.575,
+    "max": 59.855,
+    "spread_pct": 0.47
+  },
+  "peak_gb": 12.3
+}

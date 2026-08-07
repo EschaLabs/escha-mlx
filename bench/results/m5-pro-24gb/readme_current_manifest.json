@@ -1,0 +1,77 @@
+{
+  "timestamp": "2026-08-07T19:15:30.869003+08:00",
+  "escha_mlx_git_revision": "bf86c10d4d91e5d4aaa7d4046983723e139f47cc",
+  "model_hf_revision": "1b7237f0886a10b4bd92cd7653090cd7381ae199",
+  "working_tree_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "runner_sha256": "4abfa6eacdd4ab18d9f16c1755b0e55aa72d16e3a29019525b78a5777c60ee1a",
+  "model": "/Users/<user>/models/escha-w2",
+  "hardware": {
+    "machine": "arm64",
+    "macos": "26.5.2",
+    "ram_gb": 25.77
+  },
+  "started": "2026-08-07T19:15:30.888313+08:00",
+  "complete": true,
+  "settings": {
+    "skip_b128": false,
+    "skip_abcd": false,
+    "skip_serving": false
+  },
+  "power": {
+    "pmset_custom": "Battery Power:\n Sleep On Power Button 1\n powermode            0\n standby              1\n ttyskeepawake        1\n hibernatemode        3\n powernap             1\n hibernatefile        /var/vm/sleepimage\n displaysleep         10\n womp                 0\n networkoversleep     0\n sleep                1\n lessbright           1\n tcpkeepalive         1\n disksleep            10\nAC Power:\n Sleep On Power Button 1\n powermode            2\n standby              1\n ttyskeepawake        1\n hibernatemode        3\n powernap             1\n hibernatefile        /var/vm/sleepimage\n displaysleep         10\n womp                 1\n networkoversleep     0\n sleep                1\n tcpkeepalive         1\n disksleep            10",
+    "battery": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=22937699)\t91%; charging; 0:29 remaining present: true"
+  },
+  "phases": [
+    {
+      "name": "repository ABCD baseline",
+      "status": "complete",
+      "started": "2026-08-07T19:15:30.902979+08:00",
+      "finished": "2026-08-07T19:16:07.959722+08:00",
+      "output": "bench/results/m5-pro-24gb/baseline_abcd_current.json"
+    },
+    {
+      "name": "decode B=1",
+      "status": "complete",
+      "started": "2026-08-07T19:16:07.960675+08:00",
+      "finished": "2026-08-07T19:16:20.833574+08:00",
+      "output": "bench/results/m5-pro-24gb/batch_1_current.json"
+    },
+    {
+      "name": "decode B=8",
+      "status": "complete",
+      "started": "2026-08-07T19:16:20.834227+08:00",
+      "finished": "2026-08-07T19:16:37.339274+08:00",
+      "output": "bench/results/m5-pro-24gb/batch_8_current.json"
+    },
+    {
+      "name": "decode B=16",
+      "status": "complete",
+      "started": "2026-08-07T19:16:37.339833+08:00",
+      "finished": "2026-08-07T19:16:59.720841+08:00",
+      "output": "bench/results/m5-pro-24gb/batch_16_current.json"
+    },
+    {
+      "name": "decode B=32",
+      "status": "complete",
+      "started": "2026-08-07T19:16:59.721296+08:00",
+      "finished": "2026-08-07T19:17:25.677993+08:00",
+      "output": "bench/results/m5-pro-24gb/batch_32_current.json"
+    },
+    {
+      "name": "decode B=128 (19 GB wired limit)",
+      "status": "complete",
+      "started": "2026-08-07T19:17:25.678841+08:00",
+      "finished": "2026-08-07T19:18:24.562289+08:00",
+      "output": "bench/results/m5-pro-24gb/batch_128_current.json"
+    },
+    {
+      "name": "served grid",
+      "status": "complete",
+      "started": "2026-08-07T19:18:24.563062+08:00",
+      "finished": "2026-08-07T19:35:10.259416+08:00",
+      "output": "bench/results/m5-pro-24gb/grid_current.json"
+    }
+  ],
+  "finished": "2026-08-07T19:35:10.260267+08:00",
+  "derived_repeatability_report": "bench/results/m5-pro-24gb/baseline_repeats_current.json"
+}
