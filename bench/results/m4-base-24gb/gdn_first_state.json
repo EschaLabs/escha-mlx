@@ -1,0 +1,72 @@
+{
+  "escha_mlx_git_revision": "40f0b1c0d543cdb6c70abf7fe391039862404df9",
+  "model_hf_revision": "5b0685b817c6d8f0f4024816d77af552da95d7f6",
+  "description": "peak memory of the FIRST forward on a fresh cache: the only window in which the f32 initial GDN state exists",
+  "settings": {
+    "prefill_tokens": 16,
+    "memory_limit_gb": 19.0,
+    "gdn_state_dtype": "mlx.core.float16"
+  },
+  "results": [
+    {
+      "batch": 1,
+      "tokens": 16,
+      "main_peak_gb": 12.404,
+      "main_state_dtype": "mlx.core.float16",
+      "PR_peak_gb": 12.344,
+      "PR_state_dtype": "mlx.core.float16",
+      "saved_gb": 0.06,
+      "saved_pct": 0.48,
+      "logits_bit_identical": true,
+      "state_bit_identical": true
+    },
+    {
+      "batch": 8,
+      "tokens": 16,
+      "main_peak_gb": 13.248,
+      "main_state_dtype": "mlx.core.float16",
+      "PR_peak_gb": 12.889,
+      "PR_state_dtype": "mlx.core.float16",
+      "saved_gb": 0.359,
+      "saved_pct": 2.71,
+      "logits_bit_identical": true,
+      "state_bit_identical": true
+    },
+    {
+      "batch": 16,
+      "tokens": 16,
+      "main_peak_gb": 14.084,
+      "main_state_dtype": "mlx.core.float16",
+      "PR_peak_gb": 13.462,
+      "PR_state_dtype": "mlx.core.float16",
+      "saved_gb": 0.622,
+      "saved_pct": 4.42,
+      "logits_bit_identical": true,
+      "state_bit_identical": true
+    },
+    {
+      "batch": 32,
+      "tokens": 16,
+      "main_peak_gb": 15.617,
+      "main_state_dtype": "mlx.core.float16",
+      "PR_peak_gb": 14.519,
+      "PR_state_dtype": "mlx.core.float16",
+      "saved_gb": 1.098,
+      "saved_pct": 7.03,
+      "logits_bit_identical": true,
+      "state_bit_identical": true
+    },
+    {
+      "batch": 64,
+      "tokens": 16,
+      "main_peak_gb": 18.198,
+      "main_state_dtype": "mlx.core.float16",
+      "PR_peak_gb": 16.122,
+      "PR_state_dtype": "mlx.core.float16",
+      "saved_gb": 2.076,
+      "saved_pct": 11.41,
+      "logits_bit_identical": true,
+      "state_bit_identical": true
+    }
+  ]
+}

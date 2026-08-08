@@ -114,6 +114,13 @@ The current P0 gates pass and the complete suite reports **180 passed, 1 skipped
 A same-process native-vs-output-fused A/B/A through B=32 is reported in
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md#current-output-hadamard-fusion-aba).
 
+The M4 column predates the fused expert **output** transform. Re-measured on that
+chip as a paired A/B/A, the kernel raises prefill ~10% and leaves decode unchanged
+within noise — the opposite split from the M5 Pro — while the allocation-free GDN
+first state cuts first-forward peak memory 2.08 GB at batch 64 (18.20 → 16.12 GB
+against a 19.07 GB cap) with bit-identical logits and state:
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md#apple-m4-base-24-gb--output-hadamard-fusion-and-gdn-first-state).
+
 Full tables (ISL/OSL serving grid, prefill scaling, drift controls):
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md). The complete bring-up and optimization
 campaign — including every negative result, so you don't repeat them:

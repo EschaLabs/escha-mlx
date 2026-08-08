@@ -25,6 +25,12 @@ harness. Nothing here is scaled, extrapolated, or taken from a third-party repor
 | Prefill | **264 tok/s** (ISL 512) · 264 (2048) |
 | Peak memory | 12.1 GB (short context) · 12.2 GB (2k context) |
 
+> These M4 tables predate the fused expert **output** Hadamard transform, which
+> raises M4 prefill ~10% in a paired A/B/A and leaves M4 decode unchanged within
+> noise. Measured deltas, and why these tables were not partially rewritten from
+> them:
+> [Apple M4 base 24 GB — output Hadamard fusion and GDN first state](#apple-m4-base-24-gb--output-hadamard-fusion-and-gdn-first-state).
+
 Decode is memory-bound: 2.57 GB moved per token against 101 GB/s gives a hard
 ceiling of 39.3 tok/s on this chip, and we reach 69% of it. **100 tok/s from a
 single stream is not physically possible here** — it would need 250 GB/s.
@@ -158,6 +164,95 @@ layer that a fused kernel would keep in registers.
 **Choose 4-bit if** you run one stream at a time on a machine with ≥32 GB.
 **Choose escha W2 if** you serve concurrent requests, run on 24 GB, or need room
 for long context and other applications alongside the model.
+
+---
+
+## Apple M4 base 24 GB — output Hadamard fusion and GDN first state
+
+The two changes characterized in the M5 Pro section below were re-measured on the
+entry-level M4 that the tables at the top of this document describe. Both arms run
+against the same loaded weights in one process, so these are paired A/B/A results
+with a closing drift control, not a cross-checkout comparison.
+
+Machine as in the M4 tables above; macOS 26.5.2, `mlx` 0.32.0, `mlx-lm` 0.31.3,
+`applegpu_g16g`, 19.07 GB working-set cap, repository defaults, MLX memory limit
+19.0 GB, wired limit 0. Runtime revision `40f0b1c0d543cdb6c70abf7fe391039862404df9`.
+AC power, with desktop applications open and idle across all three arms of every
+block — that raises the noise floor on absolutes without biasing a paired delta.
+The complete suite reports **180 passed, 1 skipped** and `bench/p0_gates.py` reports
+`ALL GATES PASS`; every arm below produced identical logit and token hashes.
+
+### Output Hadamard fusion
+
+```bash
+.venv/bin/python bench/sweep_output_had.py --model ./escha-w2 \
+    --isls 512 --batches 1,8,16,32 --repeats 5 --decode-steps 24 \
+    --out bench/results/m4-base-24gb/output_had_ab.json
+```
+
+| workload | native A1 | output-fused | native A2 | fused vs mean(native) | drift |
+|---|---:|---:|---:|---:|---:|
+| prefill, ISL 512 | 267.15 | **289.79** | 258.70 | **+10.2%** | 3.27% |
+| decode, B=1 | 28.64 | 27.98 | 28.10 | −1.4% | 1.92% |
+| decode, B=8 | 64.53 | 62.67 | 61.91 | −0.9% | 4.23% |
+| decode, B=16 | 108.97 | 109.60 | 107.98 | +1.0% | 0.92% |
+| decode, B=32 | 154.26 | 159.46 | 159.34 | +1.7% | 3.29% |
+
+Prefill gains three times its drift and is the one throughput result here. Every
+decode row sits inside its own drift, two of them negative: on this chip the honest
+reading is **no measurable change** at decode, not a small gain. That is the reverse
+of the M5 Pro split below, where the same kernel buys 5.6% at B=1 and 2.6% at B=8 —
+a difference this document records rather than explains, since no counter-level
+profile was run.
+
+### GDN first-state peak memory
+
+No decode harness here can see this change. `sweep_kernel_variants.run`,
+`sweep_output_had.py::_decode_once` and `baseline.py` Phase C all call
+`mx.reset_peak_memory()` *after* the prompt and warmup steps, which is what makes
+steady-state peaks comparable — but the f32 initial recurrent state exists only
+during the first recurrence and is freed before those counters arm. Peak memory is
+therefore identical to three decimals in the table above, and that is not evidence
+of no effect. Arming the counter before one forward on a fresh cache measures it:
+
+```bash
+.venv/bin/python bench/sweep_gdn_first_state.py --model ./escha-w2 \
+    --batches 1,8,16,32,64 \
+    --out bench/results/m4-base-24gb/gdn_first_state.json
+```
+
+| batch | main peak | branch peak | saved | headroom to cap |
+|---:|---:|---:|---:|---:|
+| 1 | 12.404 GB | **12.344 GB** | 0.060 GB (0.5%) | 6.73 GB |
+| 8 | 13.248 GB | **12.889 GB** | 0.359 GB (2.7%) | 6.18 GB |
+| 16 | 14.084 GB | **13.462 GB** | 0.622 GB (4.4%) | 5.61 GB |
+| 32 | 15.617 GB | **14.519 GB** | 1.098 GB (7.0%) | 4.55 GB |
+| 64 | 18.198 GB | **16.122 GB** | **2.076 GB (11.4%)** | 2.95 GB |
+
+Logits and recurrent state are bit identical at every batch; the harness compares
+both and fails rather than reporting a saving that changed numerics. The saving is
+32.4 MB per sequence, which is the byte ledger rather than an artifact: 30 linear
+layers × 32 × 128 × 128 elements × (4 − 2) bytes = 31.5 MB, the gap between the f32
+buffer upstream allocates and the fp16 state actually kept. It grows linearly with
+batch, so it matters exactly where a 24 GB Mac is tightest — at B=64 the upstream
+path peaks 0.87 GB under the cap and this branch 2.95 GB under it.
+
+B=96 and B=128 were **not** run. The measured slope puts upstream near 19.2 GB at
+B=96, across the cap and into the unwired regime where throughput collapses ~23×;
+that is an extrapolation, and it was left unmeasured because the M5 Pro section
+records an `IOGPUFamily` kernel panic from extending a paired A/B/A to B=128.
+
+### What this means for the M4
+
+Prefill gains ~10%, decode is unchanged within noise, and first-forward peak memory
+falls by up to 2.08 GB with bit-identical output. The M4 tables at the top of this
+document were **not** rewritten: their decode and serving figures are unaffected by
+this change, and their prefill figures come from a session whose absolute throughput
+differs from these runs by more than the effect being measured, so splicing one
+number in would produce a row no single session observed.
+
+Raw JSON: [output fusion A/B/A](../bench/results/m4-base-24gb/output_had_ab.json),
+[GDN first state](../bench/results/m4-base-24gb/gdn_first_state.json).
 
 ---
 
