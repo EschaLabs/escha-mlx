@@ -106,13 +106,18 @@ revision `bf86c10d4d91e5d4aaa7d4046983723e139f47cc`, model revision
 
 | workload | M4 base, escha W2 | M4 base, stock MLX 4-bit | M4 Pro 48 GB, escha W2 | M5 Pro, escha W2 |
 |---|---:|---:|---:|---:|
-| resident memory | **12.25 GB** | 19.51 GB | 11.41 GB | **11.41 GB** |
+| resident memory¹ | **12.25 GB** | 19.51 GB | 12.25 GB | **12.25 GB** |
 | prefill, ISL 512 | 264 tok/s | — | 263.8 tok/s | **756.5 tok/s** |
 | decode, single stream | 27.3 tok/s | **42.9 tok/s** | 41.3 tok/s | **59.68 tok/s** |
 | aggregate @ batch 8 | 59.6 tok/s | **101.5 tok/s** | 104.7 tok/s | **193.03 tok/s** |
 | aggregate @ batch 16 | **104.0 tok/s** | out of memory | 179.6 tok/s | **239.96 tok/s** |
 | aggregate @ batch 128 | **185.6 tok/s** (18.1 GB peak) | out of memory | — | **539.25 tok/s** (18.06 GB peak) |
 | served peak output / total | 99.5 / 244.5 tok/s | — | 105.1 / 296.7 tok/s | **206.00 / 589.08 tok/s** |
+
+¹ Identical on every machine, as it must be — same checkpoint, same Q8 group size.
+Earlier tables showed 11.41 for the Pro machines: that was the same residency in
+GiB (12.25 × 10⁹ bytes = 11.41 GiB) from a harness that divides by 1024³ while
+printing "GB". Decimal GB everywhere in this table.
 
 Prefill runs ~264 tok/s; single-stream decode reaches 69% of this chip's 39.3 tok/s
 bandwidth ceiling. Read the comparison honestly in both directions: below batch 16 the
