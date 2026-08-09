@@ -16,6 +16,17 @@ custom Metal kernels that are **bit-exact against the codec's committed referenc
   goldens — not a tolerance, and CI-enforced on every PR
 - **Honest benchmarks**: measured on hardware, drift-controlled, negative results included
 
+> **This is a reference implementation.** The kernels and defaults are correct on any
+> Apple silicon but are tuned only on the hardware we could measure — a base M4, an
+> M4 Pro and an M5 Pro. Apple GPUs differ enough (bandwidth, core
+> count, Dynamic Caching) that the optimal settings are machine-specific, and every
+> tuning knob here is gated bit-exact, so tuning for *your* chip is a measurement
+> exercise, not a numerics risk. **Community contributions are welcome**, per-machine
+> tuning and benchmark PRs especially: method and knobs in
+> [docs/BRINGUP_AND_PERF.md](docs/BRINGUP_AND_PERF.md) and
+> [docs/INSTALL.md](docs/INSTALL.md), per-machine result format in
+> [`bench/results/`](bench/results/), process in [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Supported models
 
 | model | quant | resident | status |
@@ -86,26 +97,39 @@ collapses 23× near the cap. Memory settings and the full tuning-knob reference:
 
 ## Benchmarks
 
-Measurements on 24 GB Macs using macOS 26.5.2, MLX 0.32.0 and mlx-lm 0.31.3.
-The M4 is the entry-level 10-core-GPU model; the M5 Pro has a 16-core GPU. Every
-M5 Pro result in this summary table used runtime revision
-`bf86c10d4d91e5d4aaa7d4046983723e139f47cc`, model revision
+Measurements on the machines below, all using MLX 0.32.0 and mlx-lm 0.31.3.
+The M4 is the entry-level 10-core-GPU model (24 GB, macOS 26.5.2); the M4 Pro is a
+20-core-GPU, 48 GB machine (macOS 15.7.3); the M5 Pro has a 16-core
+GPU (24 GB, macOS 26.5.2). Every M5 Pro result in this summary table used runtime
+revision `bf86c10d4d91e5d4aaa7d4046983723e139f47cc`, model revision
 `1b7237f0886a10b4bd92cd7653090cd7381ae199`, AC power and High Power mode.
 
-| workload | M4 base, escha W2 | M4 base, stock MLX 4-bit | M5 Pro, escha W2 |
-|---|---:|---:|---:|
-| resident memory | **12.25 GB** | 19.51 GB | **11.41 GB** |
-| prefill, ISL 512 | 264 tok/s | — | **756.5 tok/s** |
-| decode, single stream | 27.3 tok/s | **42.9 tok/s** | **59.68 tok/s** |
-| aggregate @ batch 8 | 59.6 tok/s | **101.5 tok/s** | **193.03 tok/s** |
-| aggregate @ batch 16 | **104.0 tok/s** | out of memory | **239.96 tok/s** |
-| aggregate @ batch 128 | **185.6 tok/s** (18.1 GB peak) | out of memory | **539.25 tok/s** (18.06 GB peak) |
-| served peak output / total | 99.5 / 244.5 tok/s | — | **206.00 / 589.08 tok/s** |
+| workload | M4 base, escha W2 | M4 base, stock MLX 4-bit | M4 Pro 48 GB, escha W2 | M5 Pro, escha W2 |
+|---|---:|---:|---:|---:|
+| resident memory | **12.25 GB** | 19.51 GB | 11.41 GB | **11.41 GB** |
+| prefill, ISL 512 | 264 tok/s | — | 263.8 tok/s | **756.5 tok/s** |
+| decode, single stream | 27.3 tok/s | **42.9 tok/s** | 41.3 tok/s | **59.68 tok/s** |
+| aggregate @ batch 8 | 59.6 tok/s | **101.5 tok/s** | 104.7 tok/s | **193.03 tok/s** |
+| aggregate @ batch 16 | **104.0 tok/s** | out of memory | 179.6 tok/s | **239.96 tok/s** |
+| aggregate @ batch 128 | **185.6 tok/s** (18.1 GB peak) | out of memory | — | **539.25 tok/s** (18.06 GB peak) |
+| served peak output / total | 99.5 / 244.5 tok/s | — | 105.1 / 296.7 tok/s | **206.00 / 589.08 tok/s** |
 
 Prefill runs ~264 tok/s; single-stream decode reaches 69% of this chip's 39.3 tok/s
 bandwidth ceiling. Read the comparison honestly in both directions: below batch 16 the
 4-bit build is faster; from batch 16 up **only escha runs at all** on 24 GB — that is the
 regime the 1.59× footprint buys, and where a Mac serving more than one user lives.
+
+The M4 Pro column was measured on a second team machine (the first Pro-class
+datapoint, [PR #2](https://github.com/EschaLabs/escha-mlx/pull/2)) at
+runtime **v0.1.0 — before** the native-Hadamard and fused-output-transform changes
+the other escha columns include. Its in-process rows are the opening baseline of a
+session whose own drift controls put ~10% on single observations; only its served
+128:128 point carries a five-trial error bar. B=128 was not run there. Its most
+interesting reading: 41.3 tok/s single-stream is just **43.6% of that chip's 94.8
+tok/s roofline** (vs 69% on the base M4) — more bandwidth, lower utilization, the
+latency-bound signature that motivates per-machine tuning. Full write-up, drift
+controls, and harness issues found:
+[`bench/results/m4-pro-48gb/README.md`](bench/results/m4-pro-48gb/README.md).
 
 The M5 Pro results are a separate machine characterization, not a paired cross-chip
 A/B. Its B=1/8/16/128 entries are five-run medians from the 16-token,
