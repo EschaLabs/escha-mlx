@@ -33,14 +33,16 @@ raised.
     python bench/sweep_block_r.py --model <dir> [--batches 8,16,24]
                                             [--rs 1,2,3,4] [--wired 18]
 
-Correctness gate: do NOT compare decoded tokens across runs.  Greedy decode in
-this runtime is run-to-run NONDETERMINISTIC -- `_expert_path` finishes with
-`y.at[row_token].add(contrib)`, an atomic f32 scatter-add with top_k=8 duplicate
-indices per token, so the per-token sum order varies between runs; over 40
-layers that is enough to flip argmax on near-ties.  Measured: R=1 vs R=1, same
-seed, same prompt -> different tokens.  So the gate here compares the GEMM
-output itself (`_gemv`) for R=1 vs R>1 on one fixed input inside a single
-process, where bit-identity is the actual contract and holds exactly.
+Correctness gate: the GEMM output itself (`_gemv`), R=1 vs R>1 on one fixed
+input inside a single process — bit-identity is the direct kernel contract and
+holds exactly, independent of everything downstream.  Historical note: this
+gate was chosen when greedy decode was still run-to-run NONDETERMINISTIC —
+`_expert_path` used to end in `y.at[row_token].add(contrib)`, an atomic f32
+scatter-add with top_k=8 duplicate indices per token, so summation order varied
+per run (measured: R=1 vs R=1, same seed, same prompt -> different tokens).
+docs/BRINGUP_AND_PERF.md §10.5 replaced that with a fixed-order segmented sum,
+so decode is now bit-reproducible; the GEMM gate is retained as the sharper,
+cheaper check.
 """
 from __future__ import annotations
 

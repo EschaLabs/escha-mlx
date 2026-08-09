@@ -15,16 +15,20 @@ This script measures BOTH terms instead of assuming either:
 The output tells you which of the three streams (Q8 dense / trellis experts /
 everything else) is costing what, and what fraction of peak each achieves.
 
-    python -m escha_mlx.bench.roofline --model ~/models/escha-w2
+    python bench/roofline.py --model ~/models/escha-w2
 """
 from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
+from pathlib import Path
 
 import mlx.core as mx
 import mlx.nn as nn
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from escha_mlx.benchmark_metadata import annotate_report, benchmark_metadata
 
@@ -144,7 +148,9 @@ def measure_trellis(rows_list: list[int]) -> dict:
 
 def byte_ledger(model, top_k: int) -> dict:
     """Walk the LOADED model and total the bytes read for ONE decode token."""
-    from escha_mlx import moe as moe_mod
+    # The MoE block moved out of escha_mlx.moe when models/ was split per
+    # architecture; escha_mlx.moe now holds only the expert toolkit.
+    from escha_mlx.models import qwen3_5_moe as moe_mod
 
     lm = model.language_model
     args = lm.args

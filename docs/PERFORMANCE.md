@@ -38,9 +38,13 @@ historical "11.41 GB resident" figure, which is the same residency as the
 > them:
 > [Apple M4 base 24 GB — output Hadamard fusion and GDN first state](#apple-m4-base-24-gb--output-hadamard-fusion-and-gdn-first-state).
 
-Decode is memory-bound: 2.57 GB moved per token against 101 GB/s gives a hard
-ceiling of 39.3 tok/s on this chip, and we reach 69% of it. **100 tok/s from a
-single stream is not physically possible here** — it would need 250 GB/s.
+Decode is memory-bound: 2.45 GB moved per token (2.386 GB weights at the
+current Q8 group-128 default, per `roofline.py`'s ledger, plus ~0.064 GB of
+fp16 GDN state read+write) against 101 GB/s gives a hard ceiling of
+~41.2 tok/s on this chip, and we reach ~66% of it. (Earlier revisions of this
+paragraph said 2.57 GB → 39.3 tok/s; that ledger predates the Q8 group 64→128
+default change.) **100 tok/s from a single stream is not physically possible
+here** — it would need ~245 GB/s.
 
 ## Concurrency
 
@@ -66,12 +70,12 @@ OSL tokens. ISL = input length, OSL = output length, C = concurrency.
 
 | ISL | OSL | C | TTFT p50 (s) | TTFT p99 (s) | TPOT (ms) | output tok/s | total tok/s | vs pre-fusion |
 |---|---|---|---|---|---|---|---|---|
-| 128 | 128 | 1 | 0.81 | 0.9 | 36.4 | **23.5** | 49.4 | +13% |
+| 128 | 128 | 1 | 0.81 | 0.9 | 36.4 | **23.5** | 49.4 | +12% |
 | 128 | 128 | 8 | 4.43 | 6.3 | 136.0 | **47.3** | 99.1 | +12% |
 | 128 | 128 | 16 | 3.87 | 13.4 | 204.2 | **65.3** | 136.8 | +26% |
 | 128 | 1024 | 1 | 0.85 | 0.9 | 35.6 | **27.4** | 31.2 | +13% |
 | 128 | 1024 | 8 | 4.48 | 6.4 | 130.9 | **59.7** | 67.9 | +1% |
-| 128 | 1024 | 16 | 3.99 | 13.5 | 155.3 | **99.5** | 113.2 | +22% |
+| 128 | 1024 | 16 | 3.99 | 13.5 | 155.3 | **99.5** | 113.2 | +21% |
 | 1000 | 1000 | 1 | 4.08 | 4.2 | 36.0 | **24.8** | 49.9 | +13% |
 | 1000 | 1000 | 8 | 10.37 | 30.9 | 147.7 | **50.4** | 101.5 | +5% |
 | 1000 | 1000 | 16 | 11.10 | 64.0 | 201.7 | **74.3** | 149.5 | +24% |
@@ -89,11 +93,16 @@ bottleneck on a 10-core GPU and requests queue behind it — but far less than
 before: 1000/1000 at C=16 went from 50.5 s to 11.1 s p50. On prompt-heavy
 workloads, keep concurrency low.
 
-The final column compares against the same grid before the fused transform
-kernel. Decode-dominated rows at low concurrency gain ~12%; the gains reach
-+21-25% wherever many expert rows are in flight, and the one flat row
-(128/1024 C=8) is the 64-row point where there is little transform work to
-fuse.
+The final column compares against the same ISL/OSL/C points measured before the
+fused transform kernel. Two caveats make it indicative rather than a matched
+A/B: the pre-fusion baseline fixed every point at 16 requests while the fused
+grid used the harness defaults of 4/16/32 requests at C=1/8/16 (only the C=8
+rows are request-count matched), and neither file records a runtime revision.
+Read directionally: decode-dominated rows at low concurrency gain ~12%; the
+gains reach +21-28% wherever many expert rows are in flight, and the one flat
+row (128/1024 C=8) is the 64-row point where there is little transform work to
+fuse. The same request-count confound applies to the TTFT comparison above
+(1000/1000 C=16: 16 vs 32 requests).
 
 ---
 
@@ -132,9 +141,9 @@ Aggregate decode by batch (escha shown as first run / drift control):
 | 16 | **104.0 / 113.3** | out of memory | — |
 | 32 | **162.1 / 155.7** | out of memory | — |
 
-The escha arm was measured first *and* last. Drift is ≤1.5% at ISL and low
-batch; B=8 and B=16 carry ~8% run-to-run spread on this box and should be read
-as approximate.
+The escha arm was measured first *and* last. Drift is ≤1.5% at ISL and B=2–4
+(B=1 shows ~2%); B=8 and B=16 carry ~8–9% run-to-run spread on this box and
+should be read as approximate.
 
 **Read this honestly in both directions.**
 
@@ -214,13 +223,16 @@ profile was run.
 
 ### GDN first-state peak memory
 
-No decode harness here can see this change. `sweep_kernel_variants.run`,
-`sweep_output_had.py::_decode_once` and `baseline.py` Phase C all call
-`mx.reset_peak_memory()` *after* the prompt and warmup steps, which is what makes
-steady-state peaks comparable — but the f32 initial recurrent state exists only
-during the first recurrence and is freed before those counters arm. Peak memory is
-therefore identical to three decimals in the table above, and that is not evidence
-of no effect. Arming the counter before one forward on a fresh cache measures it:
+The steady-state decode harnesses cannot see this change. `sweep_kernel_variants.run`
+and `sweep_output_had.py::_decode_once` call `mx.reset_peak_memory()` *after* the
+prompt and warmup steps, which is what makes steady-state peaks comparable — but the
+f32 initial recurrent state exists only during the first recurrence and is freed
+before those counters arm. (`baseline.py` Phase C arms its counter *before* prefill,
+so its peak does span the window where the f32 state exists — there the saving is
+masked by larger prefill transients rather than excluded by counter timing.) Peak
+memory is therefore identical to three decimals in the table above, and that is not
+evidence of no effect. Arming the counter before one forward on a fresh cache
+measures it:
 
 ```bash
 .venv/bin/python bench/sweep_gdn_first_state.py --model ./escha-w2 \
@@ -237,15 +249,17 @@ of no effect. Arming the counter before one forward on a fresh cache measures it
 | 64 | 18.198 GB | **16.122 GB** | **2.076 GB (11.4%)** | 2.95 GB |
 
 Logits and recurrent state are bit identical at every batch; the harness compares
-both and fails rather than reporting a saving that changed numerics. The saving is
-32.4 MB per sequence, which is the byte ledger rather than an artifact: 30 linear
-layers × 32 × 128 × 128 elements × (4 − 2) bytes = 31.5 MB, the gap between the f32
-buffer upstream allocates and the fp16 state actually kept. It grows linearly with
-batch, so it matters exactly where a 24 GB Mac is tightest — at B=64 the upstream
-path peaks 0.87 GB under the cap and this branch 2.95 GB under it.
+both and fails rather than reporting a saving that changed numerics. The measured
+saving at B=64 is 32.4 MB per sequence, within 3% of the byte ledger of 31.5 MB
+(30 linear layers × 32 × 128 × 128 elements × (4 − 2) bytes) — the gap between the
+f32 buffer upstream allocates and the fp16 state actually kept, arithmetic rather
+than an artifact. It grows linearly with batch, so it matters exactly where a 24 GB
+Mac is tightest — at B=64 the upstream path peaks 0.87 GB under the cap and this
+branch 2.95 GB under it.
 
-B=96 and B=128 were **not** run. The measured slope puts upstream near 19.2 GB at
-B=96, across the cap and into the unwired regime where throughput collapses ~23×;
+B=96 and B=128 were **not** run. The shallowest measured segment slope puts upstream
+near 20.8 GB at B=96 (~1.7 GB past the 19.07 GB cap), into the unwired regime where
+throughput collapses ~23×;
 that is an extrapolation, and it was left unmeasured because the M5 Pro section
 records an `IOGPUFamily` kernel panic from extending a paired A/B/A to B=128.
 
@@ -254,9 +268,11 @@ records an `IOGPUFamily` kernel panic from extending a paired A/B/A to B=128.
 Prefill gains ~10%, decode is unchanged within noise, and first-forward peak memory
 falls by up to 2.08 GB with bit-identical output. The M4 tables at the top of this
 document were **not** rewritten: their decode and serving figures are unaffected by
-this change, and their prefill figures come from a session whose absolute throughput
-differs from these runs by more than the effect being measured, so splicing one
-number in would produce a row no single session observed.
+this change, and their prefill figures come from a different harness and session
+(the head-to-head sweep), so splicing the fused +10% into them would produce a row
+no single session observed. (The two sessions' native prefill absolutes agree
+within ~1%, inside either session's drift; the reason not to splice is provenance,
+not disagreement.)
 
 Raw JSON: [output fusion A/B/A](../bench/results/m4-base-24gb/output_had_ab.json),
 [GDN first state](../bench/results/m4-base-24gb/gdn_first_state.json).
@@ -436,12 +452,19 @@ allocation-free GDN first-state change. Raw A/B/A JSON:
 
 The committed roofline harness measured 270.6 GB/s peak streaming read bandwidth,
 88% of the chip's advertised 307 GB/s, and a 187.3 us dispatch floor. The loaded
-model's byte ledger is 2.386 GB/token.
+model's byte ledger is 2.386 GB/token. Those three figures are hardware/model
+properties and remain valid at any runtime revision.
 
 ```bash
 .venv/bin/python -u bench/roofline.py --model ./escha-w2 \
     --out bench/results/m5-pro-24gb/roofline.json
 ```
+
+The per-step rows below are **historical**: they were measured at pre-fusion
+runtime revision `79ba35e` (model `32016b7`) and have not been re-run. At the
+current runtime's 59.68 tok/s (repeats table above), the same ledger gives
+~142 GB/s effective — ~53% of the 113.4 tok/s B=1 ceiling — so the current
+runtime sits well above this table's efficiencies.
 
 | batch | measured tok/s | modeled GB/step | effective GB/s | roofline efficiency |
 |---:|---:|---:|---:|---:|

@@ -56,9 +56,10 @@ to 16 already does.**  Batch-shape variation is unavoidable in a batched server
 variation.  It remains fully deterministic: identical shape + identical input ->
 identical bits.
 
-DEFAULT: fp16.  It buys ~+10% at B>=32 and 31.5 MB/seq, which raises the
-concurrency ceiling from B=64 (17.89 GB) to B=128 (18.98 GB) and with it
-aggregate throughput 140 -> 167.5 tok/s.  ESCHA_MLX_GDN_STATE=fp32 restores the
+DEFAULT: fp16.  It buys ~+10% at B>=32 and 31.5 MB/seq; when it landed
+(2026-07-30) that raised the concurrency ceiling from B=64 (17.89 GB) to B=128
+(18.98 GB) and with it aggregate throughput 140 -> 167.5 tok/s (current
+post-fusion numbers live in docs/PERFORMANCE.md).  ESCHA_MLX_GDN_STATE=fp32 restores the
 previous numerics exactly.  Note this DOES change bs1 output relative to the f32
 build -- by the amount quantified above.
 

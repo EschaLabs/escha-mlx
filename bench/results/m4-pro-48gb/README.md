@@ -119,7 +119,14 @@ M5 Pro result from PR #1 is included for context:
 |---|---|---|---|---|---|
 | base M4 | 101 GB/s | 23.53 | 1.00x | 47.31 | 1.00x |
 | M4 Pro (matched flags, median of 5) | 243.7 GB/s | 31.90 | **1.36x** | 60.07 | 1.27x |
-| M5 Pro (#1) | 270.6 GB/s | 36.20 | **1.54x** | 108.17 | 2.29x |
+| M5 Pro (#1)¹ | 270.6 GB/s | 36.20 | **1.54x** | 108.17 | 2.29x |
+
+¹ The M5 Pro figures are PR #1's fused-arm `grid_fused.json` values (the fused arm
+matches the base-M4 row's definition). That file was superseded and removed when the
+M5 results were refreshed (`grid_current.json`), so these two numbers are quoted from
+the PR #1 revision (`git show aec1ea8`) rather than from a file on the current tree;
+the surviving `baseline.json` records the *unfused* arm (35.10 / 107.20) at the same
+points.
 
 The matched M4 Pro medians reach 1.36x the base M4 at C=1 and 1.27x at C=8. The five
 M4 Pro measurements span 31.75-32.04 tok/s at C=1 and 59.91-60.12 tok/s at C=8. The

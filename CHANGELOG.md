@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+- **Fused expert output Hadamard transform** (companion to 0.1.0's input-side
+  fusion): transform + output-scale gather + f16 cast in one Metal kernel,
+  bit-exact with the native chain. M5 Pro: +5.6% decode at B=1, +5.8% prefill
+  (same-process A/B/A). M4 base: ~+10% prefill, decode unchanged within noise.
+- **Native Hadamard transform** in the fallback op chain (`mx.hadamard_transform`
+  instead of dense matmul), which also resolved the M5 Pro TF32 test-oracle
+  issue; the fused/native gate is now bit-exact under default TF32.
+- **Allocation-free GDN first state**: the first recurrence starts from zeros in
+  Metal registers and emits the storage dtype directly — first-forward peak
+  memory −2.08 GB at B=64 on 24 GB (18.20 → 16.12 GB), logits and state
+  bit-identical.
+- Benchmarks: refreshed M5 Pro results; first M4 Pro (48 GB) characterization;
+  M4 base paired A/B/A for both changes plus a GDN first-state memory probe
+  (`bench/sweep_gdn_first_state.py`).
+- Fixes: `bench/baseline.py` reported GiB while printing "GB" (all figures
+  corrected or relabeled across the docs); `bench/roofline.py` repaired after
+  the models/ split; broken line-continuation in INSTALL's serving example;
+  a pre-release consistency audit across README/docs/tables.
+
 ## 0.1.0 — 2026-08-03
 
 First public release.

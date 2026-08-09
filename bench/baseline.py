@@ -11,16 +11,20 @@ Phase C is the load-bearing one: continuous batching is only worth building if
 B>1 decode is (a) numerically identical to B=1 for a replicated prompt and
 (b) sublinear in wall-time.  Run with --phases to select, e.g. `--phases AB`.
 
-    python -m escha_mlx.bench.baseline --model ~/models/escha-w2 --phases ABCD
+    python bench/baseline.py --model ~/models/escha-w2 --phases ABCD
 """
 from __future__ import annotations
 
 import argparse
 import gc
 import json
+import sys
 import time
+from pathlib import Path
 
 import mlx.core as mx
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from escha_mlx.benchmark_metadata import annotate_report, benchmark_metadata
 

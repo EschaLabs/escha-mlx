@@ -2,10 +2,13 @@
 
 Written during the first hardware bring-up on an M4 MacBook (24 GB); the
 sequence applies to any Apple Silicon Mac. Target: Qwen3.6-35B-A3B-Escha-W2
-(12.32 GB) serving on a stock 24 GB machine. A 24 GB machine has a **~17.2 GB
-default GPU working-set limit** (2/3 of physical RAM); the model needs
-~14–15.5 GB at ctx ≤ 32 k and the loader peaks ~13.5 GB — it fits, but close
-memory-hungry apps (browsers) for the first session.
+(12.32 GB) serving on a stock 24 GB machine. A 24 GB machine has a **~19 GB
+default GPU working-set limit** (about 3/4 of physical RAM; measured 19.07 GB
+via `max_recommended_working_set_size` on the bring-up M4 — the ~17.2 GB /
+"2/3 of RAM" figure this runbook originally assumed was falsified during
+bring-up, doc §1); the model needs ~14–15.5 GB at ctx ≤ 32 k and the loader
+peaks ~13.5 GB — it fits, but close memory-hungry apps (browsers) for the
+first session.
 
 ## 0. Setup (~15 min + model download)
 
@@ -98,8 +101,10 @@ Known gap: no json_schema/structured output (an mlx-lm server limitation). Reaso
 - chip + RAM + macOS + mlx versions (`sw_vers; python -c "import mlx.core as c; print(c.__version__)"`).
 - Any test failure verbatim.
 
-Expected decode floors at ≤4 k ctx: base M4 ~27 tok/s (measured), M4 Pro ≥ 25,
-M4 Max ≥ 50 (bandwidth-scaled). First-session numbers below that are perf
+Expected decode floors at ≤4 k ctx: base M4 ~27 tok/s (measured), M4 Pro ~39–41
+(measured, `bench/results/m4-pro-48gb/`), M4 Max ≥ 50 (bandwidth-scaled — the
+M4 Pro measurement shows scaling is far from linear at bs1, so read scaled
+floors loosely). First-session numbers below that are perf
 work, not correctness failures — but garbage output or gate failures are BUGS:
 capture and report.
 
@@ -111,4 +116,4 @@ capture and report.
 | `ESCHA_MLX_MOE=ops` | numpy expert path (slow, correctness oracle) |
 | `ESCHA_MLX_DENSE=fp16` | fp16 dense instead of Q8 repack (+1.9 GB) |
 | `ESCHA_MLX_Q8_GROUP=64` | revert to 64-wide Q8 groups (128 is the default) |
-| `sudo sysctl iogpu.wired_limit_mb=N` | raise the GPU working-set cap if the fit is tight (e.g. 19000 on 24 GB) |
+| `sudo sysctl iogpu.wired_limit_mb=N` | raise the GPU working-set cap if the fit is tight (e.g. 21000 on 24 GB raises 19.07 → 22.02 GB; also set `ESCHA_MLX_WIRED_GB` — the sysctl alone wires nothing, see INSTALL's 23× cliff) |

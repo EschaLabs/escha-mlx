@@ -111,8 +111,9 @@ commitment of memory and buys nothing there.
 ### Serving flags that matter on 24 GB
 
 ```bash
+# --prefill-step-size 256: mlx-lm's default of 2048 peaks at 20.7 GB
 escha-mlx-server --model ./escha-w2 --port 8080 \
-    --prefill-step-size 256 \      # mlx-lm's default of 2048 peaks at 20.7 GB
+    --prefill-step-size 256 \
     --decode-concurrency 16
 ```
 
@@ -141,7 +142,7 @@ these is gated bit-identical or documented where it is not.
 | `ESCHA_MLX_LUT=1` | table-based codec decode instead of the multiply-hash. Bit-exact by construction; use if a future Metal compiler ever breaks fp16 round-to-nearest-even in the hash path. |
 | `ESCHA_MLX_MOE=ops` | NumPy expert path. Very slow; a correctness oracle, not for serving. |
 
-Three further flags (`ESCHA_MLX_SPLITK`, `ESCHA_MLX_FETCH`, `ESCHA_MLX_SORTX`,
+Four further flags (`ESCHA_MLX_SPLITK`, `ESCHA_MLX_FETCH`, `ESCHA_MLX_SORTX`,
 `ESCHA_MLX_PREFETCH`) select alternate kernel strategies that measured neutral or
 worse on a 10-core M4. They are kept because the trade-offs are
 hardware-dependent and may favour wider GPUs (M-series Max/Ultra). All are gated

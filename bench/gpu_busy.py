@@ -1,10 +1,13 @@
 """GPU-busy / frequency sampling around a kernel loop — the one profiling signal
 available without Xcode.
 
-WHY. Six kernel hypotheses have now been measured wrong (doc §11, §13.2, §15.4)
-because they were reasoned from counters rather than observed. The trellis GEMM
-sustains 39-53% of the bandwidth roofline where mlx-lm's `gather_qmm` sustains
-~80% (§15). Instruments would answer why directly, but it needs full Xcode.
+WHY. Multiple kernel hypotheses were measured wrong (doc §11, §13.2, §15.4)
+because they were reasoned from counters rather than observed. At the time,
+whole-step measurements suggested the trellis GEMM sustained only 39-53% of the
+bandwidth roofline vs `gather_qmm`'s ~80% (§15); §16 later showed that reading
+mis-attributed transform-pipeline cost to the kernel — isolated at matched
+shapes, the kernel is faster than `gather_qmm` at every decode row count.
+Instruments would have answered why directly, but it needed full Xcode.
 
 What powermetrics CAN answer is the first fork in the tree, and it is the fork
 that decides where to look next:

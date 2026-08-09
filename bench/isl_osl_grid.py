@@ -15,7 +15,7 @@ Prompts are built to an EXACT token length with the model's own tokenizer and
 are UNIQUE per request by default, so the server's prefix cache cannot inflate
 results.  `--shared-prefix` flips that to measure the radix/prefix cache.
 
-    python -m escha_mlx.bench.isl_osl_grid --model ~/models/escha-w2 \
+    python bench/isl_osl_grid.py --model ~/models/escha-w2 \
         --grid nvidia --concurrency 1,4,8,16 --out results.json
 """
 from __future__ import annotations
@@ -25,9 +25,13 @@ import asyncio
 import json
 import random
 import statistics
+import sys
 import time
+from pathlib import Path
 
 import httpx
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from escha_mlx.benchmark_metadata import annotate_report, benchmark_metadata
 

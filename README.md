@@ -13,15 +13,18 @@ custom Metal kernels that are **bit-exact against the codec's committed referenc
 - **35B-class MoE in 12.3 GB** — generates and serves on a stock 24 GB Mac
 - **OpenAI-compatible server** with continuous batching and prefix caching
 - **Provable correctness**: every kernel path gated `np.array_equal` against committed
-  goldens — not a tolerance, and CI-enforced on every PR
+  goldens — not a tolerance. CI runs the suite on every PR (reference/repack gates on
+  Linux CPU; the Metal kernel gates run when the runner exposes Metal and self-skip
+  otherwise — the workflow's "Metal available?" step records which happened)
 - **Honest benchmarks**: measured on hardware, drift-controlled, negative results included
 
 > **This is a reference implementation.** The kernels and defaults are correct on any
 > Apple silicon but are tuned only on the hardware we could measure — a base M4, an
 > M4 Pro and an M5 Pro. Apple GPUs differ enough (bandwidth, core
 > count, Dynamic Caching) that the optimal settings are machine-specific, and every
-> tuning knob here is gated bit-exact, so tuning for *your* chip is a measurement
-> exercise, not a numerics risk. **Community contributions are welcome**, per-machine
+> tuning knob here is gated bit-exact or has its numeric effect measured and
+> documented, so tuning for *your* chip is a measurement exercise, not an
+> unquantified numerics risk. **Community contributions are welcome**, per-machine
 > tuning and benchmark PRs especially: method and knobs in
 > [docs/BRINGUP_AND_PERF.md](docs/BRINGUP_AND_PERF.md) and
 > [docs/INSTALL.md](docs/INSTALL.md), per-machine result format in
@@ -107,7 +110,7 @@ revision `bf86c10d4d91e5d4aaa7d4046983723e139f47cc`, model revision
 | workload | M4 base, escha W2 | M4 base, stock MLX 4-bit | M4 Pro 48 GB, escha W2 | M5 Pro, escha W2 |
 |---|---:|---:|---:|---:|
 | resident memory¹ | **12.25 GB** | 19.51 GB | 12.25 GB | **12.25 GB** |
-| prefill, ISL 512 | 264 tok/s | — | 263.8 tok/s | **756.5 tok/s** |
+| prefill, ISL 512 | 264 tok/s | **344.2 tok/s** | 263.8 tok/s | **756.5 tok/s** |
 | decode, single stream | 27.3 tok/s | **42.9 tok/s** | 41.3 tok/s | **59.68 tok/s** |
 | aggregate @ batch 8 | 59.6 tok/s | **101.5 tok/s** | 104.7 tok/s | **193.03 tok/s** |
 | aggregate @ batch 16 | **104.0 tok/s** | out of memory | 179.6 tok/s | **239.96 tok/s** |
@@ -119,21 +122,24 @@ Earlier tables showed 11.41 for the Pro machines: that was the same residency in
 GiB (12.25 × 10⁹ bytes = 11.41 GiB) from a harness that divided by 1024³ while
 printing "GB" — fixed 2026-08-09. Decimal GB everywhere in this table.
 
-Prefill runs ~264 tok/s; single-stream decode reaches 69% of this chip's 39.3 tok/s
-bandwidth ceiling. Read the comparison honestly in both directions: below batch 16 the
+On the base M4, prefill runs ~264 tok/s; single-stream decode reaches ~66% of that
+chip's ~41.2 tok/s bandwidth ceiling (2.45 GB/token at the current Q8-128 ledger,
+101 GB/s measured). Read the comparison honestly in both directions: below batch 16 the
 4-bit build is faster; from batch 16 up **only escha runs at all** on 24 GB — that is the
 regime the 1.59× footprint buys, and where a Mac serving more than one user lives.
 
 The M4 Pro column was measured on a second team machine (the first Pro-class
 datapoint, [PR #2](https://github.com/EschaLabs/escha-mlx/pull/2)) at
 runtime **v0.1.0 — before** the native-Hadamard and fused-output-transform changes
-the other escha columns include. Its in-process rows are the opening baseline of a
-session whose own drift controls put ~10% on single observations; only its served
-128:128 point carries a five-trial error bar. B=128 was not run there. Its most
-interesting reading: 41.3 tok/s single-stream is just **43.6% of that chip's 94.8
-tok/s roofline** (vs 69% on the base M4) — more bandwidth, lower utilization, the
-latency-bound signature that motivates per-machine tuning. Full write-up, drift
-controls, and harness issues found:
+the M5 Pro column includes (the M4 column also predates the fused output transform;
+see below). Its in-process rows are the opening baseline of a session whose own
+drift controls put ~10% on single observations; only its served 128:128 point
+carries a five-trial error bar. B=128 was not run there. Its most interesting
+reading: 41.3 tok/s single-stream is ~**42% of that chip's ~99.5 tok/s roofline**
+(243.7 GB/s ÷ 2.45 GB/token; the archived report's 43.6%-of-94.8 used the ledger
+accounting current at measurement time) vs ~66% on the base M4 — more bandwidth,
+lower utilization, the latency-bound signature that motivates per-machine tuning.
+Full write-up, drift controls, and harness issues found:
 [`bench/results/m4-pro-48gb/README.md`](bench/results/m4-pro-48gb/README.md).
 
 The M5 Pro results are a separate machine characterization, not a paired cross-chip
@@ -178,14 +184,18 @@ campaign — including every negative result, so you don't repeat them:
 | `escha_mlx/msl.py` | the Metal kernels (`mx.fast.metal_kernel`): decode, GEMV ×2, row-blocked GEMM, fused transform |
 | `escha_mlx/quant.py` / `moe.py` / `loader.py` | int8→Q8 repack · expert toolkit · streaming loader — all architecture-agnostic |
 | `escha_mlx/models/` | one plugin per architecture (`qwen3_5_moe` today): skeleton, tensor map, router, quirks |
-| `escha_mlx/gdn_cache.py` | recurrent-state cache (fp16 state) |
+| `escha_mlx/gdn_cache.py` | recurrent-state cache (fp16 state) + allocation-free first-state Metal kernel |
 | `escha_mlx/{generate,server}.py` | CLI / OpenAI-compatible server |
 | `tests/` + `tests/data/` | golden-gated suite + the committed reference vectors |
 | `bench/` | gates, roofline, serving grid, head-to-head; results per machine under `bench/results/` |
 | `docs/` | install & tuning · performance · full campaign record |
 
-Everything outside the Metal kernels is pure MLX; GDN, attention and the caches come from
-mlx-lm untouched.
+Everything outside the Metal kernels is pure MLX; attention and the KV caches come
+from mlx-lm untouched. The one exception is the GDN recurrent state: by default it is
+stored in escha-mlx's fp16 cache and initialized by an allocation-free first-state
+kernel (`escha_mlx/gdn_cache.py`, measured in
+[docs/PERFORMANCE.md](docs/PERFORMANCE.md)); subsequent steps use mlx-lm's kernel
+unchanged, and `ESCHA_MLX_GDN_STATE=fp32` restores the stock mlx-lm path exactly.
 
 ## Contributing
 

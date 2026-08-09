@@ -41,7 +41,7 @@ committed in `tests/data/`.
    bit-identical, say so in the PR and point at the gate run that proves it.
 2. **A deliberate numerics change** (e.g. reassociating a reduction for speed) must be
    (a) behind an env flag with the previous behavior recoverable, (b) documented in the
-   README tuning table with the measured effect, and (c) validated end-to-end, not just
+   tuning table in docs/INSTALL.md ("Tuning reference") with the measured effect, and (c) validated end-to-end, not just
    at the kernel boundary. `ESCHA_MLX_FUSED_HAD` is the template: default-on because it
    was measured and characterized, with `=0` restoring the exact op chain.
 3. **Never loosen a gate to make a test pass.** If a gate fails on your machine with an

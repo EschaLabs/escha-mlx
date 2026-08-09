@@ -240,7 +240,7 @@ def _moe_gemv_splitk_source(K: int, use_lut: bool, shuffle: bool, S: int) -> str
 
     Split S ways along kt: S x the threadgroups, chains S x shorter.  Each split
     writes its own partial and the caller sums them.  Partials are small -- S x M
-    x OC f32, 128 KB at bs1 gate_up -- and this path only runs at GEMV row counts
+    x OC f32, 256 KB at bs1 gate_up under the S=8 policy -- and this path only runs at GEMV row counts
     (prefill uses moe_gemm_rows), so the buffer can never blow up.
 
     DETERMINISM.  Reassociating a float sum is not bit-identical to the
@@ -792,11 +792,14 @@ def use_prefetch() -> bool:
 
 
 def use_sortx() -> bool:
-    """Pre-sort x so a group's rows are consecutive (ESCHA_MLX_SORTX=0 reverts).
+    """Pre-sort x so a group's rows are consecutive (default off; ESCHA_MLX_SORTX=1 enables).
 
     Borrowed from mlx-lm's SwitchGLU, which physically permutes x via
-    `_gather_sort` before calling the fused `gather_qmm` -- the kernel that
-    sustains ~80% of roofline where ours manages 39-53% (doc §15).  Our kernel
+    `_gather_sort` before calling the fused `gather_qmm` -- the kernel §15
+    credited with ~80% of roofline against our 39-53%, a comparison §16
+    retracted as whole-step misattribution (the transform pipeline was being
+    charged to the kernel; isolated at matched shapes, ours is faster than
+    `gather_qmm` at every decode row count, §16.1).  Our kernel
     instead chased `rows_idx[grp*R+rr]` for every staged element, TK times per
     group; with x pre-sorted the row address is just `src_row0 + rr`.
 
@@ -804,7 +807,7 @@ def use_sortx() -> bool:
     so no un-permute is needed.
 
     DEFAULT OFF -- measured a wash (doc §15.4): prefill -0.8%/-0.0%, decode
-    -1.7% at B=16 and +0.6% at B=32, all inside an A/B/A drift band of the same
+    -1.7% at B=16 and -0.5% at B=32, all inside an A/B/A drift band of the same
     size.  The premise (that chasing an arbitrary row per staged element is
     expensive) is wrong here, exactly as the previous five kernel hypotheses
     were.  Kept behind the flag, gated bit-identical, because the memory-

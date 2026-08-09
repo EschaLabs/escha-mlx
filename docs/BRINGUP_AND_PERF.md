@@ -24,10 +24,10 @@ notebook — including every negative result — rather than edited into a retro
 | **In-process aggregate, after §12** | **167.5 tok/s @ B=128**, 18.98 GB — fp16 GDN state raised the ceiling (§12) |
 | **Served, peak output throughput** | **99.5 tok/s** (128/1024, C=16) — was 81.9 pre-fusion (§18) |
 | **Served, peak total throughput** | **244.5 tok/s** (2048/128, C=16) — was 191.4 (§18) |
-| Prefill (after the kernel work) | **94–127 → ~207 tok/s**; **243 after §13** |
+| Prefill (after the kernel work) | **94–127 → ~207 tok/s**; **243 after §13**; **~261 after §17** |
 | Peak memory @ 4k ctx | **20.74 → 12.68 GB** |
 | vLLM / vllm-metal | **rejected on evidence today** — §6 |
-| **vs stock mlx-lm 4-bit, same box** | **1.59× smaller**; 1.6× slower at bs1 (§14), and at batch we read up to **1.63× fewer bytes** but run at 39–53% of roofline vs their 80% (§15) |
+| **vs stock mlx-lm 4-bit, same box** | **1.59× smaller**; 1.6× slower at bs1 (§14), and at batch we read up to **1.63× fewer bytes** but ran at 39–53% of roofline vs their 80% (§15 — whole-step figures, pre-§17; see the §16 correction: the trellis kernel itself beats `gather_qmm` at matched shapes — the gap is the transform pipeline + int8 dense vs their 4-bit dense, partly recovered by the §17 fusion) |
 
 On the "100 tok/s" goal: met on **total system throughput** (149.5 at 1000/1000
 C=16, 244.5 at 2048/128 C=16) and on **in-process decode** from B=16 up
@@ -72,7 +72,7 @@ batching story good despite the low bandwidth.
 
 | ceiling | tok/s |
 |---|---|
-| at 101 GB/s achievable roofline | **39.9** |
+| at 101 GB/s achievable roofline | **40.3** |
 | at 120 GB/s advertised peak | 47.9 |
 | **measured bs1** | **27.8 → 69% of roofline** |
 
@@ -108,7 +108,7 @@ mlx-lm's GDN glue. A pure-bandwidth roofline is an upper bound no real decoder
 reaches; 60–70% of it is the normal band for a well-tuned LLM decode loop, and
 80–95% is not a realistic target for a hybrid model carrying a 2-bit trellis
 codec. The reachable next step is the trellis kernel: closing it to ~2× off
-roofline would put bs1 near 31–32 tok/s (~80% of the 39.9 ceiling).
+roofline would put bs1 near 31–32 tok/s (~80% of the 40.3 ceiling).
 
 ---
 
@@ -204,9 +204,10 @@ Same prompt replicated across the batch, ISL=128, warmed, `mx.clear_cache()` bef
 | peak GB | 12.2 | 13.6 | 14.8 | **17.2** | 19.9 |
 
 **The 100 tok/s target is met at B=24 (105 tok/s) — but read the memory column.**
-B=24 peaks at **19.69 GB, past the 19.07 GB wired limit**; B=32/48 are far past it and
-their numbers include paging. The **honest stable operating point today is B=16:
-91 tok/s at 17.3 GB**, with B=20/24 noisy for exactly this reason.
+B=24 peaks at **19.9 GB, past the 19.07 GB wired limit** (the B=32/48 points of the
+earlier staged-kernel sweep were far past it and included paging). The **honest
+stable operating point today is B=16: 93.7 tok/s at 17.2 GB**, with points near the
+cap noisy for exactly this reason.
 
 Per-sequence memory is dominated by the **GDN recurrent state: 64.4 MB/seq, constant
 in sequence length** (30 `ArraysCache` layers, fp32 state hardcoded upstream) — equal
@@ -316,7 +317,7 @@ harness measures a decaying batch rather than steady state.
 
 ```bash
 source ~/.venv-escha-mlx/bin/activate
-pytest tests/ -q                     # 32 passed, 1 skipped
+pytest tests/ -q                     # 32 passed, 1 skipped at bring-up; the suite has since grown (current count: docs/PERFORMANCE.md)
 python bench/p0_gates.py
 python bench/roofline.py --model ~/models/escha-w2    # ceiling analysis
 python bench/baseline.py --model ~/models/escha-w2 --phases ABCD
@@ -340,7 +341,7 @@ python bench/isl_osl_grid.py --model ~/models/escha-w2 \
    kt chain, on a 10-core GPU. The lever is **split-K**: partition TK across
    several threadgroups (4× the parallelism, 4× shorter chains) with a two-pass
    f32 reduction — the partials are tiny (4×8×1024 f32 = 128 KB). Expected to take
-   bs1 to ~31–32 tok/s (≈80% of the 39.9 ceiling) and to help B≥8 more.
+   bs1 to ~31–32 tok/s (≈80% of the 40.3 ceiling) and to help B≥8 more.
 2. **GDN state fp16** (64.4 → 32 MB/seq) roughly doubles safe concurrency, which is
    the binding constraint on aggregate throughput (§4). Needs a numerics gate first —
    GDN silent-wrongness is a demonstrated failure mode in this project's history (R4).
@@ -366,7 +367,7 @@ recurrent state every step — 30 GDN layers × 32 v-heads × 128 × 128 × 4 B 
 
 | | bytes/token | ceiling @ 101 GB/s |
 |---|---|---|
-| weights only (§1) | 2.506 GB | 39.9 |
+| weights only (§1) | 2.506 GB | 40.3 |
 | **+ GDN state traffic (short ctx)** | **2.635 GB** | **38.3** |
 | + KV @ 4k ctx | 2.719 GB | 37.1 |
 
@@ -375,7 +376,7 @@ So measured bs1 is **72% of the honest short-ctx ceiling**, not 69%, and the
 were undercounted. Two consequences: GDN-state fp16 (lever 2) is a *bandwidth*
 lever and not merely a capacity one (at B=16 the state is 2.06 GB of a 9.1 GB
 step, larger than the entire dense weight budget), and every ceiling quoted
-against 39.9 should be read against 38.3.
+against 40.3 should be read against 38.3.
 
 ---
 
@@ -443,8 +444,8 @@ In-model whole-step decode, median of 3:
 | 32 | 256 | 1.58 | 108.4 | **+13.1%** | +13.1% | **−5.8%** | 4 ✗✗ | **2** |
 | 48 | 384 | 1.93 | 108.7 | +14.7% | **+17.7%** | — | 4 ✗ | **3** |
 
-Note m=256: the old policy picked **R=4, the worst of the four** — 8.4% below
-R=2. That threshold came from an isolated-kernel table where R=4 at M=256
+Note m=256: the old policy picked **R=4, the worst of the four** — 16.7% below
+R=2 (+13.1% vs −5.8%). That threshold came from an isolated-kernel table where R=4 at M=256
 measured 1.28×; in-model the `build_groups` + padding cost eats it. **Kernel
 microbenchmarks do not settle this question; the whole-step number does.**
 
@@ -906,7 +907,7 @@ would take the ledger from 2,506 → ~1,489 MB/token, plus 129 MB of GDN state:
 
 i.e. **faster than the stock 4-bit build (40.5–42.7) while still ~5 GB smaller**,
 because the experts stay at 2 bits. That single change is worth more than every
-kernel lever in §11–§13 combined, and it was ranked #9/#13 on the §9 list —
+kernel lever in §11–§13 combined, yet it never made the §9 list —
 badly underrated, because I ranked by kernel effort rather than by ledger share.
 
 It is a model-side change needing an accuracy gate, not a runtime change. Note
@@ -1326,12 +1327,12 @@ a **measured ablation** rather than from counting FLOPs.
 
 | ISL | OSL | C | TTFT p50 | TTFT p99 | TPOT ms | output tok/s | total tok/s | vs §4.1 |
 |---|---|---|---|---|---|---|---|---|
-| 128 | 128 | 1 | 0.81 | 0.9 | 36.4 | 23.5 | 49.4 | +13% |
+| 128 | 128 | 1 | 0.81 | 0.9 | 36.4 | 23.5 | 49.4 | +12% |
 | 128 | 128 | 8 | 4.43 | 6.3 | 136.0 | 47.3 | 99.1 | +12% |
 | 128 | 128 | 16 | 3.87 | 13.4 | 204.2 | 65.3 | 136.8 | +26% |
 | 128 | 1024 | 1 | 0.85 | 0.9 | 35.6 | 27.4 | 31.2 | +13% |
 | 128 | 1024 | 8 | 4.48 | 6.4 | 130.9 | 59.7 | 67.9 | +1% |
-| 128 | 1024 | 16 | 3.99 | 13.5 | 155.3 | **99.5** | 113.2 | +22% |
+| 128 | 1024 | 16 | 3.99 | 13.5 | 155.3 | **99.5** | 113.2 | +21% |
 | 1000 | 1000 | 1 | 4.08 | 4.2 | 36.0 | 24.8 | 49.9 | +13% |
 | 1000 | 1000 | 8 | 10.37 | 30.9 | 147.7 | 50.4 | 101.5 | +5% |
 | 1000 | 1000 | 16 | 11.10 | 64.0 | 201.7 | 74.3 | 149.5 | +24% |

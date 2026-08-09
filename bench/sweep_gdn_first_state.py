@@ -1,13 +1,15 @@
 """Peak memory of the FIRST forward on a fresh cache.
 
-Every decode harness here -- bench/sweep_kernel_variants.run,
-bench/sweep_output_had.py::_decode_once, bench/baseline.py Phase C -- calls
-mx.reset_peak_memory() AFTER the prompt and the warmup steps, because that is
-what makes steady-state decode peaks comparable.  That ordering makes them
-structurally blind to the allocation this probe exists to measure: the
-full-sized f32 initial recurrent state that upstream's gated_delta_update
-materialises on the first recurrence and then casts to the cache dtype.  By the
-time those harnesses arm the counter, the transient is already freed.
+The steady-state decode harnesses -- bench/sweep_kernel_variants.run and
+bench/sweep_output_had.py::_decode_once -- call mx.reset_peak_memory() AFTER
+the prompt and the warmup steps, because that is what makes steady-state decode
+peaks comparable.  That ordering makes them structurally blind to the
+allocation this probe exists to measure: the full-sized f32 initial recurrent
+state that upstream's gated_delta_update materialises on the first recurrence
+and then casts to the cache dtype.  By the time those harnesses arm the
+counter, the transient is already freed.  (bench/baseline.py Phase C arms its
+counter BEFORE prefill, so its peak does span the window -- there the saving
+is merely masked by larger prefill transients, not excluded.)
 
 Here the counter is armed BEFORE a single forward on a fresh cache, which is the
 only window in which that state exists.  Both arms run against the same loaded

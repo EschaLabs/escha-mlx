@@ -5,7 +5,7 @@
 ## Numerics
 
 - [ ] Bit-identical: `pytest tests/ -v` green, kernel gates included (paste the Metal gate summary if you touched a kernel)
-- [ ] OR deliberate numerics change: behind an env flag, previous behavior recoverable, documented in the README tuning table, validated end-to-end
+- [ ] OR deliberate numerics change: behind an env flag, previous behavior recoverable, documented in the tuning table in docs/INSTALL.md, validated end-to-end
 
 ## Performance (if claimed)
 
