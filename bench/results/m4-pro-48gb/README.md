@@ -105,7 +105,9 @@ Everything passes.
 - `bench/p0_gates.py` : ALL GATES PASS. Every Metal kernel path bit-exact against the
   committed goldens on 20-core Apple GPU silicon.
 - Serving smoke test correct (`17*23` returns `391`), generations coherent.
-- Resident memory 11.41 GB, identical to the committed base-M4 figure.
+- Resident memory 11.41 GiB = 12.25 GB, identical to the committed base-M4 figure.
+  (The harness that printed this divided by 1024³ while labeling the result "GB";
+  fixed 2026-08-09.)
 
 ## Headline
 

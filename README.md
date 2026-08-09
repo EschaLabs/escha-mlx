@@ -116,8 +116,8 @@ revision `bf86c10d4d91e5d4aaa7d4046983723e139f47cc`, model revision
 
 ¹ Identical on every machine, as it must be — same checkpoint, same Q8 group size.
 Earlier tables showed 11.41 for the Pro machines: that was the same residency in
-GiB (12.25 × 10⁹ bytes = 11.41 GiB) from a harness that divides by 1024³ while
-printing "GB". Decimal GB everywhere in this table.
+GiB (12.25 × 10⁹ bytes = 11.41 GiB) from a harness that divided by 1024³ while
+printing "GB" — fixed 2026-08-09. Decimal GB everywhere in this table.
 
 Prefill runs ~264 tok/s; single-stream decode reaches 69% of this chip's 39.3 tok/s
 bandwidth ceiling. Read the comparison honestly in both directions: below batch 16 the

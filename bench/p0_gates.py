@@ -174,9 +174,11 @@ def g04_memory(model: str | None):
                   f"unwired, B=80 at 19.28 GB measured 5.9 tok/s vs 136.6 wired "
                   f"(23x, silent). Set ESCHA_MLX_WIRED_GB. Below ~18 GB it is a "
                   f"wash. See bring-up doc §10.3.")
-        print(f"  measured on M4 24 GB @ Q8 group 128: 11.41 GB resident, "
-              f"12.03 GB peak at short ctx, 12.44 GB at ISL 512, "
-              f"13.67 GB at B=16, 16.49 GB at B=48, 17.89 GB at B=64")
+        # Values below were measured by the pre-2026-08-09 baseline.py, whose
+        # _gb divided by 1024**3; converted here to decimal GB (x1.0737).
+        print(f"  measured on M4 24 GB @ Q8 group 128: 12.25 GB resident, "
+              f"12.92 GB peak at short ctx, 13.36 GB at ISL 512, "
+              f"14.68 GB at B=16, 17.71 GB at B=48, 19.21 GB at B=64")
     except Exception as e:
         print(f"  (sysctl probe failed: {e!r})")
     if model:

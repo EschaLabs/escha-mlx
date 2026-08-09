@@ -3,6 +3,13 @@
 All numbers below were measured on one machine, in one session, with the same
 harness. Nothing here is scaled, extrapolated, or taken from a third-party report.
 
+**Units.** Memory figures are decimal GB (10⁹ bytes) unless explicitly marked
+GiB. Values labeled GiB were recorded by `bench/baseline.py` before 2026-08-09,
+when its `_gb` helper divided by 1024³ while printing "GB" — the source of the
+historical "11.41 GB resident" figure, which is the same residency as the
+12.25 GB every other harness reports. `_gb` now divides by 10⁹; B/C-phase
+`peak_gb` values inside JSONs committed before that date remain GiB.
+
 **Test system**
 
 | | |
@@ -23,7 +30,7 @@ harness. Nothing here is scaled, extrapolated, or taken from a third-party repor
 |---|---|
 | Decode | **27.0 tok/s** |
 | Prefill | **264 tok/s** (ISL 512) · 264 (2048) |
-| Peak memory | 12.1 GB (short context) · 12.2 GB (2k context) |
+| Peak memory | 13.0 GB (short context) · 13.1 GB (2k context) — recorded as 12.1/12.2 GiB pre-unit-fix |
 
 > These M4 tables predate the fused expert **output** Hadamard transform, which
 > raises M4 prefill ~10% in a paired A/B/A and leaves M4 decode unchanged within
@@ -268,7 +275,7 @@ applications closed. Historical diagnostic A/B results are labeled explicitly.
 | Power | AC attached; High Power mode; battery 91% and charging at start |
 | macOS / MLX | 26.5.2 (25F84) / `mlx` 0.32.0, `mlx-lm` 0.31.3 |
 | Metal | `applegpu_g17s`; recommended working set 19.07 GB |
-| Model | local `Qwen3.6-35B-A3B-Escha-W2` revision `1b7237f0886a10b4bd92cd7653090cd7381ae199`; 11.41 GiB resident |
+| Model | local `Qwen3.6-35B-A3B-Escha-W2` revision `1b7237f0886a10b4bd92cd7653090cd7381ae199`; 11.41 GiB (= 12.25 GB) resident |
 | Runtime revision | `bf86c10d4d91e5d4aaa7d4046983723e139f47cc` |
 | Runtime settings | repository defaults; MLX memory limit 19.0 GB; wired limit 0 except 19.0 GB for B=128 |
 

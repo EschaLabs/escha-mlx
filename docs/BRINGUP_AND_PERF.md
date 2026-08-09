@@ -409,8 +409,13 @@ degrades to 64/32 for exports with odd K.
 |---|---|---|
 | decode tok/s | 24.15 / 24.33 / 23.83 | **25.01 / 25.21 / 25.14** |
 | mean | 24.10 | **25.12 (+4.2%)** |
-| resident | 11.55 GB | **11.41 GB** |
-| peak (ISL 128 / 512) | 12.17 / 12.58 GB | **12.03 / 12.44 GB** |
+| resident | 11.55 GiB | **11.41 GiB** |
+| peak (ISL 128 / 512) | 12.17 / 12.58 GiB | **12.03 / 12.44 GiB** |
+
+*(Units corrected 2026-08-09: these values came from `baseline.py`, whose `_gb`
+divided by 1024³ while printing "GB". 11.41 GiB = 12.25 decimal GB — the same
+residency `head_to_head.py` reports. `_gb` now divides by 10⁹ like every other
+harness.)*
 
 Predicted +4.6% from the byte ledger, measured **+4.2%** — the closest
 prediction-to-measurement agreement in this campaign. Correctness battery

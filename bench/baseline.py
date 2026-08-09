@@ -26,7 +26,14 @@ from escha_mlx.benchmark_metadata import annotate_report, benchmark_metadata
 
 
 def _gb(x: float) -> float:
-    return x / 1024**3
+    """Bytes -> decimal GB (1e9), matching every other harness in bench/.
+
+    This divided by 1024**3 (GiB) until 2026-08-09 while printing "GB", which
+    is where the historical 11.41-"GB"-resident figure came from: it is the
+    same residency as head_to_head.py's 12.25 GB. B/C-phase peak_gb values in
+    JSONs committed before that date are GiB.
+    """
+    return x / 1e9
 
 
 def _sync(*arrays) -> None:
