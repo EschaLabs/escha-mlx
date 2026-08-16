@@ -2,8 +2,9 @@
 
 Thin wrapper over mlx_lm.server (continuous batching via BatchGenerator, prefix
 caching via LRUPromptCache, reasoning-content parsing, tool calls): routes model
-loading through escha_mlx.loader for eschamoe checkpoints, delegates everything
-else verbatim.
+loading through escha_mlx.loader for the checkpoints it serves — eschamoe
+exports and the stock-MLX architectures listed in escha_mlx/native.py — and
+delegates everything else verbatim.
 
 Adds one serving extension: ``"ignore_eos": true`` in the request body, which
 suppresses end-of-sequence stopping so a request generates exactly max_tokens.
@@ -77,12 +78,12 @@ def _install_ignore_eos(server_mod) -> None:
 def main() -> None:
     from mlx_lm import server as _server
 
-    from .loader import is_escha_checkpoint, load as escha_load
+    from .loader import handles, load as escha_load
 
     _orig_load = _server.load
 
     def _load(path, *a, **kw):
-        if is_escha_checkpoint(path):
+        if handles(path):
             if kw.get("adapter_path"):
                 raise ValueError("escha_mlx: adapters are not supported")
             return escha_load(path, tokenizer_config=kw.get("tokenizer_config"))

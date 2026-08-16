@@ -35,8 +35,43 @@ custom Metal kernels that are **bit-exact against the codec's committed referenc
 | model | quant | resident | status |
 |---|---|---|---|
 | [`EschaLabs/Qwen3.6-35B-A3B-Escha-W2`](https://huggingface.co/EschaLabs/Qwen3.6-35B-A3B-Escha-W2) | 2-bit experts + int8 dense | 12.3 GB | ✅ supported |
+| any stock-MLX `qwen3_5` / `qwen3_5_moe` export | whatever MLX quantized it to | e.g. 19.5 GB at 4-bit | ✅ runtime only, **no codec** ([below](#stock-mlx-checkpoints-runtime-without-the-codec)) |
 | Qwen3.5 VLM (dense) | — | — | 🚧 planned |
 | Kimi K3 / GLM / DeepSeek MoE | — | — | 🔭 exploring |
+
+### Stock-MLX checkpoints (runtime without the codec)
+
+escha-mlx's skeleton *is* mlx-lm's, so the layer wrapped around the codec — the
+fp16 GDN recurrent-state cache with its allocation-free first-state kernel, the
+last-position LM head, the wired-limit policy, and the server's continuous
+batching and `ignore_eos` — never touches how the weights are stored. Point the
+same CLIs at an ordinary MLX-quantized Qwen3.5/3.6 checkpoint and mlx-lm builds
+it while escha installs those quirks on top:
+
+```bash
+escha-mlx-generate --model ~/models/Qwen3.5-MoE-MLX-4bit --prompt "..."
+escha-mlx-server   --model ~/models/Qwen3.5-MoE-MLX-4bit --port 8080
+```
+
+**What this is not.** There is no escha codec on this path, so none of it is
+bit-exact-gated — the weights are dequantized by MLX's own affine kernels and
+those numerics are upstream's. You do not get the 2-bit footprint either: a
+stock 4-bit export of a 35B-class MoE is ~19.5 GB resident, not 12.3 GB. What
+you get is escha's serving and memory layer on an ordinary checkpoint.
+Architectures outside `escha_mlx/native.py`'s `NATIVE_ARCHITECTURES` are refused
+by name rather than served on untested assumptions (`ESCHA_MLX_NATIVE_ANY=1`
+lifts that, unmeasured).
+
+Measured on an M5 Max (137 GB, macOS 26.4.1, MLX 0.32.0 / mlx-lm 0.31.3) with a
+4-bit `qwen3_5_moe` export, 19.6 GB resident:
+
+| check | result |
+|---|---|
+| greedy tokens vs stock `mlx_lm.load`, `ESCHA_MLX_GDN_STATE=fp32 ESCHA_MLX_LAST_LOGIT=0` | **identical, 48/48** |
+| greedy tokens vs stock, escha defaults (fp16 GDN state) | diverges at token 27/48 — the fp16-state drift already documented in `escha_mlx/gdn_cache.py`, not a port artifact |
+| decode, single stream | 138–145 tok/s (stock mlx-lm: 138–144) |
+| prefill, ISL 2817 | 4.36k tok/s vs 4.38k stock — **the last-position head is neutral within noise here**, unlike the ~7% it buys on the base M4; mlx-lm only wastes the head on the final prefill chunk, and this GPU is fast enough that it disappears |
+| served, batch 16, OSL 128, `ignore_eos` | 346 tok/s aggregate, every sequence exactly 128 tokens |
 
 Want an architecture that isn't listed? Open a
 [model request](https://github.com/EschaLabs/escha-mlx/issues/new?template=new_model.yml).

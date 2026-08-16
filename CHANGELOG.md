@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Stock-MLX checkpoints run on the escha runtime** (`escha_mlx/native.py`):
+  `load`, `escha-mlx-generate` and `escha-mlx-server` now dispatch on the
+  checkpoint's `quant_method`, so an ordinary MLX-quantized `qwen3_5` /
+  `qwen3_5_moe` export loads through mlx-lm with escha's storage-agnostic quirks
+  installed on top (fp16 GDN state cache + allocation-free first state,
+  last-position LM head, wired limit, server continuous batching and
+  `ignore_eos`). No codec is involved: nothing on this path is bit-exact-gated
+  and the 2-bit footprint does not apply (a 4-bit 35B-class MoE is ~19.5 GB
+  resident). Unvalidated architectures are refused by name unless
+  `ESCHA_MLX_NATIVE_ANY=1`. Verified on an M5 Max against a 4-bit
+  `qwen3_5_moe` export: greedy output **token-identical** to stock
+  `mlx_lm.load` with `ESCHA_MLX_GDN_STATE=fp32 ESCHA_MLX_LAST_LOGIT=0`;
+  346 tok/s aggregate served at batch 16 / OSL 128. Negative result: at ISL
+  2817 on that chip the last-position head is neutral within noise (it is worth
+  ~7% of prefill on a base M4).
 - **Fused expert output Hadamard transform** (companion to 0.1.0's input-side
   fusion): transform + output-scale gather + f16 cast in one Metal kernel,
   bit-exact with the native chain. M5 Pro: +5.6% decode at B=1, +5.8% prefill

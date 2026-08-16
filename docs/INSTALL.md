@@ -134,6 +134,7 @@ these is gated bit-identical or documented where it is not.
 | `ESCHA_MLX_FUSED_HAD=0` | use native MLX op chains for the expert input and output transforms. The default fused Metal kernels combine the scale gathers, radix-2 Hadamard, scaling and f16 cast without changing the final f16 bits; set this to 0 for performance comparison or debugging. |
 | `ESCHA_MLX_GDN_STATE=fp32` | store the recurrent state in f32 instead of fp16. Costs ~10% throughput at batch ≥32 and 31.5 MB/sequence; use it if you need the pre-fp16 numerics exactly. |
 | `ESCHA_MLX_LAST_LOGIT=0` | compute logits for **all** prompt positions, not just the last. Needed for per-position scoring (loglikelihood eval); costs ~7% prefill. |
+| `ESCHA_MLX_NATIVE_ANY=1` | serve a stock-MLX checkpoint whose `model_type` is outside `escha_mlx/native.py`'s validated list. Only the quirks that structurally apply are installed, and none of it is measured — verify before trusting it. |
 | `ESCHA_MLX_Q8_GROUP=64` | 64-wide Q8 groups instead of 128. Identical numerics, +140 MB. |
 | `ESCHA_MLX_BLOCK_R=N` | pin rows-per-expert-group. Default is size-dependent. |
 | `ESCHA_MLX_KT_BLOCK=N` | code tiles staged per barrier pair. Default 4. |

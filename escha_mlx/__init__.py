@@ -4,6 +4,10 @@ Usage:
     from escha_mlx import load
     model, tokenizer = load("/path/to/Qwen3.6-35B-A3B-Escha-W2")
 
+    # A stock-MLX-quantized checkpoint of a supported architecture loads through
+    # the same call — escha's runtime quirks, no codec (escha_mlx/native.py).
+    model, tokenizer = load("/path/to/Qwen3.5-MoE-MLX-4bit")
+
 CLI:
     python -m escha_mlx.generate --model <dir> --prompt "..."
     python -m escha_mlx.server --model <dir> --port 8080
@@ -12,4 +16,4 @@ from __future__ import annotations
 
 __version__ = "0.1.0"  # keep in sync with pyproject.toml [project] version
 
-from .loader import is_escha_checkpoint, load, load_model  # noqa: F401
+from .loader import handles, is_escha_checkpoint, load, load_model  # noqa: F401

@@ -1,5 +1,10 @@
 """Architecture registry — one plugin module per supported `model_type`.
 
+This registry is the ESCHAMOE (trellis-coded) side only. Stock-MLX-quantized
+checkpoints never reach it: escha_mlx.loader dispatches those to
+escha_mlx.native, where mlx-lm builds the model and escha installs only its
+storage-agnostic runtime quirks.
+
 The codec (ref/msl/quant) is the engine and never forks per architecture.
 Each architecture contributes exactly one module here, resolved from the
 checkpoint's `config.json` `model_type` (the same convention mlx-lm uses),

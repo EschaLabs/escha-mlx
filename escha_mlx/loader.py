@@ -1,4 +1,4 @@
-"""Load an escha checkpoint into a module-swapped mlx-lm model.
+"""Load a checkpoint into a module-swapped mlx-lm model.
 
 Architecture-agnostic side of loading: checkpoint detection, per-tensor
 streaming, the wired-limit policy, and shared post-load helpers. Everything
@@ -6,6 +6,15 @@ architecture-specific — the mlx-lm skeleton, tensor-name mapping, module
 swaps, routing — lives in one plugin per `model_type` under
 escha_mlx/models/ (contract: escha_mlx/models/__init__.py), resolved from
 the checkpoint's config.json.
+
+Two checkpoint FORMATS are dispatched here, on `quant_method`:
+
+  * eschamoe — the trellis-coded export: streamed through the architecture
+    plugin, which swaps in the codec's MoE block and Q8 dense linears.
+  * anything else MLX can load (stock affine/mxfp quantization, or fp16) —
+    built by mlx-lm itself, with only escha's storage-agnostic runtime quirks
+    installed on top. See escha_mlx/native.py for exactly what does and does
+    not carry over.
 """
 from __future__ import annotations
 
@@ -139,14 +148,28 @@ def use_last_logit() -> bool:
     return os.environ.get("ESCHA_MLX_LAST_LOGIT", "1") != "0"
 
 
+def handles(path: str | Path) -> bool:
+    """True when `load` can serve this checkpoint — either format.
+
+    Used by the server wrapper to decide whether to intercept a load at all;
+    anything this returns False for is left to mlx-lm verbatim.
+    """
+    from . import native
+
+    return is_escha_checkpoint(path) or native.can_load(path)
+
+
 def load_model(path: str | Path):
     """Build the model. Returns the mlx-lm Model instance (module-swapped)."""
-    from . import models   # function-level: plugins import this module
+    from . import models, native   # function-level: plugins import this module
+
+    path = Path(path)
+    if not is_escha_checkpoint(path):
+        # Stock-MLX checkpoint: mlx-lm builds it, escha only adds its quirks.
+        return native.load_model(path)
 
     # Before any allocation, so the weights themselves land wired.
     apply_wired_limit()
-
-    path = Path(path)
     t0 = time.time()
     config = json.loads((path / "config.json").read_text())
     arch = models.resolve(config)
@@ -172,6 +195,9 @@ def load_model(path: str | Path):
 def load(path: str | Path, tokenizer_config: dict | None = None, **_ignored):
     """(model, tokenizer) — signature-compatible with mlx_lm.utils.load.
 
+    Serves both checkpoint formats (see the module docstring); tokenizer
+    handling is shared, since it never depended on the weight format.
+
     Mirrors mlx_lm's eos handling: generation_config.json's eos_token_id list
     (e.g. [im_end, endoftext]) is merged into the tokenizer's stop set —
     without it, raw-completion generations ending in <|endoftext|> silently
@@ -183,8 +209,11 @@ def load(path: str | Path, tokenizer_config: dict | None = None, **_ignored):
         from mlx_lm.tokenizer_utils import load_tokenizer
 
     path = Path(path)
-    if not is_escha_checkpoint(path):
-        raise ValueError(f"{path} is not an eschamoe checkpoint")
+    if not handles(path):
+        raise ValueError(
+            f"{path} is neither an eschamoe checkpoint nor a stock-MLX one this "
+            "runtime serves (see escha_mlx/native.py: NATIVE_ARCHITECTURES, "
+            "ESCHA_MLX_NATIVE_ANY)")
     if _ignored:
         logger.warning("escha_mlx.load: ignoring unsupported kwargs %s", list(_ignored))
     eos_ids = None
