@@ -12,14 +12,13 @@ from __future__ import annotations
 import glob
 import json
 import logging
-import os
 import time
 from pathlib import Path
 
 import mlx.core as mx
 import mlx.nn as nn
 
-from . import quant
+from . import envs, quant
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +89,7 @@ def apply_wired_limit() -> float | None:
     unified memory, so it stays the operator's explicit choice rather than
     something a library does behind their back.
     """
-    want = os.environ.get("ESCHA_MLX_WIRED_GB")
+    want = envs.ESCHA_MLX_WIRED_GB.get()
     cap = mx.device_info().get("max_recommended_working_set_size", 0) / 1e9
     if not want:
         logger.info("escha_mlx: wired limit left at MLX's default 0 (nothing "
@@ -98,7 +97,7 @@ def apply_wired_limit() -> float | None:
                     "at high batch, set ESCHA_MLX_WIRED_GB (see loader."
                     "apply_wired_limit)", cap)
         return None
-    gb = float(want)
+    gb = want
     if gb > cap:
         raise ValueError(
             f"ESCHA_MLX_WIRED_GB={gb} exceeds this machine's working-set cap "
@@ -143,7 +142,7 @@ class LastPositionHead(nn.Module):
 def use_last_logit() -> bool:
     """Compute prefill logits for the last position only (ESCHA_MLX_LAST_LOGIT=0
     disables, which is required for per-position scoring)."""
-    return os.environ.get("ESCHA_MLX_LAST_LOGIT", "1") != "0"
+    return bool(envs.ESCHA_MLX_LAST_LOGIT.get())
 
 
 def load_model(path: str | Path):
@@ -157,7 +156,7 @@ def load_model(path: str | Path):
     t0 = time.time()
     config = json.loads((path / "config.json").read_text())
     arch = models.resolve(config)
-    group_size = int(os.environ.get("ESCHA_MLX_Q8_GROUP", str(quant.DEFAULT_GROUP)))
+    group_size = envs.ESCHA_MLX_Q8_GROUP.get()
 
     plugin = arch.CheckpointLoader(config, group_size)
     n_read = 0

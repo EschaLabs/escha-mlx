@@ -20,13 +20,12 @@ construction, built by ref.cba_lut on the host).
 """
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 
 import mlx.core as mx
 import numpy as np
 
-from . import ref
+from . import envs, ref
 
 _HEADER = """
 static inline half cba_decode(uint x) {
@@ -740,7 +739,7 @@ def _scaled_had_out_kernel(rs: float, dense: bool = False):
 
 def use_fused_had() -> bool:
     """Fused expert Hadamard transforms (ESCHA_MLX_FUSED_HAD=0 disables)."""
-    return os.environ.get("ESCHA_MLX_FUSED_HAD", "1") != "0"
+    return bool(envs.ESCHA_MLX_FUSED_HAD.get())
 
 
 def scaled_had(rows: mx.array, rin: mx.array, row_expert: mx.array | None,
@@ -785,7 +784,7 @@ def scaled_had_out(mid: mx.array, rout: mx.array, row_expert: mx.array | None,
 
 
 def use_lut() -> bool:
-    return os.environ.get("ESCHA_MLX_LUT", "0") == "1"
+    return bool(envs.ESCHA_MLX_LUT.get())
 
 
 @lru_cache(maxsize=None)
@@ -851,18 +850,12 @@ def gemv_pf() -> int:
     latency-bound kernel -- is hardware-dependent, and this is the cheapest
     lever to re-test on a wider GPU.
     """
-    env = os.environ.get("ESCHA_MLX_GEMV_PF")
-    if not env:
-        return 1
-    pf = int(env)
-    if pf < 1:
-        raise ValueError(f"ESCHA_MLX_GEMV_PF must be >= 1, got {pf}")
-    return pf
+    return int(envs.ESCHA_MLX_GEMV_PF.get())
 
 
 def use_direct() -> bool:
     """Barrier-free per-row GEMV. Default ON; ESCHA_MLX_GEMV=staged reverts."""
-    return os.environ.get("ESCHA_MLX_GEMV", "direct") == "direct"
+    return envs.ESCHA_MLX_GEMV.get() == "direct"
 
 
 def use_shuffle() -> bool:
@@ -887,7 +880,7 @@ def use_shuffle() -> bool:
     hardware-dependent -- issue pressure matters more where there is less
     latency-hiding.  ESCHA_MLX_FETCH=shuffle re-enables it for a retest.
     """
-    return os.environ.get("ESCHA_MLX_FETCH", "load") == "shuffle"
+    return envs.ESCHA_MLX_FETCH.get() == "shuffle"
 
 
 @lru_cache(maxsize=None)
@@ -936,9 +929,9 @@ def split_k_for(m: int, oc: int, tk: int) -> int:
     0.8/core on an 80-core M3 Ultra.  This is the first thing to re-measure
     there; `ESCHA_MLX_SPLITK=auto` turns the policy back on.
     """
-    env = os.environ.get("ESCHA_MLX_SPLITK", "1")
-    if env != "auto":
-        s = int(env)
+    setting = envs.ESCHA_MLX_SPLITK.get()
+    if setting != "auto":
+        s = int(setting)
         return s if s > 1 and tk % s == 0 else 1
     tg = (oc // 128) * m
     if tg >= _SPLIT_TG_TARGET:
@@ -962,7 +955,7 @@ def kt_block() -> int:
     Must divide TK; TK is 128 (gate_up) and 32 (down), so any power of two up
     to 32 is safe.  ESCHA_MLX_KT_BLOCK overrides.
     """
-    return int(os.environ.get("ESCHA_MLX_KT_BLOCK", "4"))
+    return int(envs.ESCHA_MLX_KT_BLOCK.get())
 
 
 def use_prefetch() -> bool:
@@ -982,7 +975,7 @@ def use_prefetch() -> bool:
 
     Costs 2*KB registers per lane on top of acc0[R]/acc1[R].
     """
-    return os.environ.get("ESCHA_MLX_PREFETCH", "0") != "0"
+    return bool(envs.ESCHA_MLX_PREFETCH.get())
 
 
 def use_sortx() -> bool:
@@ -1007,7 +1000,7 @@ def use_sortx() -> bool:
     were.  Kept behind the flag, gated bit-identical, because the memory-
     divergence argument may hold on wider GPUs.
     """
-    return os.environ.get("ESCHA_MLX_SORTX", "0") != "0"
+    return bool(envs.ESCHA_MLX_SORTX.get())
 
 
 @lru_cache(maxsize=None)
@@ -1187,13 +1180,7 @@ def dense_block_r_pin() -> int | None:
     cannot make an A/B depend on call order, and a malformed value fails at
     load instead of from inside the hot loop.
     """
-    env = os.environ.get("ESCHA_MLX_DENSE_BLOCK_R")
-    if not env:
-        return None
-    r = int(env)
-    if r < 1:
-        raise ValueError(f"ESCHA_MLX_DENSE_BLOCK_R must be >= 1, got {r}")
-    return r
+    return envs.ESCHA_MLX_DENSE_BLOCK_R.get()
 
 
 def dense_block_r(m: int, pin: int | None = None) -> int:
@@ -1393,7 +1380,7 @@ def use_dense_mat() -> bool:
     that trade is not worth re-testing here; it is worth re-testing on hardware
     that does.
     """
-    return os.environ.get("ESCHA_MLX_DENSE_MAT", "0") != "0"
+    return bool(envs.ESCHA_MLX_DENSE_MAT.get())
 
 
 def dense_gemm_mat(xh: mx.array, code_u32: mx.array, K: int, IC: int,

@@ -50,13 +50,12 @@ Paths:
 from __future__ import annotations
 
 import logging
-import os
 
 import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
 
-from . import msl, ref
+from . import envs, msl, ref
 from .moe import had_blocks   # the shared 128-block WHT, not expert-specific
 
 logger = logging.getLogger(__name__)
@@ -129,7 +128,7 @@ def apply_bias() -> bool:
     (`y = (x * s_in) @ W * s_out + bias`) asks for -- run it as a paired A/B on
     a real task before treating either as correct.
     """
-    return os.environ.get("ESCHA_MLX_BIAS", "0") == "1"
+    return bool(envs.ESCHA_MLX_BIAS.get())
 
 
 def linear_mode() -> str:
@@ -138,11 +137,8 @@ def linear_mode() -> str:
     Distinct from ESCHA_MLX_DENSE, which selects how the *int8* dense tensors
     (embed/head) are repacked — see escha_mlx.quant.
     """
-    mode = os.environ.get("ESCHA_MLX_LINEAR",
-                          "fused" if mx.metal.is_available() else "ops")
-    if mode not in ("fused", "ops"):
-        raise ValueError(f"ESCHA_MLX_LINEAR must be 'fused' or 'ops', got {mode!r}")
-    return mode
+    return envs.ESCHA_MLX_LINEAR.get(
+        default="fused" if mx.metal.is_available() else "ops")
 
 
 def pack_code(code_i16: np.ndarray) -> mx.array:

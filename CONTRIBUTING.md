@@ -34,6 +34,20 @@ Tests self-skip by capability (`needs_mlx` / `needs_metal` / `needs_ckpt` marker
 checkpoint the end-to-end tests skip. Everything else runs from the small goldens
 committed in `tests/data/`.
 
+## Configuration and environment variables
+
+Environment variables are escape hatches, not a substitute for an explicit
+runtime API. Stable user-facing settings should be normal typed arguments when
+an API exists; environment variables are appropriate for deployment policy,
+low-level kernel selection, emergency fallback, and development inputs.
+
+Every `ESCHA_*` variable must be declared in `escha_mlx/envs.py`, assigned to
+one ownership layer, parsed and validated there, and documented in
+`docs/INSTALL.md`. Package code must use the declaration rather than reading
+`os.environ` directly. Add or update `tests/test_envs.py` with every new variable.
+Build/toolchain variables belong to the build layer; they must not change normal
+serving behavior after installation.
+
 ## The correctness bar
 
 1. **Kernel and numerics changes must stay bit-identical** to the goldens and to the

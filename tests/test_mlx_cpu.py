@@ -141,8 +141,8 @@ def test_moe_block_ops_vs_ckpt_golden(moeblk_golden):
     """
     from .conftest import DEFAULT_CKPT
     from pathlib import Path
-    if not Path(DEFAULT_CKPT).exists():
-        pytest.skip("checkpoint not available")
+    if not DEFAULT_CKPT or not Path(DEFAULT_CKPT).exists():
+        pytest.skip("checkpoint not available; set ESCHA_MODEL")
 
     import json
     import os
