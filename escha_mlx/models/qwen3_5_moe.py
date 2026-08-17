@@ -41,14 +41,13 @@ Paths:
 from __future__ import annotations
 
 import logging
-import os
 
 import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
 from mlx.utils import tree_unflatten
 
-from .. import gdn_cache, moe, msl, quant, ref
+from .. import envs, gdn_cache, moe, msl, quant, ref
 from ..loader import LastPositionHead, resolve_module, strip_lm_prefix, use_last_logit
 
 logger = logging.getLogger(__name__)
@@ -84,15 +83,12 @@ class EschaSparseMoeBlock(nn.Module):
         self.sh_up = quant.make_linear(shared["up_w8"], shared["up_scale"], group_size)
         self.sh_down = quant.make_linear(shared["down_w8"], shared["down_scale"], group_size)
 
-        self._mode = os.environ.get(
-            "ESCHA_MLX_MOE", "fused" if mx.metal.is_available() else "ops")
-        if self._mode not in ("fused", "ops"):
-            raise ValueError(f"ESCHA_MLX_MOE must be 'fused' or 'ops', got {self._mode!r}")
+        self._mode = envs.ESCHA_MLX_MOE.get(
+            default="fused" if mx.metal.is_available() else "ops")
         # ESCHA_MLX_BLOCK_R pins rows-per-group (1 = always the per-row kernel);
         # unset = the size-dependent policy in _blocked_R.
         self._fused_had = msl.use_fused_had() and self._mode == "fused"
-        _br = os.environ.get("ESCHA_MLX_BLOCK_R")
-        self._block_env = int(_br) if _br else None
+        self._block_env = envs.ESCHA_MLX_BLOCK_R.get()
         # Read once at construction: flipping it per-forward would defeat the
         # compile cache and make A/Bs depend on call order.
 

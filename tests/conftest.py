@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from escha_mlx import envs
+
 HERE = Path(__file__).parent
 CODEC = HERE / "data" / "codec"    # format-level goldens (arch-independent)
 ARCH = HERE / "data"               # per-architecture goldens: data/<model_type>/
-DEFAULT_CKPT = os.environ.get(
-    "ESCHA_MODEL", str(Path.home() / "Desktop" / "escha-release-2026-07-16"))
-DENSE_CKPT = os.environ.get(
-    "ESCHA_DENSE_MODEL", str(Path.home() / "Desktop" / "escha-release-27b-2026-08-20"))
+DEFAULT_CKPT = envs.ESCHA_MODEL.get()
+DENSE_CKPT = envs.ESCHA_DENSE_MODEL.get()
 
 
 def has_mlx() -> bool:
@@ -33,14 +32,23 @@ def has_metal() -> bool:
 needs_mlx = pytest.mark.skipif(not has_mlx(), reason="mlx not installed")
 needs_metal = pytest.mark.skipif(not has_metal(), reason="Metal not available")
 needs_ckpt = pytest.mark.skipif(
-    not Path(DEFAULT_CKPT).exists(), reason=f"checkpoint not found: {DEFAULT_CKPT}")
+    not DEFAULT_CKPT or not Path(DEFAULT_CKPT).exists(),
+    reason=(
+        f"checkpoint not found: {DEFAULT_CKPT}"
+        if DEFAULT_CKPT else "ESCHA_MODEL is not set"
+    ),
+)
 needs_dense_ckpt = pytest.mark.skipif(
-    not Path(DENSE_CKPT).exists(),
-    reason=f"dense checkpoint not found: {DENSE_CKPT}")
+    not DENSE_CKPT or not Path(DENSE_CKPT).exists(),
+    reason=(
+        f"dense checkpoint not found: {DENSE_CKPT}"
+        if DENSE_CKPT else "ESCHA_DENSE_MODEL is not set"
+    ),
+)
 # Opt-in: reads real coded weights and peaks around 8 GB RSS. Not something a
 # plain `pytest tests/` on a laptop should start without being asked.
 needs_slow = pytest.mark.skipif(
-    os.environ.get("ESCHA_MLX_SLOW_TESTS") != "1",
+    not envs.ESCHA_MLX_SLOW_TESTS.get(),
     reason="slow/heavy test; set ESCHA_MLX_SLOW_TESTS=1")
 
 

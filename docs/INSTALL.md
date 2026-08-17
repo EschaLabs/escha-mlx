@@ -199,32 +199,54 @@ sequence, and bound context at the request level.
 
 ## Tuning reference
 
-All optional. The defaults are what we measured as best on an M4; every one of
-these is gated bit-identical or documented where it is not.
+All environment variables are declared, parsed, and validated in
+`escha_mlx/envs.py`. They are separated by ownership rather than precedence:
 
-| variable | effect |
-|---|---|
-| `ESCHA_MLX_WIRED_GB=N` | wire N GB. **Required above a ~18 GB working set** (see the cliff above). Must be ≤ the cap. |
-| `ESCHA_MLX_FUSED_HAD=0` | use native MLX op chains for the expert input and output transforms. The default fused Metal kernels combine the scale gathers, radix-2 Hadamard, scaling and f16 cast without changing the final f16 bits; set this to 0 for performance comparison or debugging. |
-| `ESCHA_MLX_GDN_STATE=fp32` | store the recurrent state in f32 instead of fp16. Costs ~10% throughput at batch ≥32; the per-sequence cost is architecture-dependent — 31.5 MB on the 35B MoE (30 GDN layers × 32 v-heads), 75.5 MB on the 27B dense (48 × 48). The loader logs the actual figure for your model. Use it if you need the pre-fp16 numerics exactly. |
-| `ESCHA_MLX_LAST_LOGIT=0` | compute logits for **all** prompt positions, not just the last. Needed for per-position scoring (loglikelihood eval); costs ~7% prefill. |
-| `ESCHA_MLX_Q8_GROUP=64` | 64-wide Q8 groups instead of 128. Identical numerics, +140 MB. |
-| `ESCHA_MLX_BLOCK_R=N` | pin rows-per-expert-group. Default is size-dependent. |
-| `ESCHA_MLX_KT_BLOCK=N` | code tiles staged per barrier pair. Default 4. |
-| `ESCHA_MLX_GEMV=staged` | revert to the barrier/threadgroup-staged per-row GEMV (default is the barrier-free direct kernel). Bit-identical. |
-| `ESCHA_MLX_DENSE=fp16` | fp16 weights for the **non-expert** tensors (embed/head) instead of the Q8 repack. +~1.9 GB resident; bit-identical weight values. Unrelated to the `ESCHA_MLX_DENSE_*` dense-architecture flags below. |
-| `ESCHA_MLX_LUT=1` | table-based codec decode instead of the multiply-hash. Bit-exact by construction; use if a future Metal compiler ever breaks fp16 round-to-nearest-even in the hash path. |
-| `ESCHA_MLX_MOE=ops` | NumPy expert path. Very slow; a correctness oracle, not for serving. |
-| `ESCHA_MLX_BIAS=1` | apply the per-linear correction a dense export ships. **Off by default, and this is a real fork in the model, not a tuning knob** — see the section above. |
-| `ESCHA_MLX_LINEAR=ops` | NumPy path for the coded linears of a **dense** model (the MoE flag's counterpart). Very slow, and it materializes each decoded weight in **f32** and caches it for the module's lifetime — about 97 GB if you touch every linear of the 27B. A correctness oracle for a truncated load or a single layer, not a whole-model fallback. |
-| `ESCHA_MLX_DENSE_BLOCK_R=N` | pin rows-per-group for the dense row-blocked GEMM (1 = always the per-row kernel). Default is size-dependent, now measured — see below. Bit-identical at every R. |
-| `ESCHA_MLX_DENSE_MAT=1` | run the dense prefill GEMM on the simdgroup matrix units. **Not bit-identical to the goldens** — deterministic, but the sum is reassociated; split-K is the only other such path. See below. |
+- **deployment** controls process/device resource policy;
+- **runtime** controls stable, user-visible behavior or numerics;
+- **kernel** selects low-level implementations and performance strategies;
+- **development** supplies inputs used only by tests and benchmarks;
+- **build** is reserved for future native-extension/toolchain settings and is
+  currently empty.
 
-Five further flags (`ESCHA_MLX_SPLITK`, `ESCHA_MLX_FETCH`, `ESCHA_MLX_SORTX`,
-`ESCHA_MLX_PREFETCH`, `ESCHA_MLX_GEMV_PF`) select alternate kernel strategies
-that measured neutral or worse on a 10-core M4. They are kept because the
-trade-offs are hardware-dependent and may favour wider GPUs (M-series
-Max/Ultra). All are gated bit-identical.
+Environment variables are process-level overrides and are read only where they
+are explicitly used; they do not implicitly override CLI arguments. The defaults
+below are what we measured as best on an M4. Every alternate kernel path is gated
+bit-identical or documents where it is not.
+
+| layer | variable | effect |
+|---|---|---|
+| deployment | `ESCHA_MLX_WIRED_GB=N` | Wire N GB. **Required above a ~18 GB working set** (see the cliff above). Must be ≤ the cap. |
+| runtime | `ESCHA_MLX_GDN_STATE=fp32` | Store the recurrent state in f32 instead of fp16. Costs ~10% throughput at batch ≥32; the per-sequence cost is architecture-dependent — 31.5 MB on the 35B MoE and 75.5 MB on the 27B dense. The loader logs the actual figure. |
+| runtime | `ESCHA_MLX_LAST_LOGIT=0` | Compute logits for **all** prompt positions, not just the last. Needed for per-position scoring (loglikelihood eval); costs ~7% prefill. |
+| runtime | `ESCHA_MLX_Q8_GROUP=64` | Use 64-wide Q8 groups instead of 128. Identical numerics, +140 MB. |
+| runtime | `ESCHA_MLX_BIAS=1` | Apply the per-linear correction a dense export ships. **Off by default, and this is a real fork in the model, not a tuning knob** — see the section above. |
+| kernel | `ESCHA_MLX_FUSED_HAD=0` | Use native MLX op chains for the expert transforms. The default fused kernels are bit-identical; set this to 0 for comparison or debugging. |
+| kernel | `ESCHA_MLX_GEMV=staged` | Revert to the barrier/threadgroup-staged per-row GEMV. Bit-identical. |
+| kernel | `ESCHA_MLX_FETCH=shuffle` | Shuffle-broadcast code tiles instead of direct loads. Measured slower on a 10-core M4. |
+| kernel | `ESCHA_MLX_SPLITK=auto` | Enable the size-based split-K policy, or set a positive integer to pin the factor. Measured slower on a 10-core M4. |
+| kernel | `ESCHA_MLX_BLOCK_R=N` | Pin rows per expert group. Unset uses the size-dependent policy. |
+| kernel | `ESCHA_MLX_KT_BLOCK=N` | Stage 1, 2, 4, 8, 16, or 32 code tiles per barrier pair. Default 4. |
+| kernel | `ESCHA_MLX_SORTX=1` | Pre-sort inputs into expert order. Measured neutral or slower on a 10-core M4. |
+| kernel | `ESCHA_MLX_PREFETCH=1` | Prefetch code tiles into registers. Measured neutral or slower on a 10-core M4. |
+| kernel | `ESCHA_MLX_DENSE=fp16` | Use fp16 dense weights instead of the Q8 repack. +~1.9 GB resident; bit-identical weight values. |
+| kernel | `ESCHA_MLX_LUT=1` | Use table-based codec decode instead of multiply-hash. Bit-exact fallback for future Metal compiler changes. |
+| kernel | `ESCHA_MLX_MOE=ops` | Use the NumPy expert path. Very slow; a correctness oracle, not for serving. |
+| kernel | `ESCHA_MLX_LINEAR=ops` | Use the NumPy path for coded linears of a **dense** model. Very slow, and materializes decoded weights in f32; use only as a correctness oracle for a truncated load or single layer. |
+| kernel | `ESCHA_MLX_GEMV_PF=N` | Prefetch N code tiles in the direct GEMV. Default 1; alternate depths measured neutral or slower on a 10-core M4. |
+| kernel | `ESCHA_MLX_DENSE_BLOCK_R=N` | Pin rows per group for dense row-blocked GEMM (1 = per-row kernel). Unset uses the measured size policy; bit-identical at every R. |
+| kernel | `ESCHA_MLX_DENSE_MAT=1` | Run dense prefill GEMM on simdgroup matrix units. **Not bit-identical to the goldens** — deterministic, but the sum is reassociated. See below. |
+
+The development-only variables `ESCHA_MODEL=/path/to/checkpoint` and
+`ESCHA_DENSE_MODEL=/path/to/dense-checkpoint` select checkpoints for tests and
+the commands in `RUNBOOK.md`; model loading itself continues to take an explicit
+path. `ESCHA_MLX_SLOW_TESTS=1` opts in to memory-heavy checkpoint tests.
+
+Five alternate strategy flags (`ESCHA_MLX_SPLITK`, `ESCHA_MLX_FETCH`,
+`ESCHA_MLX_SORTX`, `ESCHA_MLX_PREFETCH`, `ESCHA_MLX_GEMV_PF`) measured neutral
+or worse on a 10-core M4. They remain available because the trade-offs are
+hardware-dependent and may favour wider GPUs (M-series Max/Ultra). All are
+gated bit-identical.
 
 **`ESCHA_MLX_DENSE_BLOCK_R` has now been measured.** The dense path was
 developed on Linux, where the Metal kernels do not run, so the policy
@@ -246,20 +268,14 @@ to the per-row kernel. Re-sweep with
 `bench/prefill_profile.py --sweep-r 4,8,16,32`.
 
 **`ESCHA_MLX_DENSE_MAT` is not bit-identical to the goldens** — split-K is the
-only other path here that is not — and
-it is off by default for that reason alone — not because it is inaccurate. It
-computes the same products (on this hardware the matrix units multiply two
-halves into an f32 accumulator *exactly*: a half×half product needs 22 mantissa
-bits and f32 carries 24) but sums them in a different order, so it is
-deterministic and reproducible while differing from the scalar kernel in the
-last bits. Measured on the 27B dense model: **+16–17% prefill** (38.9 → 45.5
-tok/s at ISL 512), decode unchanged — at batch 1 there is one row, the size
-policy returns `R = 1`, and this kernel is never reached. Logit-level effect on
-the shipped checkpoint: mean deviation 0.46% of the logits' own sigma, greedy
-token and top-5 unchanged, deep-tail ordering not preserved. On a near tie it
-*can* reorder the top two, which is what "tolerance-gated rather than
-bit-identical" means in practice. A/B it with
-`bench/prefill_profile.py --sweep-dense-mat`.
+only other path here that is not — and it is off by default for that reason
+alone, not because it is inaccurate. It computes the same products but sums
+them in a different order, so it is deterministic and reproducible while
+differing from the scalar kernel in the last bits. Measured on the 27B dense
+model: **+16–17% prefill** (38.9 → 45.5 tok/s at ISL 512), decode unchanged.
+Logit-level effect on the shipped checkpoint: mean deviation 0.46% of the
+logits' own sigma, greedy token and top-5 unchanged, deep-tail ordering not
+preserved. A/B it with `bench/prefill_profile.py --sweep-dense-mat`.
 
 ## Troubleshooting
 

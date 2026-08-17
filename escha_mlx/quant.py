@@ -38,11 +38,12 @@ MLX's maximum affine group size, hence the default.
 from __future__ import annotations
 
 import logging
-import os
 
 import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
+
+from . import envs
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ _VALIDATED: set[int] = set()
 # MLX affine group sizes, largest first. 128 is the upper bound MLX accepts.
 _GROUPS = (128, 64, 32)
 
-DEFAULT_GROUP = 128
+DEFAULT_GROUP = envs.DEFAULT_Q8_GROUP
 
 
 def fit_group(k: int, requested: int = DEFAULT_GROUP) -> int:
@@ -112,7 +113,7 @@ def validate_pack(group_size: int = DEFAULT_GROUP) -> None:
 
 
 def dense_mode() -> str:
-    return os.environ.get("ESCHA_MLX_DENSE", "q8")
+    return envs.ESCHA_MLX_DENSE.get()
 
 
 class EschaQ8Linear(nn.Module):

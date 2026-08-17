@@ -73,10 +73,11 @@ upstream kernel unchanged.
 from __future__ import annotations
 
 import logging
-import os
 
 import mlx.core as mx
 from mlx_lm.models.cache import ArraysCache
+
+from . import envs
 
 logger = logging.getLogger(__name__)
 
@@ -253,10 +254,7 @@ def _restore_upstream_patch() -> None:
 
 def state_dtype() -> mx.Dtype:
     """Storage dtype for the GDN recurrent state (ESCHA_MLX_GDN_STATE)."""
-    v = os.environ.get("ESCHA_MLX_GDN_STATE", "fp16").lower()
-    if v not in _DTYPES:
-        raise ValueError(
-            f"ESCHA_MLX_GDN_STATE must be one of {sorted(set(_DTYPES))}, got {v!r}")
+    v = envs.ESCHA_MLX_GDN_STATE.get()
     return _DTYPES[v]
 
 
