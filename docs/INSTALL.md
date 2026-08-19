@@ -141,6 +141,9 @@ these is gated bit-identical or documented where it is not.
 | `ESCHA_MLX_DENSE=fp16` | fp16 dense weights instead of the Q8 repack. +~1.9 GB resident; bit-identical weight values. |
 | `ESCHA_MLX_LUT=1` | table-based codec decode instead of the multiply-hash. Bit-exact by construction; use if a future Metal compiler ever breaks fp16 round-to-nearest-even in the hash path. |
 | `ESCHA_MLX_MOE=ops` | NumPy expert path. Very slow; a correctness oracle, not for serving. |
+| `ESCHA_MLX_FOLD_GEN=0` | disable the folded-first-token generate optimisation and restore the stock `mlx_lm.generate.generate_step`. The fold saves ~16 ms TTFT per request by sampling the first token from the final prefill chunk's logits instead of an extra single-token forward; token output is identical to stock, but logprob vectors may differ numerically (different kernel shapes). Default on. |
+| `ESCHA_MLX_ASYNC_EVAL=0` | disable per-forward `mx.async_eval` on model output. Default on; overlaps each GPU forward with the next step's Python graph-build (~3.2 ms/step), keeping the GPU busy between decode steps. Output is bit-identical on/off. |
+| `ESCHA_MLX_KERNEL_WARM=0` | skip kernel warm-up at load time. Default on; runs throwaway prefill and decode forwards at load so that Metal kernel compilation happens before any measured dispatch. Disable for cold-start fidelity testing. |
 
 Four further flags (`ESCHA_MLX_SPLITK`, `ESCHA_MLX_FETCH`, `ESCHA_MLX_SORTX`,
 `ESCHA_MLX_PREFETCH`) select alternate kernel strategies that measured neutral or
