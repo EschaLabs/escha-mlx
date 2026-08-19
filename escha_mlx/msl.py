@@ -43,13 +43,18 @@ _EXTRACT_K2 = """
     uint t_off = lane * 8u;
     uint i1 = t_off >> 4;
     uint i0 = (i1 + 15u) & 15u;
-    ulong merged = (((ulong)W(i0)) << 32) | (ulong)W(i1);
-    uint shift = ((~t_off) & 8u) << 1;
-    uint wv = (uint)(merged >> shift);   // NOT named `w`: decode_tiles' output
-    uint s7 = wv & 0xffffu;              // buffer parameter is `w`, and MSL
-    uint s6 = (wv >> 2) & 0xffffu;       // forbids shadowing a parameter in
-    uint s5 = (wv >> 4) & 0xffffu;       // the outermost function block
-    uint s4 = (wv >> 6) & 0xffffu;
+    // 32-bit funnel shift replacing the emulated 64-bit shift.  The old form
+    // merged W(i0)<<32 | W(i1) then shifted right by {0,16}: a ulong shift
+    // lowers to a multi-op sequence on Apple GPUs (no 64-bit shifter), on the
+    // critical path of every kt iteration.  shift==16 <=> t_off bit 3 == 0, in
+    // which case wv = (hi<<16)|(lo>>16); otherwise wv = lo.  Bit-identical.
+    uint lo = W(i1);
+    uint hi = W(i0);
+    uint wv = (t_off & 8u) ? lo : ((hi << 16u) | (lo >> 16u));
+    uint s7 = wv & 0xffffu;              // NOT named `w`: decode_tiles' output
+    uint s6 = (wv >> 2) & 0xffffu;       // buffer parameter is `w`, and MSL
+    uint s5 = (wv >> 4) & 0xffffu;       // forbids shadowing a parameter in
+    uint s4 = (wv >> 6) & 0xffffu;       // the outermost function block
     uint s3 = (wv >> 8) & 0xffffu;
     uint s2 = (wv >> 10) & 0xffffu;
     uint s1 = (wv >> 12) & 0xffffu;
@@ -64,9 +69,17 @@ _EXTRACT_K3 = """
     uint i0 = b0 >> 5;
     uint i2 = (b2 - 1u) >> 5;
     uint sh2 = ((i2 + 1u) << 5) - b2;
-    ulong merged = (((ulong)W(i0 % 24u)) << 32) | (ulong)W(i2 % 24u);
-    uint w7 = (uint)(merged >> sh2);
-    uint w3 = (uint)(merged >> (sh2 + 12u));
+    // 32-bit funnel shift replacing the emulated 64-bit shifts for w7/w3.
+    // w7 = (merged >> sh2) low 32 (sh2 in [0,31]): sh2==0 ? lo : (lo>>sh2) |
+    // (hi<<(32-sh2)).  w3 = (merged >> (sh2+12)) low 32: r2 = sh2+12 in
+    // [12,43], so it needs the r2<32 / ==32 / >32 branches.  Bit-identical.
+    uint hi = W(i0 % 24u);
+    uint lo = W(i2 % 24u);
+    uint w7 = (sh2 == 0u) ? lo : ((lo >> sh2) | (hi << (32u - sh2)));
+    uint r2 = sh2 + 12u;
+    uint w3 = (r2 < 32u) ? ((lo >> r2) | (hi << (32u - r2)))
+            : (r2 == 32u) ? hi
+            : (hi >> (r2 - 32u));
     uint s7 = w7 & 0xffffu;
     uint s6 = (w7 >> 3) & 0xffffu;
     uint s5 = (w7 >> 6) & 0xffffu;
@@ -306,6 +319,248 @@ def _moe_gemv_splitk_source(K: int, use_lut: bool, shuffle: bool, S: int) -> str
 """
 
 
+
+def _moe_gemv_had_source(K: int, use_lut: bool, rs: float) -> str:
+    """Fused per-row GEMV with the input Hadamard transform built in.
+
+    Currently the moe path runs `scaled_had` (writes xh [m, IC] f16) then
+    `moe_gemv` (reads it) as two kernels with a full device round-trip.  This
+    fuses them: each threadgroup transforms its row *inside* the kernel into
+    threadgroup memory, then runs the direct GEMV reading from there -- one
+    launch per leg instead of two and no [m, IC] intermediate.
+
+    Threadgroup `sg` (0..7) transforms blocks {sg*2, sg*2+1} of the row with
+    the slotless radix-2 butterfly (stages 0-1 in registers, 2-6 via
+    simd_shuffle_xor) -- the same stage order and pairings as `_had_source`, so
+    the transformed f16 values are bit-for-bit the standalone scaled_had's.
+    Subsequent threadgroups read the shared s_x, so the row is transformed once
+    per threadgroup (redundant across the ocb-slices of a row, but that ALU is
+    ~5% of the GEMV's MACs).  Accumulation order per (row, out-channel) is
+    unchanged => bit-identical to [scaled_had; moe_gemv].
+
+    Blocks past IC/128 are guarded off (the down leg is IC=512 = 4 blocks, so
+    simdgroups 2..7 transform nothing).  IC must be a multiple of 256: a
+    simdgroup covers 2 blocks of 128 elements.
+    """
+    wpt = 8 * K
+    raw = _EXTRACT_K2 if K == 2 else _EXTRACT_K3
+    extract = _substitute_fetch(raw)
+    accs = []
+    for j in range(8):
+        fi = j >> 1
+        xo = f"xrow + {j & 1}u + {(fi & 1) * 8}u"
+        acc = "acc0" if j < 4 else "acc1"
+        accs.append(f"        {acc} += (float)xrowp[{xo}] * (float){_dec(f's{j}', use_lut)};")
+    return f"""
+    uint ocb = thread_position_in_grid.x >> 8;
+    uint row = thread_position_in_grid.y;
+    uint lane = thread_index_in_simdgroup;
+    uint sg = simdgroup_index_in_threadgroup;
+
+    int e = row_expert[row];
+    device const uint* base = code + (ulong)e * ((ulong)TK * TN * {wpt}u);
+
+    threadgroup half s_x[IC];
+
+    // ---- input Hadamard transform: sg transforms blocks (2*sg, 2*sg+1) ----
+#pragma clang loop unroll(full)
+    for (uint bi = 0u; bi < 2u; ++bi) {{
+        uint blk2 = sg * 2u + bi;
+        if (blk2 >= IC / 128u) continue;
+        ulong inb = (ulong)row_token[row] * IC + (ulong)blk2 * 128u + (ulong)lane * 4u;
+        ulong rinb = (ulong)e * IC + (ulong)blk2 * 128u + (ulong)lane * 4u;
+        float v[4];
+        v[0] = (float)x[inb + 0u] * rin[rinb + 0u];
+        v[1] = (float)x[inb + 1u] * rin[rinb + 1u];
+        v[2] = (float)x[inb + 2u] * rin[rinb + 2u];
+        v[3] = (float)x[inb + 3u] * rin[rinb + 3u];
+        {{ float a = v[0], b = v[1]; v[0] = a + b; v[1] = a - b; }}
+        {{ float a = v[2], b = v[3]; v[2] = a + b; v[3] = a - b; }}
+        {{ float a = v[0], b = v[2]; v[0] = a + b; v[2] = a - b; }}
+        {{ float a = v[1], b = v[3]; v[1] = a + b; v[3] = a - b; }}
+#pragma clang loop unroll(full)
+        for (uint s = 2u; s < 7u; ++s) {{
+            uint shl = 1u << (s - 2u);
+#pragma clang loop unroll(full)
+            for (uint k = 0u; k < 4u; ++k) {{
+                float mine = v[k];
+                float other = simd_shuffle_xor(mine, shl);
+                v[k] = (lane & shl) ? (other - mine) : (mine + other);
+            }}
+        }}
+        ulong so = (ulong)blk2 * 128u + (ulong)lane * 4u;
+        float RS = {rs!r}f;
+        s_x[so + 0u] = (half)(v[0] * RS);
+        s_x[so + 1u] = (half)(v[1] * RS);
+        s_x[so + 2u] = (half)(v[2] * RS);
+        s_x[so + 3u] = (half)(v[3] * RS);
+    }}
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // ---- direct GEMV reading the transformed row from s_x ----
+    float acc0 = 0.0f, acc1 = 0.0f;
+    uint l0 = lane & ~4u;
+    uint c_off = (lane >> 2) & 1u;
+    uint xrow = (lane & 3u) * 2u;
+
+    for (uint kt = 0u; kt < TK; kt++) {{
+        device const uint* wp = base + ((ulong)kt * TN + ocb * 8u + sg) * {wpt}u;
+        const threadgroup half* xrowp = s_x + kt * 16u;
+{extract}
+{chr(10).join(accs)}
+    }}
+
+    acc0 += simd_shuffle_xor(acc0, 1u);
+    acc0 += simd_shuffle_xor(acc0, 2u);
+    acc1 += simd_shuffle_xor(acc1, 1u);
+    acc1 += simd_shuffle_xor(acc1, 2u);
+    if ((lane & 3u) == 0u) {{
+        uint col = 2u * (l0 >> 3) + c_off;
+        ulong ob = (ulong)row * OC + ocb * 128u + sg * 16u;
+        mid[ob + col] = acc0;
+        mid[ob + col + 8u] = acc1;
+    }}
+"""
+
+
+def _moe_gemv_had_kb_source(K: int, use_lut: bool, rs: float, KB: int) -> str:
+    """moe_gemv_had with KB-deep code-tile prefetch in the direct loop.
+
+    The shipped had kernel keeps the 128-iteration serial kt chain (gate_up)
+    with one outstanding code-word load per lane per iteration.  At bs1 row
+    counts the code stream stalls the chain: folding cba_decode to a constant
+    drops the isolated gu leg 49us -> 22us, i.e. the on-the-fly code loads are
+    ~55% of the leg.  The word offsets depend on `lane` only (never kt), so a
+    whole KB block can be fetched as independent loads before any is consumed
+    (same idea as the direct-GEMV KB staging), turning the chain KB-deep.
+
+    Bit-identical: same kt order, same per-kt accumulate.  The had transform
+    preamble (s_x + barrier) is unchanged.
+    """
+    wpt = 8 * K
+    raw = _EXTRACT_K2 if K == 2 else _EXTRACT_K3
+    pf_b = "pi1" if K == 2 else "pi2"
+    pf_idx = _PF_IDX_K2 if K == 2 else _PF_IDX_K3
+    extract = _substitute_fetch_prefetch(raw, K)
+    # Software-pipelined double-buffer prefetch.  The shipped kernel loads the
+    # KB code tiles for block `kb` at the top of iteration `kb` and consumes
+    # them immediately, so the next block's load cannot start until the current
+    # block is fully consumed -- one code-load latency exposed per iteration.
+    # Here block 0 is fetched BEFORE the had transform (overlapping the x/rin
+    # loads and the butterfly+barrier), and each iteration issues the load for
+    # block kb+KB into the `next` registers before consuming `cur`, so the
+    # load latency is hidden behind the current block's decode+FMA chain
+    # (same memory-level-parallelism argument as the KB-depth itself).
+    # Values and kt order are unchanged => bit-identical.
+    pf_block = f"""
+        uint pfa[{KB}], pfb[{KB}];
+        uint nfa[{KB}], nfb[{KB}];
+#pragma clang loop unroll(full)
+        for (uint k = 0; k < {KB}u; ++k) {{
+            uint nk = (uint)k;
+            device const uint* wpk = base
+                + (ulong)(nk * TN + ocb * 8u + sg) * {wpt}u;
+            pfa[k] = wpk[pi0]; pfb[k] = wpk[{pf_b}];
+            nfa[k] = 0u; nfb[k] = 0u;
+        }}"""
+    pf_look = f"""
+        uint kbk = kb + {KB}u;
+        if (kbk < TK) {{
+#pragma clang loop unroll(full)
+            for (uint k = 0; k < {KB}u; ++k) {{
+                device const uint* wpk = base
+                    + ((ulong)(kbk + k) * TN + ocb * 8u + sg) * {wpt}u;
+                nfa[k] = wpk[pi0]; nfb[k] = wpk[{pf_b}];
+            }}
+        }}"""
+    pf_adv = f"""
+#pragma clang loop unroll(full)
+        for (uint k = 0; k < {KB}u; ++k) {{ pfa[k] = nfa[k]; pfb[k] = nfb[k]; }}"""
+    accs = []
+    for j in range(8):
+        fi = j >> 1
+        xo = f"xrow + {j & 1}u + {(fi & 1) * 8}u"
+        acc = "acc0" if j < 4 else "acc1"
+        accs.append(f"            {acc} += (float)xrowp[{xo}] * (float){_dec(f's{j}', use_lut)};")
+    return f"""
+    uint ocb = thread_position_in_grid.x >> 8;
+    uint row = thread_position_in_grid.y;
+    uint lane = thread_index_in_simdgroup;
+    uint sg = simdgroup_index_in_threadgroup;
+
+    int e = row_expert[row];
+    device const uint* base = code + (ulong)e * ((ulong)TK * TN * {wpt}u);
+
+    threadgroup half s_x[IC];
+{pf_idx}
+{pf_block}
+
+#pragma clang loop unroll(full)
+    for (uint bi = 0u; bi < 2u; ++bi) {{
+        uint blk2 = sg * 2u + bi;
+        if (blk2 >= IC / 128u) continue;
+        ulong inb = (ulong)row_token[row] * IC + (ulong)blk2 * 128u + (ulong)lane * 4u;
+        ulong rinb = (ulong)e * IC + (ulong)blk2 * 128u + (ulong)lane * 4u;
+        float v[4];
+        v[0] = (float)x[inb + 0u] * rin[rinb + 0u];
+        v[1] = (float)x[inb + 1u] * rin[rinb + 1u];
+        v[2] = (float)x[inb + 2u] * rin[rinb + 2u];
+        v[3] = (float)x[inb + 3u] * rin[rinb + 3u];
+        {{ float a = v[0], b = v[1]; v[0] = a + b; v[1] = a - b; }}
+        {{ float a = v[2], b = v[3]; v[2] = a + b; v[3] = a - b; }}
+        {{ float a = v[0], b = v[2]; v[0] = a + b; v[2] = a - b; }}
+        {{ float a = v[1], b = v[3]; v[1] = a + b; v[3] = a - b; }}
+#pragma clang loop unroll(full)
+        for (uint s = 2u; s < 7u; ++s) {{
+            uint shl = 1u << (s - 2u);
+#pragma clang loop unroll(full)
+            for (uint k = 0u; k < 4u; ++k) {{
+                float mine = v[k];
+                float other = simd_shuffle_xor(mine, shl);
+                v[k] = (lane & shl) ? (other - mine) : (mine + other);
+            }}
+        }}
+        ulong so = (ulong)blk2 * 128u + (ulong)lane * 4u;
+        float RS = {rs!r}f;
+        s_x[so + 0u] = (half)(v[0] * RS);
+        s_x[so + 1u] = (half)(v[1] * RS);
+        s_x[so + 2u] = (half)(v[2] * RS);
+        s_x[so + 3u] = (half)(v[3] * RS);
+    }}
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    float acc0 = 0.0f, acc1 = 0.0f;
+    uint l0 = lane & ~4u;
+    uint c_off = (lane >> 2) & 1u;
+    uint xrow = (lane & 3u) * 2u;
+    for (uint kb = 0; kb < TK; kb += {KB}u) {{
+{pf_look}
+#pragma clang loop unroll(full)
+        for (uint k2 = 0; k2 < {KB}u; ++k2) {{
+            const threadgroup half* xrowp = s_x + (kb + k2) * 16u;
+{extract}
+{"\n".join(accs)}
+        }}
+{pf_adv}
+    }}
+
+    acc0 += simd_shuffle_xor(acc0, 1u);
+    acc0 += simd_shuffle_xor(acc0, 2u);
+    acc1 += simd_shuffle_xor(acc1, 1u);
+    acc1 += simd_shuffle_xor(acc1, 2u);
+    if ((lane & 3u) == 0u) {{
+        uint col = 2u * (l0 >> 3) + c_off;
+        ulong ob = (ulong)row * OC + ocb * 128u + sg * 16u;
+        mid[ob + col] = acc0;
+        mid[ob + col + 8u] = acc1;
+    }}
+"""
+
+
+
+
+
+
 def _moe_gemv_source(K: int, use_lut: bool) -> str:
     wpt = 8 * K
     extract = _substitute_fetch(_EXTRACT_K2 if K == 2 else _EXTRACT_K3)
@@ -493,90 +748,183 @@ def _moe_gemm_rows_source(K: int, use_lut: bool, R: int, KB: int = 1,
 """
 
 
-def _scaled_had_source(rs: float) -> str:
-    """Fused  f16( H128( f32(rows) * rin[e] ) * RS )  in one kernel.
+def _had_source(rs: float, kind: str) -> str:
+    """Fused f16( H128( x ) * RS [* rout[e]] ) in one kernel.
+
+    kind="in" : x = f32(rows) * rin[e];  out = f16(H128(x) * RS)
+    kind="out": x = mid (f32);           out = f16(H128(x) * RS * rout[e])
 
     The unfused chain is arithmetically trivial and memory-brutal: at m=2048,
     IC=2048 it materialises `[m, IC]` f32 for the cast, again for the rin gather,
-    again for the product, again for the native transform output, again for the RS scale --
-    ~150 MB of traffic per layer per leg to do 128 adds per output.  Measured
-    cost: 15.8% of prefill and 11.3% of decode for the rin stage alone, plus
-    3.3%/8.9% for the Hadamard (doc §16.2).
+    again for the product, again for the native transform output, again for the
+    RS scale -- ~150 MB of traffic per layer per leg to do 128 adds per output.
+    Measured cost: 15.8% of prefill and 11.3% of decode for the rin stage
+    alone, plus 3.3%/8.9% for the Hadamard (doc §16.2).
 
-    Here one threadgroup owns one (row, 128-block): it loads 128 values, scales
-    them, runs the transform in threadgroup memory, and writes f16 once.  Only
-    the input and the output ever reach DRAM.
-
-    The transform is the in-place radix-2 butterfly, 7 stages, which computes
+    The transform is the in-place radix-2 butterfly, 7 stages, computing
     y[j] = sum_i (-1)^popcount(i&j) x[i] -- the same Sylvester-ordered,
-    unnormalised WHT and reduction order as mx.hadamard_transform. The final f16
-    output is gated bit-for-bit against that native op chain; a separate
-    tolerance test ties both implementations to ref.h128.
+    unnormalised WHT and reduction order as mx.hadamard_transform.  The earlier
+    kernel ran it in threadgroup memory with two barriers per stage (14 barriers
+    per 128-block).  This one uses one simdgroup (32 lanes x 4 elements = 128)
+    per block: stages 0-1 butterfly within a lane's 4 registers, stages 2-6
+    across lanes via `simd_shuffle_xor` -- zero barriers, zero threadgroup
+    memory.  Element index i = lane*4 + k, so bit s of i is register/bit (s-2)
+    of the lane for s >= 2 and every pair lives inside the simdgroup.
+
+    Per element the stage sequence, the (i, i^2^s) pairings, the +/- convention
+    and the f32 rounding positions are unchanged, so the f16 output is
+    bit-for-bit the barrier version's.
+
+    Grid: one simdgroup per 128-block (threadgroups pack 8 blocks each when
+    HAD_TG=256), M rows in y.  Launch overhead is real here -- prefill issues
+    32768 32-thread threadgroups per transform ([m,IC]=[2048,2048]); packing
+    8 blocks into a 256-thread threadgroup cuts that 8x with the exact same
+    per-block butterfly, so output bits are unchanged.  A partial last group
+    (IC/128 not a multiple of 8) is guarded out below.
     """
+    if kind == "in":
+        loads = [f"v[{k}] = (float)rows[base + {k}u] * rin[rbase + {k}u];"
+                 for k in range(4)]
+        stores = [f"out[base + {k}u] = (half)(v[{k}] * "
+                  + f"{rs!r}f" + f");" for k in range(4)]
+    else:
+        loads = [f"v[{k}] = mid[base + {k}u];" for k in range(4)]
+        stores = [f"out[base + {k}u] = (half)(v[{k}] * "
+                  + f"{rs!r}f" + f" * rout[rbase + {k}u]);" for k in range(4)]
+    loads_src = "\n".join(loads)
+    stores_src = "\n".join(stores)
     return f"""
-    uint tid = thread_position_in_threadgroup.x;
-    uint blk = thread_position_in_grid.x >> 7;
+    uint lane = thread_index_in_simdgroup;   // 0..31
+    uint blk = thread_position_in_grid.x >> 5;
     uint row = thread_position_in_grid.y;
+    uint numBlocks = IC / 128u;
+    if (blk >= numBlocks) return;   // partial last group
 
     int e = row_expert[row];
-    ulong off = (ulong)row * IC + (ulong)blk * 128u + tid;
-    ulong roff = (ulong)e * IC + (ulong)blk * 128u + tid;
+    ulong base = (ulong)row * IC + (ulong)blk * 128u + (ulong)lane * 4u;
+    ulong rbase = (ulong)e * IC + (ulong)blk * 128u + (ulong)lane * 4u;
 
-    threadgroup float v[128];
-    v[tid] = (float)rows[off] * rin[roff];
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
+    float v[4];
 #pragma clang loop unroll(full)
-    for (uint s = 0; s < 7u; ++s) {{
-        uint msk = 1u << s;
-        float mine = v[tid];
-        float other = v[tid ^ msk];
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        v[tid] = (tid & msk) ? (other - mine) : (mine + other);
-        threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint k = 0u; k < 4u; ++k) {{
+{loads_src}
     }}
 
-    out[off] = (half)(v[tid] * {rs!r}f);
+    // stages 0-1: element bits within the lane's 4 registers
+    {{ float a = v[0], b = v[1]; v[0] = a + b; v[1] = a - b; }}
+    {{ float a = v[2], b = v[3]; v[2] = a + b; v[3] = a - b; }}
+    {{ float a = v[0], b = v[2]; v[0] = a + b; v[2] = a - b; }}
+    {{ float a = v[1], b = v[3]; v[1] = a + b; v[3] = a - b; }}
+
+    // stages 2-6: lane bits; every pair is inside this simdgroup
+#pragma clang loop unroll(full)
+    for (uint s = 2u; s < 7u; ++s) {{
+        uint shl = 1u << (s - 2u);
+#pragma clang loop unroll(full)
+        for (uint k = 0u; k < 4u; ++k) {{
+            float mine = v[k];
+            float other = simd_shuffle_xor(mine, shl);
+            v[k] = (lane & shl) ? (other - mine) : (mine + other);
+        }}
+    }}
+
+#pragma clang loop unroll(full)
+    for (uint k = 0u; k < 4u; ++k) {{
+{stores_src}
+    }}
 """
+
+
+def _scaled_had_source(rs: float) -> str:
+    return _had_source(rs, "in")
 
 
 def _scaled_had_out_source(rs: float) -> str:
-    """Fused  f16( H128(mid) * RS * rout[e] )  in one kernel.
+    return _had_source(rs, "out")
 
-    Keep the two post-transform multiplies as separate f32 statements in the
-    same left-to-right order as the native MLX chain.  That preserves both f32
-    rounding points before the single final f16 cast.
-    """
+
+def _scaled_had_out_silu_source(rs: float, hb: int) -> str:
+    """gu-leg epilogue fused into one kernel: output-Hadamard + silu gate.
+
+    Computes d_lo = f16(H128(mid[blk])*RS*rout) and d_hi = f16(H128(mid[blk+
+    hb])*RS*rout) in one simdgroup (the same slotless radix-2 butterfly and
+    pair order as `_had_source("out")`), then s16[i] = f16(f32(d_lo[i]) *
+    sigmoid(f32(d_lo[i]))) and h[i] = s16[i] * d_hi[i].  Numerically identical
+    to scaled_had_out -> the gu-leg silu chain EXCEPT the sigmoid, which MLX
+    compiles with fast-math on this build (see use_silu_tail) -- that last-ulp
+    difference is why this kernel is opt-in, not default."""
     return f"""
-    uint tid = thread_position_in_threadgroup.x;
-    uint blk = thread_position_in_grid.x >> 7;
+    uint lane = thread_index_in_simdgroup;   // 0..31
+    uint blk = thread_position_in_grid.x >> 5;  // 0..{hb}-1
     uint row = thread_position_in_grid.y;
 
     int e = row_expert[row];
-    ulong off = (ulong)row * OC + (ulong)blk * 128u + tid;
-    ulong roff = (ulong)e * OC + (ulong)blk * 128u + tid;
+    ulong lbase = (ulong)row * OC + (ulong)blk * 128u + (ulong)lane * 4u;
+    ulong lrbase = (ulong)e * OC + (ulong)blk * 128u + (ulong)lane * 4u;
+    ulong hbase = lbase + (ulong)({hb}u * 128u);
+    ulong hrbase = lrbase + (ulong)({hb}u * 128u);
 
-    threadgroup float v[128];
-    v[tid] = mid[off];
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
+    float vL[4]; float vH[4];
 #pragma clang loop unroll(full)
-    for (uint s = 0; s < 7u; ++s) {{
-        uint msk = 1u << s;
-        float mine = v[tid];
-        float other = v[tid ^ msk];
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-        v[tid] = (tid & msk) ? (other - mine) : (mine + other);
-        threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint k = 0u; k < 4u; ++k) {{ vL[k] = mid[lbase + k]; vH[k] = mid[hbase + k]; }}
+    {{ float a = vL[0], b = vL[1]; vL[0] = a + b; vL[1] = a - b; }}
+    {{ float a = vL[2], b = vL[3]; vL[2] = a + b; vL[3] = a - b; }}
+    {{ float a = vL[0], b = vL[2]; vL[0] = a + b; vL[2] = a - b; }}
+    {{ float a = vL[1], b = vL[3]; vL[1] = a + b; vL[3] = a - b; }}
+    {{ float a = vH[0], b = vH[1]; vH[0] = a + b; vH[1] = a - b; }}
+    {{ float a = vH[2], b = vH[3]; vH[2] = a + b; vH[3] = a - b; }}
+    {{ float a = vH[0], b = vH[2]; vH[0] = a + b; vH[2] = a - b; }}
+    {{ float a = vH[1], b = vH[3]; vH[1] = a + b; vH[3] = a - b; }}
+#pragma clang loop unroll(full)
+    for (uint s = 2u; s < 7u; ++s) {{
+        uint shl = 1u << (s - 2u);
+#pragma clang loop unroll(full)
+        for (uint k = 0u; k < 4u; ++k) {{
+            float mL = vL[k]; float oL = simd_shuffle_xor(mL, shl);
+            vL[k] = (lane & shl) ? (oL - mL) : (mL + oL);
+            float mH = vH[k]; float oH = simd_shuffle_xor(mH, shl);
+            vH[k] = (lane & shl) ? (oH - mH) : (mH + oH);
+        }}
     }}
 
-    float scaled = v[tid] * {rs!r}f;
-    float weighted = scaled * rout[roff];
-    out[off] = (half)weighted;
+    float RS = {rs!r}f;
+    ulong so = (ulong)row * (OC/2u) + (ulong)blk * 128u + (ulong)lane * 4u;
+#pragma clang loop unroll(full)
+    for (uint k = 0u; k < 4u; ++k) {{
+        half lo = (half)(vL[k] * RS * rout[lrbase + k]);
+        float g = (float)lo;
+        float ax = metal::abs(g);
+        float y = 1.0f / (1.0f + metal::exp(ax));
+        float sg = (g < 0.0f) ? y : 1.0f - y;
+        half s = (half)(g * sg);
+        half hv = (half)(vH[k] * RS * rout[hrbase + k]);
+        s16[so + k] = s;
+        h[so + k] = s * hv;
+    }}
 """
 
 
-@lru_cache(maxsize=None)
+
+
+
+def had_tg() -> int:
+    """Threads per threadgroup for the scaled-Hadamard transforms.  Default
+    256 packs 8 (128-block) simdgroups into each threadgroup, cutting launch
+    count 8x with identical per-block butterflies (bit-identical output).
+    ESCHA_MLX_HAD_TG=32 restores one simdgroup per threadgroup."""
+    v = os.environ.get("ESCHA_MLX_HAD_TG", "256")
+    return int(v) if v.lstrip("-").isdigit() and int(v) >= 32 else 256
+
+
+def _had_grid(ic: int, m: int, tg: int):
+    """Grid (threads x, threads y) for a transform of [m, ic], with `tg`-thread
+    threadgroups; a partial last group is guarded inside the kernel."""
+    blocks = ic // 128
+    bpg = tg // 32
+    return (tg * ((blocks + bpg - 1) // bpg), m, 1)
+
+
+
 def _scaled_had_kernel(rs: float):
     return mx.fast.metal_kernel(
         name="escha_scaled_had",
@@ -596,9 +944,84 @@ def _scaled_had_out_kernel(rs: float):
     )
 
 
+@lru_cache(maxsize=None)
+def _scaled_had_out_pack_kernel(rs: float):
+    return mx.fast.metal_kernel(
+        name="escha_scaled_had_out_pk",
+        input_names=["mid", "rout", "row_expert"],
+        output_names=["out"],
+        source=_scaled_had_out_pack_source(rs),
+    )
+
+
+@lru_cache(maxsize=None)
+def _scaled_had_out_sum_pack_kernel(rs: float, top_k: int):
+    return mx.fast.metal_kernel(
+        name=f"escha_scaled_had_out_sum_pk_tk{top_k}",
+        input_names=["mid", "rout", "row_expert", "w16"],
+        output_names=["y"],
+        source=_scaled_had_out_sum_pack_source(rs, top_k),
+    )
+
+
+def use_had_pack() -> bool:
+    """Pack 8 128-blocks of the decode output-Hadamard kernels into one
+    256-thread threadgroup (ESCHA_MLX_HAD_PACK).  The decode transforms launch
+    tiny 32-thread threadgroups (64+16 per layer at bs1); packing cuts that to
+    8+2 and removes ~2500 tiny launches per step.  Bit-identical (each block's
+    butterfly is simdgroup-local).  Default ON for the decode path."""
+    return os.environ.get("ESCHA_MLX_HAD_PACK", "1") != "0"
+
+
 def use_fused_had() -> bool:
     """Fused expert Hadamard transforms (ESCHA_MLX_FUSED_HAD=0 disables)."""
     return os.environ.get("ESCHA_MLX_FUSED_HAD", "1") != "0"
+
+
+def use_silu_tail() -> bool:
+    """Fuse the gu-leg output Hadamard + silu gate into one kernel
+    (ESCHA_MLX_SILU_TAIL=1 enables).
+
+    DEFAULT OFF.  The fusion is bit-identical on the butterfly arithmetic but
+    NOT on the sigmoid: MLX compiles its elementwise Sigmoid with fast-math
+    (measured: on this 0.32.0 build its GPU sigmoid differs from the stable
+    1/(1+exp(|x|)) form on ~39% of f32 inputs), and a mx.fast.metal_kernel
+    cannot reproduce it, so the fused s16/h would break the bit-identical
+    decode contract.  `scaled_had_out_silu` stays for a build where MLX's
+    sigmoid is bit-exact; flipping the flag would buy one launch and the
+    [m, OC] f16 round-trip per MoE layer."""
+    return os.environ.get("ESCHA_MLX_SILU_TAIL", "0") == "1"
+
+
+@lru_cache(maxsize=None)
+def _scaled_had_out_silu_kernel(rs: float, hb: int):
+    return mx.fast.metal_kernel(
+        name=f"escha_scaled_had_out_silu_hb{hb}",
+        input_names=["mid", "rout", "row_expert"],
+        output_names=["s16", "h"],
+        source=_scaled_had_out_silu_source(rs, hb),
+    )
+
+
+def scaled_had_out_silu(mid: mx.array, rout: mx.array, row_expert: mx.array,
+                        oc: int, rs: float):
+    """mid [m, OC] f32 -> (s16 [m, OC/2] f16, h [m, OC/2] f16), computed in
+    one kernel.  Opt-in (ESCHA_MLX_SILU_TAIL=1): bit-identical to
+    scaled_had_out then the gu-leg silu chain only where MLX's GPU sigmoid
+    matches 1/(1+exp(|x|)) -- see use_silu_tail."""
+    m = mid.shape[0]
+    half = oc // 2
+    hb = half // 128
+    kern = _scaled_had_out_silu_kernel(float(rs), int(hb))
+    s16, h = kern(
+        inputs=[mid, rout, row_expert],
+        template=[("OC", oc)],
+        grid=(32 * hb, m, 1),
+        threadgroup=(32, 1, 1),
+        output_shapes=[(m, half), (m, half)],
+        output_dtypes=[mx.float16, mx.float16],
+    )
+    return s16, h
 
 
 def scaled_had(rows: mx.array, rin: mx.array, row_expert: mx.array,
@@ -606,11 +1029,12 @@ def scaled_had(rows: mx.array, rin: mx.array, row_expert: mx.array,
     """rows [m, IC] f16, rin [E, IC] f32, row_expert [m] i32 -> [m, IC] f16."""
     m, ic = rows.shape
     kern = _scaled_had_kernel(float(rs))
+    tg = had_tg()
     (out,) = kern(
         inputs=[rows, rin, row_expert],
         template=[("IC", ic)],
-        grid=(128 * (ic // 128), m, 1),
-        threadgroup=(128, 1, 1),
+        grid=_had_grid(ic, m, tg),
+        threadgroup=(tg, 1, 1),
         output_shapes=[(m, ic)],
         output_dtypes=[mx.float16],
     )
@@ -621,16 +1045,256 @@ def scaled_had_out(mid: mx.array, rout: mx.array, row_expert: mx.array,
                    rs: float) -> mx.array:
     """mid [m, OC] f32, rout [E, OC] f32 -> transformed [m, OC] f16."""
     m, oc = mid.shape
+    if use_had_pack():
+        kern = _scaled_had_out_pack_kernel(float(rs))
+        nblk = oc // 128
+        tgx = (nblk + 7) // 8
+        (out,) = kern(
+            inputs=[mid, rout, row_expert],
+            template=[("IC", oc)],
+            grid=(256 * tgx, m, 1),
+            threadgroup=(256, 1, 1),
+            output_shapes=[(m, oc)],
+            output_dtypes=[mx.float16],
+        )
+        return out
     kern = _scaled_had_out_kernel(float(rs))
+    tg = had_tg()
     (out,) = kern(
         inputs=[mid, rout, row_expert],
-        template=[("OC", oc)],
-        grid=(128 * (oc // 128), m, 1),
-        threadgroup=(128, 1, 1),
+        template=[("IC", oc)],
+        grid=_had_grid(oc, m, tg),
+        threadgroup=(tg, 1, 1),
         output_shapes=[(m, oc)],
         output_dtypes=[mx.float16],
     )
     return out
+
+
+def _scaled_had_out_pack_source(rs: float) -> str:
+    """scaled_had_out with 8 128-blocks packed per 256-thread threadgroup.
+
+    The decode output-transforms launch one tiny 32-thread threadgroup per
+    (row, 128-block).  At bs1 a gu leg is (1024/128)*8 = 64 such threadgroups
+    and the dn leg (2048/128)*1 = 16 -- legacy tiny-TG launches whose fixed
+    dispatch cost dominates at single-token row counts.  Each block's radix-2
+    butterfly is entirely inside one simdgroup (barrier-free, stages 2-6 via
+    simd_shuffle_xor), so 8 blocks pack into one 256-thread threadgroup with
+    no inter-simdgroup communication.  Same per-block butterfly, same rounding
+    => bit-identical to _scaled_had_out_source."""
+    stores = []
+    for k in range(4):
+        stores.append(f"    out[base + {k}u] = (half)(v[{k}] * "
+                      + f"{rs!r}f" + f" * rout[rbase + {k}u]);")
+    return f"""
+    uint lane = thread_index_in_simdgroup;   // 0..31
+    uint sg = simdgroup_index_in_threadgroup; // 0..7 (8 blocks per TG)
+    uint row = thread_position_in_grid.y;
+    uint nblk = IC >> 7;
+    uint blk = (thread_position_in_grid.x >> 8) * 8u + sg;
+    if (blk >= nblk) return;
+
+    int e = row_expert[row];
+    ulong base = (ulong)row * IC + (ulong)blk * 128u + (ulong)lane * 4u;
+    ulong rbase = (ulong)e * IC + (ulong)blk * 128u + (ulong)lane * 4u;
+
+    float v[4];
+    v[0] = mid[base + 0u]; v[1] = mid[base + 1u]; v[2] = mid[base + 2u]; v[3] = mid[base + 3u];
+    {{ float a = v[0], b = v[1]; v[0] = a + b; v[1] = a - b; }}
+    {{ float a = v[2], b = v[3]; v[2] = a + b; v[3] = a - b; }}
+    {{ float a = v[0], b = v[2]; v[0] = a + b; v[2] = a - b; }}
+    {{ float a = v[1], b = v[3]; v[1] = a + b; v[3] = a - b; }}
+#pragma clang loop unroll(full)
+    for (uint s = 2u; s < 7u; ++s) {{
+        uint shl = 1u << (s - 2u);
+#pragma clang loop unroll(full)
+        for (uint k = 0u; k < 4u; ++k) {{
+            float mine = v[k];
+            float other = simd_shuffle_xor(mine, shl);
+            v[k] = (lane & shl) ? (other - mine) : (mine + other);
+        }}
+    }}
+{chr(10).join(stores)}
+"""
+
+def _scaled_had_out_sum_source(rs: float, top_k: int) -> str:
+    """Fused down-leg output transform + score-weighted token reduction.
+
+    Replaces [scaled_had_out(dn); d16.astype(f32)*w16; reshape; sum; f16 round]
+    with ONE kernel: y[token, :] = f16( sum_k f32(d16_{token*top_k+k}) *
+    f32(w16[token*top_k+k]) ) over the token's top_k rows.
+
+    Rows are token-major (row = token*top_k + k, the _rows invariant).  Each
+    32-lane simdgroup owns one (token, 128-OC block); it loops the top_k rows
+    of that token, running the SAME barrier-free radix-2 butterfly as
+    `_had_source(kind="out")` on each row's mid block, scaling by RS*rout,
+    casting f16, and accumulating f32(d16)*f32(w16) in k order into f32
+    registers.  The f32 accumulation order across k is identical to the
+    segmented-sum chain it replaces, and the final f16 cast happens once, so
+    the output bits are identical to scaled_had_out -> score-mul -> sum.
+
+    Run order of stages/pairings and the f32 rounding positions match
+    `_had_source` exactly, so each d16 element is bit-for-bit the standalone
+    scaled_had_out's.  One 32-thread threadgroup per (token, 128-block).
+    """
+    stores = []
+    for k in range(4):
+        stores.append(f"        y[ob + {k}u] = (half)acc[{k}];")
+    return f"""
+    uint lane = thread_index_in_simdgroup;   // 0..31
+    uint blk = thread_position_in_grid.x >> 5;  // 0 .. OC/128-1
+    uint token = thread_position_in_grid.y;
+    uint numBlocks = OC / 128u;
+    if (blk >= numBlocks) return;   // partial last group
+
+    uint ob = (ulong)token * OC + (ulong)blk * 128u + (ulong)lane * 4u;
+
+    float acc[4];
+    acc[0] = 0.0f; acc[1] = 0.0f; acc[2] = 0.0f; acc[3] = 0.0f;
+
+#pragma clang loop unroll(full)
+    for (uint k = 0u; k < {top_k}u; ++k) {{
+        uint r = token * {top_k}u + k;
+        int e = row_expert[r];
+        ulong mb = (ulong)r * OC + (ulong)blk * 128u + (ulong)lane * 4u;
+        ulong rbase = (ulong)e * OC + (ulong)blk * 128u + (ulong)lane * 4u;
+
+        float v[4];
+        v[0] = mid[mb + 0u]; v[1] = mid[mb + 1u]; v[2] = mid[mb + 2u]; v[3] = mid[mb + 3u];
+        {{ float a = v[0], b = v[1]; v[0] = a + b; v[1] = a - b; }}
+        {{ float a = v[2], b = v[3]; v[2] = a + b; v[3] = a - b; }}
+        {{ float a = v[0], b = v[2]; v[0] = a + b; v[2] = a - b; }}
+        {{ float a = v[1], b = v[3]; v[1] = a + b; v[3] = a - b; }}
+#pragma clang loop unroll(full)
+        for (uint s = 2u; s < 7u; ++s) {{
+            uint shl = 1u << (s - 2u);
+#pragma clang loop unroll(full)
+            for (uint jj = 0u; jj < 4u; ++jj) {{
+                float mine = v[jj];
+                float other = simd_shuffle_xor(mine, shl);
+                v[jj] = (lane & shl) ? (other - mine) : (mine + other);
+            }}
+        }}
+        float RS = {rs!r}f;
+        float w = (float)((half)w16[r]);
+        float d0 = (float)((half)(v[0] * RS * rout[rbase + 0u]));
+        float d1 = (float)((half)(v[1] * RS * rout[rbase + 1u]));
+        float d2 = (float)((half)(v[2] * RS * rout[rbase + 2u]));
+        float d3 = (float)((half)(v[3] * RS * rout[rbase + 3u]));
+        acc[0] += d0 * w; acc[1] += d1 * w; acc[2] += d2 * w; acc[3] += d3 * w;
+    }}
+{chr(10).join(stores)}
+"""
+
+
+def _scaled_had_out_sum_pack_source(rs: float, top_k: int) -> str:
+    """scaled_had_out_sum with 8 128-blocks packed per 256-thread TG (see
+    _scaled_had_out_pack_source).  Each simdgroup owns one (token, block) and
+    loops the token's top_k rows with the same barrier-free butterfly +
+    score-weighted f32 accumulation; blocks are independent => bit-identical
+    to _scaled_had_out_sum_source."""
+    stores = []
+    for k in range(4):
+        stores.append(f"        y[ob + {k}u] = (half)acc[{k}];")
+    return f"""
+    uint lane = thread_index_in_simdgroup;   // 0..31
+    uint sg = simdgroup_index_in_threadgroup; // 0..7
+    uint token = thread_position_in_grid.y;
+    uint nblk = OC >> 7;
+    uint blk = (thread_position_in_grid.x >> 8) * 8u + sg;
+    if (blk >= nblk) return;
+
+    uint ob = (ulong)token * OC + (ulong)blk * 128u + (ulong)lane * 4u;
+
+    float acc[4];
+    acc[0] = 0.0f; acc[1] = 0.0f; acc[2] = 0.0f; acc[3] = 0.0f;
+
+#pragma clang loop unroll(full)
+    for (uint k = 0u; k < {top_k}u; ++k) {{
+        uint r = token * {top_k}u + k;
+        int e = row_expert[r];
+        ulong mb = (ulong)r * OC + (ulong)blk * 128u + (ulong)lane * 4u;
+        ulong rbase = (ulong)e * OC + (ulong)blk * 128u + (ulong)lane * 4u;
+
+        float v[4];
+        v[0] = mid[mb + 0u]; v[1] = mid[mb + 1u]; v[2] = mid[mb + 2u]; v[3] = mid[mb + 3u];
+        {{ float a = v[0], b = v[1]; v[0] = a + b; v[1] = a - b; }}
+        {{ float a = v[2], b = v[3]; v[2] = a + b; v[3] = a - b; }}
+        {{ float a = v[0], b = v[2]; v[0] = a + b; v[2] = a - b; }}
+        {{ float a = v[1], b = v[3]; v[1] = a + b; v[3] = a - b; }}
+#pragma clang loop unroll(full)
+        for (uint s = 2u; s < 7u; ++s) {{
+            uint shl = 1u << (s - 2u);
+#pragma clang loop unroll(full)
+            for (uint jj = 0u; jj < 4u; ++jj) {{
+                float mine = v[jj];
+                float other = simd_shuffle_xor(mine, shl);
+                v[jj] = (lane & shl) ? (other - mine) : (mine + other);
+            }}
+        }}
+        float RS = {rs!r}f;
+        float w = (float)((half)w16[r]);
+        float d0 = (float)((half)(v[0] * RS * rout[rbase + 0u]));
+        float d1 = (float)((half)(v[1] * RS * rout[rbase + 1u]));
+        float d2 = (float)((half)(v[2] * RS * rout[rbase + 2u]));
+        float d3 = (float)((half)(v[3] * RS * rout[rbase + 3u]));
+        acc[0] += d0 * w; acc[1] += d1 * w; acc[2] += d2 * w; acc[3] += d3 * w;
+    }}
+{chr(10).join(stores)}
+"""
+
+
+@lru_cache(maxsize=None)
+def _scaled_had_out_sum_kernel(rs: float, top_k: int):
+    return mx.fast.metal_kernel(
+        name=f"escha_scaled_had_out_sum_tk{top_k}",
+        input_names=["mid", "rout", "row_expert", "w16"],
+        output_names=["y"],
+        source=_scaled_had_out_sum_source(rs, top_k),
+    )
+
+
+def use_dn_sum() -> bool:
+    """Fuse the down-leg output-Hadamard + score-weighted token sum into one
+    kernel (ESCHA_MLX_DN_SUM=0 disables).  Replaces scaled_had_out(dn),
+    d16.astype(f32)*w16, reshape and sum per layer with one launch.  Only
+    valid on the token-major GEMV path (groups is None).  Default ON on the
+    GEMV path: strictly fewer launches (one kern/launch does the butterfly,
+    score product and fixed-order sum); measured a small decode step win and
+    bit-identical (logit hash unchanged).  Never affects prefill (that path
+    uses row-blocked groups)."""
+    return os.environ.get("ESCHA_MLX_DN_SUM", "1") == "1"
+
+
+def scaled_had_out_sum(mid: mx.array, rout: mx.array, row_expert: mx.array,
+                       w16: mx.array, top_k: int, rs: float) -> mx.array:
+    """mid [m, OC] f32 -> y [t= m/top_k, OC] f16, score-weighted per token."""
+    m, oc = mid.shape
+    t = m // top_k
+    if use_had_pack():
+        kern = _scaled_had_out_sum_pack_kernel(float(rs), int(top_k))
+        nblk = oc // 128
+        tgx = (nblk + 7) // 8
+        (y,) = kern(
+            inputs=[mid, rout, row_expert, w16],
+            template=[("OC", oc)],
+            grid=(256 * tgx, t, 1),
+            threadgroup=(256, 1, 1),
+            output_shapes=[(t, oc)],
+            output_dtypes=[mx.float16],
+        )
+        return y
+    kern = _scaled_had_out_sum_kernel(float(rs), int(top_k))
+    tg = had_tg()
+    (y,) = kern(
+        inputs=[mid, rout, row_expert, w16],
+        template=[("OC", oc)],
+        grid=_had_grid(oc, t, tg),
+        threadgroup=(tg, 1, 1),
+        output_shapes=[(t, oc)],
+        output_dtypes=[mx.float16],
+    )
+    return y
 
 
 def use_lut() -> bool:
@@ -668,6 +1332,48 @@ def _moe_gemv_kernel(K: int, lut: bool, direct: bool = False, shuffle: bool = Fa
         source=src,
     )
 
+
+@lru_cache(maxsize=None)
+def _moe_gemv_had_kernel(K: int, lut: bool, rs: float):
+    # x is indexed through row_token[row]: the caller passes the raw per-token
+    # activations and this kernel folds the xf[row_token] gather into the
+    # transform, deleting one [m, IC] copy and one launch per leg.
+    inputs = ["x", "rin", "code", "row_expert", "row_token"] + (["lut"] if lut else [])
+    return mx.fast.metal_kernel(
+        name=f"escha_moe_gemv_had_k{K}{'_lut' if lut else ''}",
+        input_names=inputs,
+        output_names=["mid"],
+        header=_HEADER,
+        source=_moe_gemv_had_source(K, lut, rs),
+    )
+
+
+@lru_cache(maxsize=None)
+def _moe_gemv_had_kb_kernel(K: int, lut: bool, rs: float, KB: int):
+    inputs = ["x", "rin", "code", "row_expert", "row_token"] + (["lut"] if lut else [])
+    return mx.fast.metal_kernel(
+        name=f"escha_moe_gemv_had_k{K}_kb{KB}{'_lut' if lut else ''}",
+        input_names=inputs,
+        output_names=["mid"],
+        header=_HEADER,
+        source=_moe_gemv_had_kb_source(K, lut, rs, KB),
+    )
+
+
+def had_kb() -> int:
+    """kt-tiles prefetched per block in the fused moe_gemv_had direct loop
+    (ESCHA_MLX_HAD_KB; default 8 on the M4 Max, 0 disables = per-kt fetch).
+
+    The code-word offsets depend on lane only, so a KB block can be issued as
+    independent loads before any is consumed -- KB-deep memory-level
+    parallelism on the serial kt chain.  Isolated async gu leg 49us with the
+    loads removed by constant-folding, so the code stream is ~55% of the leg;
+    prefetch is the cheap way to recover it without changing bit identity.
+    Must divide TK (gate_up 128, down 32)."""
+    return int(os.environ.get("ESCHA_MLX_HAD_KB", "8") or 0)
+
+
+@lru_cache(maxsize=None)
 
 def use_direct() -> bool:
     """Barrier-free per-row GEMV. Default ON; ESCHA_MLX_GEMV=staged reverts."""
@@ -755,6 +1461,56 @@ def split_k_for(m: int, oc: int, tk: int) -> int:
     return 1
 
 
+
+def use_gemv_had() -> bool:
+    """Fuse the input Hadamard transform into the decode GEMV.
+
+    ESCHA_MLX_GEMV_HAD=0 disables (the separate scaled_had + moe_gemv
+    path).  One launch per leg instead of two, no [m,IC] intermediate.
+    Only applies to the direct (non row-blocked) GEMV path — i.e. the
+    bs1 decode row counts that dominate this metric.
+
+    Default ON on the 40-core M4 Max: with BOTH legs fused (gate_up and
+    down, see EschaSparseMoeBlock._expert_path) this is a measured decode
+    win (+4%) and bit-identical, unlike the earlier gu-only fusion which
+    was a wash at B<=2."""
+    return os.environ.get("ESCHA_MLX_GEMV_HAD", "1") != "0"
+
+
+def moe_gemv_had(x: mx.array, rin: mx.array, code_u32: mx.array,
+                 row_expert: mx.array, row_token: mx.array,
+                 K: int, IC: int, OC: int, rs: float) -> mx.array:
+    """Fused input-transform + expert GEMV: mid = xh @ decode(W) with
+    xh = f16(H128(f32(x[row_token[row]])*rin[e])*RS), computed in one kernel
+    per leg.  The xf[row_token] gather is folded into the transform (x is the
+    raw per-token activations, row_token maps each trellis row to its token).
+
+    xf [T, IC] f16 (raw tokens), rin [E, IC] f32, code [E, TK, TN, 8K] u32,
+    row_expert [m] i32, row_token [m] i32 -> mid [m, OC] f32.
+    Bit-identical to gather-buffer=[xh] then
+    scaled_had(xh, rin, re, RS) then moe_gemv(xh, code, re, K, IC, OC)."""
+    m = row_token.shape[0]
+    tk, tn = IC // 16, OC // 16
+    assert IC % 256 == 0, f"IC must be a multiple of 256, got {IC}"
+    kb = had_kb()
+    if kb > 1 and tk % kb == 0:
+        kern = _moe_gemv_had_kb_kernel(K, use_lut(), float(rs), kb)
+    else:
+        kern = _moe_gemv_had_kernel(K, use_lut(), float(rs))
+    inputs = [x, rin, code_u32.reshape(-1), row_expert, row_token]
+    if use_lut():
+        inputs.append(_lut_array())
+    (mid,) = kern(
+        inputs=inputs,
+        template=[("TK", tk), ("TN", tn), ("IC", IC), ("OC", OC)],
+        grid=(256 * (OC // 128), m, 1),
+        threadgroup=(256, 1, 1),
+        output_shapes=[(m, OC)],
+        output_dtypes=[mx.float32],
+    )
+    return mid
+
+
 def kt_block() -> int:
     """kt-tiles staged per barrier pair in the row-blocked GEMM.
 
@@ -787,8 +1543,16 @@ def use_prefetch() -> bool:
     kt, so a whole KB block can be fetched up front as independent loads.
 
     Costs 2*KB registers per lane on top of acc0[R]/acc1[R].
+
+    DEFAULT ON (ESCHA_MLX_PREFETCH=0 disables).  Measured a wash on the 10-core
+    M4 (doc §15.7) but a consistent +6% prefill on the 40-core M4 Max, where the
+    wider GPU exposes the one-outstanding-load-per-lane stall the commit
+    originally targeted: interleaved fresh-process prefill at ISL=512 (eval
+    metric) 1037 -> 1102 tok/s mean, prefetch ahead of per-kt fetch in all three
+    pairs (bench/results/m4-max-64gb, 2026-08-12).  Bit-identical -- the same
+    values are computed, just issued as independent loads before the barrier.
     """
-    return os.environ.get("ESCHA_MLX_PREFETCH", "0") != "0"
+    return os.environ.get("ESCHA_MLX_PREFETCH", "1") != "0"
 
 
 def use_sortx() -> bool:

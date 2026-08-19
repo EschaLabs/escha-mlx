@@ -1,0 +1,119 @@
+{
+  "escha_mlx_git_revision": "4901b844fc7fb08c4169137e6f2923d8a6843b65",
+  "model_hf_revision": "0641c2dc8be5c96741a1e2bdeda99e81e3b15062",
+  "mlx": "0.32.0",
+  "model": "/Users/gg/models/escha-w2",
+  "A_correctness": {
+    "paris_raw": {
+      "text": "Paris, a city renowned for its iconic landmarks such as the Eiffel Tower,",
+      "gen_tps": 84.13,
+      "prompt_tps": 66.11,
+      "peak_gb": 12.31
+    },
+    "mult_chat": {
+      "text": "391",
+      "gen_tps": 111.45,
+      "prompt_tps": 333.77,
+      "peak_gb": 12.39
+    },
+    "haiku_think": {
+      "text": "Thinking Process:\n\n1.  **Deconstruct the request:**\n    *   Topic: Tokyo.\n    *   Form: Haiku (5-7-5 syllables).\n\n2.  **Brainstorm imagery associated with Tokyo:**\n    *   Neon lights, skyscrapers, Shibuya crossing, cherry blossoms (sakura), temples, trains, crowds, rain, Mount Fuji (sometimes visible), sushi, modern vs. traditional.\n\n3.  **Drafting lines (Syllable counting):**\n    *   *Attempt 1:*\n        *   Neon lights shine bright (5) -> Ne-on lights shine bright. (5) Good.\n        *   Crowds rush through the station (7) -> Crowds rush through the sta-tion. (7) Good.\n        *   Tokyo is great (5) -> To-kyo is great. (5) Good.\n        *   *Result:* Neon lights shine",
+      "gen_tps": 84.5,
+      "prompt_tps": 241.37,
+      "peak_gb": 12.39
+    }
+  },
+  "B_bs1": {
+    "128": {
+      "prefill_s": 0.129,
+      "prefill_tps": 991.3,
+      "decode_tps": 66.17,
+      "ms_per_token": 15.11,
+      "peak_gb": 12.71
+    },
+    "512": {
+      "prefill_s": 0.475,
+      "prefill_tps": 1076.9,
+      "decode_tps": 67.87,
+      "ms_per_token": 14.73,
+      "peak_gb": 13.07
+    },
+    "2048": {
+      "prefill_s": 1.953,
+      "prefill_tps": 1048.6,
+      "decode_tps": 68.06,
+      "ms_per_token": 14.69,
+      "peak_gb": 13.12
+    }
+  },
+  "C_batch": {
+    "1": {
+      "prefill_s": 0.132,
+      "prefill_tps": 969.5,
+      "aggregate_decode_tps": 69.68,
+      "per_seq_decode_tps": 69.68,
+      "ms_per_step": 14.35,
+      "rows_identical": true,
+      "matches_b1": true,
+      "peak_gb": 12.71
+    },
+    "2": {
+      "prefill_s": 0.234,
+      "prefill_tps": 1094.9,
+      "aggregate_decode_tps": 118.18,
+      "per_seq_decode_tps": 59.09,
+      "ms_per_step": 16.92,
+      "rows_identical": true,
+      "matches_b1": true,
+      "peak_gb": 13.08
+    },
+    "4": {
+      "prefill_s": 0.418,
+      "prefill_tps": 1223.9,
+      "aggregate_decode_tps": 159.7,
+      "per_seq_decode_tps": 39.93,
+      "ms_per_step": 25.05,
+      "rows_identical": true,
+      "matches_b1": true,
+      "peak_gb": 13.58
+    },
+    "8": {
+      "prefill_s": 4.169,
+      "prefill_tps": 245.6,
+      "aggregate_decode_tps": 94.71,
+      "per_seq_decode_tps": 11.84,
+      "ms_per_step": 84.47,
+      "rows_identical": true,
+      "matches_b1": true,
+      "peak_gb": 14.32
+    },
+    "16": {
+      "prefill_s": 8.833,
+      "prefill_tps": 231.9,
+      "aggregate_decode_tps": 74.85,
+      "per_seq_decode_tps": 4.68,
+      "ms_per_step": 213.76,
+      "rows_identical": true,
+      "matches_b1": true,
+      "peak_gb": 15.09
+    }
+  },
+  "D_cache": {
+    "isl": 512,
+    "total_mb": 43.42,
+    "kinds": {
+      "GDNStateCache": {
+        "layers": 30,
+        "mb": 32.93,
+        "bytes_per_token": 64320.0,
+        "trimmable": false
+      },
+      "KVCache": {
+        "layers": 10,
+        "mb": 10.49,
+        "bytes_per_token": 20480.0,
+        "trimmable": true
+      }
+    }
+  }
+}

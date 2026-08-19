@@ -72,6 +72,61 @@ def test_moe_gemv_expert_offsets(K, lut, k2_golden, k3_golden, monkeypatch):
         assert d / denom < 2e-3, (r, int(row_expert[r]), d, denom)
 
 
+def test_gemv_ship_matches_reference(k2_golden, monkeypatch):
+    """The shipped direct GEMV (KB staging removed) must match the reference
+    matmul within the codec tolerance for every K/LUT/shuffle combination."""
+    import mlx.core as mx
+    from escha_mlx import msl, ref
+    _set_lut(monkeypatch, False)
+
+    packed, expected = k2_golden
+    ic, oc = expected.shape
+    rng = np.random.default_rng(7)
+    E = 4
+    codes = _expert_stack(packed, E, rng)
+    w_ref = [ref.reconstruct_fast(codes[e], ic, oc, 2).astype(np.float32)
+             for e in range(E)]
+    m = 8
+    xh = (rng.standard_normal((m, ic)) * 0.05).astype(np.float16)
+    # mixed experts incl. the staggered last expert; some rows repeat an expert
+    row_expert = np.array([0, E - 1, 1, 2, 1, 0, 2, E - 1], dtype=np.int32)
+    code_mx = mx.array(codes.reshape(E, ic // 16, oc // 16, -1)
+                       .view(np.uint16).view(np.uint32))
+
+    got = np.array(msl.moe_gemv(mx.array(xh), code_mx,
+                                mx.array(row_expert), 2, ic, oc))
+    for r in range(m):
+        want = xh[r].astype(np.float32) @ w_ref[int(row_expert[r])]
+        d = np.abs(got[r] - want).max()
+        denom = max(np.abs(want).max(), 1e-6)
+        assert d / denom < 2e-3, (r, int(row_expert[r]), d, denom)
+
+
+@pytest.mark.parametrize("lut", [False, True], ids=["hash", "lut"])
+@pytest.mark.parametrize("K,m", [(2, 8), (2, 64), (3, 8), (3, 64)])
+def test_gemv_had_fused_bit_identical(K, m, lut, monkeypatch):
+    """[scaled_had; moe_gemv] == moe_gemv_had, bit-for-bit (fused transform
+    runs the same butterfly in threadgroup memory; GEMV order unchanged)."""
+    import mlx.core as mx
+    from escha_mlx import msl, ref
+    _set_lut(monkeypatch, lut)
+    rng = np.random.default_rng(3)
+    E, IC, OC = 64, (2048 if K == 2 else 512), (1024 if K == 2 else 2048)
+    nw = 32 if K == 2 else 48
+    code = rng.integers(-32768, 32768, size=(E, IC // 16, OC // 16, nw),
+                        dtype=np.int16)
+    code_mx = mx.array(msl.code_to_u32(code.reshape(E, IC // 16, OC // 16, -1)))
+    rin = mx.array(rng.random((E, IC), dtype=np.float32))
+    x = mx.random.normal((m, IC), dtype=mx.float16)
+    re = mx.array((mx.arange(m) * 13 % E).astype(mx.int32))
+    xh = msl.scaled_had(x, rin, re, ref.RS)
+    ref_mid = mx.array(msl.moe_gemv(xh, code_mx, re, K, IC, OC))
+    got = msl.moe_gemv_had(x, rin, code_mx, re, mx.arange(m, dtype=mx.int32), K, IC, OC, ref.RS)
+    mx.eval(ref_mid, got)
+    assert np.array_equal(np.array(got).view(np.uint32),
+                          np.array(ref_mid).view(np.uint32))
+
+
 def test_gemv_hash_equals_lut(k2_golden, monkeypatch):
     """The production gemv hash decode must equal the LUT variant bit-for-bit
     (deterministic same-order f32 accumulation on both sides)."""

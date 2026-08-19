@@ -16,6 +16,7 @@ expose for the same reason.
 Known limitation: mlx_lm.server has no structured output / json_schema
 constrained decoding.
 """
+
 from __future__ import annotations
 
 import sys
@@ -48,14 +49,17 @@ def _install_ignore_eos(server_mod) -> None:
     rg = server_mod.ResponseGenerator
     orig_make = rg._make_state_machine
 
-    def _make_state_machine(self, model_key, tokenizer, stop_words, initial_state="normal"):
+    def _make_state_machine(
+        self, model_key, tokenizer, stop_words, initial_state="normal"
+    ):
         if _IGNORE_EOS_SENTINEL in stop_words:
             stop_words = [w for w in stop_words if w != _IGNORE_EOS_SENTINEL]
             tokenizer = _NoEosTokenizer(tokenizer)
             # keep the sentinel in the cache key so this machine is not reused
             # for a normal request with the same stop words
-            return orig_make(self, (model_key, "ignore_eos"), tokenizer,
-                             stop_words, initial_state)
+            return orig_make(
+                self, (model_key, "ignore_eos"), tokenizer, stop_words, initial_state
+            )
         return orig_make(self, model_key, tokenizer, stop_words, initial_state)
 
     rg._make_state_machine = _make_state_machine
@@ -74,6 +78,36 @@ def _install_ignore_eos(server_mod) -> None:
     handler.validate_model_parameters = validate_model_parameters
 
 
+def _resolve_to_snapshot(model_id: str) -> str:
+    """Resolve a bare HF repo id to its local snapshot dir.
+
+    mlx_lm invites requests by repo id (from the HF cache) as well as by the
+    --model filesystem path. escha_mlx.loader only recognises eschamoe
+    checkpoints when given a real directory, so an eschamoe checkpoint loaded
+    by repo id would otherwise fall through to mlx_lm's standard loader and
+    fail (its eschamoe/int8 tensors are not part of a stock model). Map a
+    cached repo id to its snapshot so the escha loader runs.
+    """
+    from pathlib import Path
+
+    if not isinstance(model_id, str) or "/" not in model_id:
+        return model_id
+    if Path(model_id).exists():
+        return model_id
+    try:
+        from huggingface_hub import scan_cache_dir
+
+        for repo in scan_cache_dir().repos:
+            if repo.repo_type != "model" or repo.repo_id != model_id:
+                continue
+            main = repo.refs.get("main")
+            if main is not None:
+                return str(main.snapshot_path)
+    except Exception:
+        pass
+    return model_id
+
+
 def main() -> None:
     from mlx_lm import server as _server
 
@@ -82,6 +116,7 @@ def main() -> None:
     _orig_load = _server.load
 
     def _load(path, *a, **kw):
+        path = _resolve_to_snapshot(path)
         if is_escha_checkpoint(path):
             if kw.get("adapter_path"):
                 raise ValueError("escha_mlx: adapters are not supported")

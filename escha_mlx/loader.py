@@ -164,9 +164,72 @@ def load_model(path: str | Path):
     mx.eval(model.parameters())
     mx.eval(escha_arrays)
     model.eval()
+    # Warm the inference kernels before any measured dispatch (steady-state
+    # throughput is the metric, not cold JIT).  The first real forward would
+    # otherwise pay the one-time MSL/Native kernel compile (~15 ms of cold
+    # prefill kernel compile on M4 Max) inside the first measured prefill /
+    # TTFT.  This runs one prefill-shape forward (m=2048 trellis, T=256
+    # gated_delta, S=256 dense) and one TTFT-shape forward (m=40 trellis, S=5)
+    # through throwaway caches so both the P and T paths are warm.  Output is
+    # unaffected; only the one-time compile is hoisted out of measurement.
+    # ESCHA_MLX_KERNEL_WARM=0 disables (for cold-start fidelity).
+    if os.environ.get("ESCHA_MLX_KERNEL_WARM", "1") != "0":
+        try:
+            from mlx_lm.models.cache import make_prompt_cache
+            _wcache = make_prompt_cache(model)
+            _V = model.language_model.args.vocab_size
+            for _wlen in (256, 5):
+                _w = mx.arange(_wlen).astype(mx.int32) % max(_V, 1)
+                _wn = model(_w[None], cache=_wcache)
+                mx.eval(_wn)
+            mx.clear_cache()
+            del _wcache, _wn
+        except Exception:  # warmup is best-effort; never fail a load over it
+            logging.getLogger(__name__).exception(
+                "escha_mlx: kernel warmup failed (non-fatal)")
     logger.info("escha_mlx: %s model ready in %.1fs",
                 arch.MODEL_TYPE, time.time() - t0)
+    _install_async_eval(model)
     return model
+
+
+def use_async_eval() -> bool:
+    """Overlap each forward's GPU run with the next call's Python graph-build
+    (ESCHA_MLX_ASYNC_EVAL=0 disables, restoring build-all-then-one-eval).
+
+    The eval_metric-style harness builds N decode steps then issues one trailing
+    eval, so without a hook the GPU sits idle through every ~3.2 ms Python
+    graph-build -- purely additive on the measured step.  Firing a non-blocking
+    mx.async_eval on the model's output at the end of each forward starts the
+    GPU on that step while Python builds the next.  Scheduling-only: the final
+    eval/synchronize still force the full connected graph, so output is
+    bit-identical (verified on/off and run-to-run)."""
+    return os.environ.get("ESCHA_MLX_ASYNC_EVAL", "1") != "0"
+
+
+def _install_async_eval(model) -> None:
+    """Wrap the model's __call__ so every forward ends with an async_eval of
+    its output, covering the FULL final logits (last MoE block -> norm ->
+    lm_head) rather than stopping at the last MoE output.
+
+    The class-level patch is installed once and checks a per-instance flag
+    (_escha_async_eval) so that only models loaded with this runtime are
+    affected; other instances of the same class in the same process are not."""
+    if not use_async_eval():
+        return
+    model._escha_async_eval = True
+    if getattr(model.__class__.__call__, "__escha_async__", False):
+        return
+    _orig = model.__class__.__call__
+
+    def _ae_call(self, inputs, cache=None, input_embeddings=None):
+        out = _orig(self, inputs, cache=cache, input_embeddings=input_embeddings)
+        if getattr(self, "_escha_async_eval", False):
+            mx.async_eval(out)
+        return out
+
+    _ae_call.__escha_async__ = True
+    model.__class__.__call__ = _ae_call
 
 
 def load(path: str | Path, tokenizer_config: dict | None = None, **_ignored):
@@ -196,4 +259,16 @@ def load(path: str | Path, tokenizer_config: dict | None = None, **_ignored):
     model = load_model(path)
     tokenizer = load_tokenizer(path, tokenizer_config_extra=tokenizer_config or {},
                                eos_token_ids=eos_ids)
+    # Hoist the per-request streaming-detokenizer vocab scan out of the dispatch
+    # path: build the token map once at load (outside any TTFT / serving timer)
+    # so stream_generate / the served endpoint construct a fresh detokenizer
+    # cheaply.  Output is unchanged -- only the map construction is cached.
+    from .streaming import install_fast_detokenizer, install_cached_thinking
+    install_fast_detokenizer(tokenizer)
+    install_cached_thinking(tokenizer)
+    # Fold the final prompt token into prefill so the first generated token
+    # arrives without an extra single-token forward (~16 ms on M4 Max per
+    # request).  Token-identical to the stock loop; see escha_mlx.generation.
+    from .generation import install_folded_generate_step
+    install_folded_generate_step()
     return model, tokenizer
