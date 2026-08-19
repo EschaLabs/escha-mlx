@@ -1,0 +1,28 @@
+escha-mlx P0 gates — macOS-26.5-arm64-arm-64bit — mlx 0.32.0 metal=True
+
+G0.1 decode bit-exactness
+  [PASS] K2 decode (hash)  
+  [PASS] K3 decode (hash)  
+  [PASS] K2 decode (LUT)  
+  [PASS] K3 decode (LUT)  
+
+G0.2 fused GEMV (value gate + DRAM-side microbench)
+  [PASS] K2 gemv values (expert 0 + 63)  
+  [PASS] K2 gemv perf  117 us/call, ~36 GB/s trellis stream (DRAM-side)
+  [PASS] K3 gemv values (expert 0 + 63)  
+  [PASS] K3 gemv perf  83 us/call, ~38 GB/s trellis stream (DRAM-side)
+  (target: >=~35% of chip peak BW on M4-class; <15% = investigate)
+
+G0.3 MLX affine-Q8 repack
+  [PASS] repack round-trip bit-exact (group 32)  
+  [PASS] repack round-trip bit-exact (group 64)  
+  [PASS] repack round-trip bit-exact (group 128)  
+  [PASS] group 64 == group 128 bit-identical  default=128 (-140 MB vs 64)
+
+G0.4 memory envelope
+  RAM 68.7 GB, GPU working-set cap 55.66 GB (no sysctl override)
+  MLX wired limit currently 0.00 GB (default 0 = nothing wired)
+  NOTE: a working set within ~2 GB of the cap NEEDS wiring — unwired, B=80 at 19.28 GB measured 5.9 tok/s vs 136.6 wired (23x, silent). Set ESCHA_MLX_WIRED_GB. Below ~18 GB it is a wash. See bring-up doc §10.3.
+  measured on M4 24 GB @ Q8 group 128: 12.25 GB resident, 12.92 GB peak at short ctx, 13.36 GB at ISL 512, 13.67 GB at B=16, 16.49 GB at B=48, 17.89 GB at B=64
+
+ALL GATES PASS

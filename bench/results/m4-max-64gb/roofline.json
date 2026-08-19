@@ -1,0 +1,226 @@
+{
+  "escha_mlx_git_revision": "30439482a2928eab2fc07981ea06cdee7221f42c",
+  "model_hf_revision": "0641c2dc8be5c96741a1e2bdeda99e81e3b15062",
+  "chip": "Apple M4 Max",
+  "advertised_peak_gbps": 546.0,
+  "dispatch_floor_us": 122.8,
+  "bandwidth": {
+    "read_256MB": 398.9,
+    "read_512MB": 447.8,
+    "read_1024MB": 476.6,
+    "read_2048MB": 493.8,
+    "peak_read_gbps": 493.8
+  },
+  "q8": {
+    "lm_head_248320x2048_b1": {
+      "ms": 1.207,
+      "gbps": 447.9,
+      "mb": 540.3
+    },
+    "lm_head_248320x2048_b8": {
+      "ms": 2.009,
+      "gbps": 268.9,
+      "mb": 540.3
+    },
+    "lm_head_248320x2048_b16": {
+      "ms": 2.584,
+      "gbps": 209.1,
+      "mb": 540.3
+    },
+    "lm_head_248320x2048_b32": {
+      "ms": 2.673,
+      "gbps": 202.2,
+      "mb": 540.3
+    },
+    "gdn_in_proj_2048x12288_b1": {
+      "ms": 0.158,
+      "gbps": 169.6,
+      "mb": 26.7
+    },
+    "gdn_in_proj_2048x12288_b8": {
+      "ms": 0.199,
+      "gbps": 134.7,
+      "mb": 26.7
+    },
+    "gdn_in_proj_2048x12288_b16": {
+      "ms": 0.237,
+      "gbps": 113.0,
+      "mb": 26.7
+    },
+    "gdn_in_proj_2048x12288_b32": {
+      "ms": 0.265,
+      "gbps": 101.1,
+      "mb": 26.7
+    },
+    "gdn_out_proj_4096x2048_b1": {
+      "ms": 0.136,
+      "gbps": 65.7,
+      "mb": 8.9
+    },
+    "gdn_out_proj_4096x2048_b8": {
+      "ms": 0.14,
+      "gbps": 63.9,
+      "mb": 8.9
+    },
+    "gdn_out_proj_4096x2048_b16": {
+      "ms": 0.196,
+      "gbps": 45.5,
+      "mb": 8.9
+    },
+    "gdn_out_proj_4096x2048_b32": {
+      "ms": 0.152,
+      "gbps": 58.8,
+      "mb": 8.9
+    },
+    "attn_qkv_2048x4096_b1": {
+      "ms": 0.121,
+      "gbps": 73.5,
+      "mb": 8.9
+    },
+    "attn_qkv_2048x4096_b8": {
+      "ms": 0.144,
+      "gbps": 61.9,
+      "mb": 8.9
+    },
+    "attn_qkv_2048x4096_b16": {
+      "ms": 0.164,
+      "gbps": 54.2,
+      "mb": 8.9
+    },
+    "attn_qkv_2048x4096_b32": {
+      "ms": 0.162,
+      "gbps": 54.9,
+      "mb": 8.9
+    },
+    "shared_gate_2048x512_b1": {
+      "ms": 0.103,
+      "gbps": 10.8,
+      "mb": 1.1
+    },
+    "shared_gate_2048x512_b8": {
+      "ms": 0.105,
+      "gbps": 10.7,
+      "mb": 1.1
+    },
+    "shared_gate_2048x512_b16": {
+      "ms": 0.138,
+      "gbps": 8.1,
+      "mb": 1.1
+    },
+    "shared_gate_2048x512_b32": {
+      "ms": 0.123,
+      "gbps": 9.1,
+      "mb": 1.1
+    }
+  },
+  "trellis": {
+    "gate_up_K2_rows8": {
+      "ms": 0.139,
+      "gbps": 30.2,
+      "mb_streamed": 4.2,
+      "mb_unique": 4.2
+    },
+    "gate_up_K2_rows16": {
+      "ms": 0.174,
+      "gbps": 48.3,
+      "mb_streamed": 8.4,
+      "mb_unique": 8.4
+    },
+    "gate_up_K2_rows32": {
+      "ms": 0.239,
+      "gbps": 70.2,
+      "mb_streamed": 16.8,
+      "mb_unique": 16.8
+    },
+    "gate_up_K2_rows64": {
+      "ms": 0.298,
+      "gbps": 112.7,
+      "mb_streamed": 33.6,
+      "mb_unique": 33.6
+    },
+    "gate_up_K2_rows128": {
+      "ms": 0.484,
+      "gbps": 138.5,
+      "mb_streamed": 67.1,
+      "mb_unique": 67.1
+    },
+    "gate_up_K2_rows256": {
+      "ms": 0.789,
+      "gbps": 170.2,
+      "mb_streamed": 134.2,
+      "mb_unique": 134.2
+    },
+    "down_K3_rows8": {
+      "ms": 0.126,
+      "gbps": 24.9,
+      "mb_streamed": 3.1,
+      "mb_unique": 3.1
+    },
+    "down_K3_rows16": {
+      "ms": 0.128,
+      "gbps": 49.3,
+      "mb_streamed": 6.3,
+      "mb_unique": 6.3
+    },
+    "down_K3_rows32": {
+      "ms": 0.181,
+      "gbps": 69.4,
+      "mb_streamed": 12.6,
+      "mb_unique": 12.6
+    },
+    "down_K3_rows64": {
+      "ms": 0.198,
+      "gbps": 127.4,
+      "mb_streamed": 25.2,
+      "mb_unique": 25.2
+    },
+    "down_K3_rows128": {
+      "ms": 0.294,
+      "gbps": 171.3,
+      "mb_streamed": 50.3,
+      "mb_unique": 50.3
+    },
+    "down_K3_rows256": {
+      "ms": 0.463,
+      "gbps": 217.6,
+      "mb_streamed": 100.7,
+      "mb_unique": 100.7
+    }
+  },
+  "ledger": {
+    "n_layers": 40,
+    "top_k": 8,
+    "n_gdn_layers": 30,
+    "n_attn_layers": 10,
+    "experts_MB": 300.8,
+    "attn_dense_MB": 289.7,
+    "gdn_dense_MB": 1079.4,
+    "shared_expert_MB": 133.7,
+    "router_gate_MB": 42.1,
+    "norms_MB": 0.3,
+    "lm_head_MB": 540.3,
+    "TOTAL_GB_per_token": 2.386,
+    "_dense_GB": 2.08554112,
+    "_experts_GB": 0.30081024
+  },
+  "step": {
+    "B1": {
+      "ms": 13.77,
+      "tps": 72.64,
+      "modeled_gb": 2.386,
+      "eff_gbps": 173.3
+    },
+    "B8": {
+      "ms": 36.38,
+      "tps": 219.9,
+      "modeled_gb": 4.492,
+      "eff_gbps": 123.5
+    },
+    "B16": {
+      "ms": 48.18,
+      "tps": 332.06,
+      "modeled_gb": 6.899,
+      "eff_gbps": 143.2
+    }
+  }
+}
