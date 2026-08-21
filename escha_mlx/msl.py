@@ -394,7 +394,10 @@ def _gemm_group_prologue(R: int, wpt: int, dense: bool) -> str:
     is simply one whose first row is beyond M.
     """
     if dense:
-        return f"    if (grp * {R}u >= M) return;\n"
+        # (uint)M for the same reason as the row clamp: the template parameter
+        # is emitted as an int, and a signed/unsigned compare is a warning at
+        # best and a surprise at worst.
+        return f"    if (grp * {R}u >= (uint)M) return;\n"
     return "    int e = group_expert[grp];\n    if (e < 0) return;\n"
 
 
