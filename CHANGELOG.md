@@ -84,6 +84,14 @@
     comparable to those numbers; the loader logs that the tensors are present and
     unused. Which behaviour is correct is a question about the checkpoint, not about
     this runtime.
+  - `bench/p0_gates.py` gains **G0.2b**, a dense-kernel gate in the bring-up battery:
+    values against the decoded weight (ties addressing to the format, not to a sibling
+    kernel), parity with the expert kernel at a non-zero expert index and a rectangular
+    multi-block shape, and row-blocking bit-identity across partial tail groups.
+  - docs/INSTALL.md documents three things that otherwise read as a broken model:
+    thinking is on by default and `--max-tokens 128` truncates inside it, sampling
+    defaults in `generation_config.json` are not applied, and 243 `lm_head` rows have
+    live scales but no tokenizer entry.
   - **Not yet run on Metal.** The dense path was developed on Linux with `mlx[cpu]`,
     where the Metal kernels do not execute. The reference, the module, the loader and
     the real-checkpoint structure are all gated and green; the dense kernel sources

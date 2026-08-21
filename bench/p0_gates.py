@@ -120,6 +120,70 @@ def g02_gemv():
 
 
 @section
+def g02b_dense():
+    """Dense (single-stream) kernels: values, expert-parity, row-blocking.
+
+    The dense kernels are a compile-time variant of the expert kernels above,
+    so this gate is deliberately NON-DEGENERATE: the parity check puts the real
+    stream at expert index 1 behind a garbage expert 0, at a rectangular
+    multi-block shape.  Run against E=1 with row_expert=0 the two kernels
+    compute identical addresses by construction and the comparison would prove
+    nothing at all.
+    """
+    import mlx.core as mx
+    from escha_mlx import msl
+    print("\nG0.2b dense GEMV / row-blocked GEMM (single-stream variant)")
+    rng = np.random.default_rng(1)
+    ic, oc = 256, 384                      # IC != OC, both multi-block
+    for K in (2, 3):
+        real = rng.integers(-32768, 32768, (ic // 16, oc // 16, 16 * K), dtype=np.int16)
+        junk = rng.integers(-32768, 32768, (ic // 16, oc // 16, 16 * K), dtype=np.int16)
+        code = mx.array(msl.code_to_u32(real))
+        stacked = mx.array(msl.code_to_u32(np.stack([junk, real])))
+        m = 6
+        xh = mx.array((rng.standard_normal((m, ic)) * 0.3).astype(np.float16))
+
+        # 1. against the decoded weight — ties addressing to the FORMAT, not to
+        #    a sibling kernel that shares the same text.
+        w = np.array(msl.decode_tiles(code, K, ic, oc)).astype(np.float32)
+        want = np.array(xh).astype(np.float32) @ w
+        got = np.array(msl.dense_gemv(xh, code, K, ic, oc))
+        gate(f"K{K} dense gemv vs decoded weight",
+             np.abs(got - want).max() < 1e-2 * max(np.abs(want).max(), 1e-6))
+
+        # 2. bit-identical to the expert kernel at a NON-ZERO expert index
+        ones = mx.ones((m,), dtype=mx.int32)
+        gate(f"K{K} dense == expert kernel (expert 1)",
+             np.array_equal(np.array(msl.dense_gemv(xh, code, K, ic, oc)),
+                            np.array(msl.moe_gemv(xh, stacked, ones, K, ic, oc))))
+        rin = (rng.standard_normal(ic) * 0.1).astype(np.float32)
+        rout = (rng.standard_normal(oc) * 0.1).astype(np.float32)
+        junk_in = (rng.standard_normal(ic) * 5).astype(np.float32)
+        junk_out = (rng.standard_normal(oc) * 5).astype(np.float32)
+        gate(f"K{K} dense input transform == expert",
+             np.array_equal(
+                 np.array(msl.dense_scaled_had(xh, mx.array(rin), msl.ref.RS)),
+                 np.array(msl.scaled_had(xh, mx.array(np.stack([junk_in, rin])),
+                                         ones, msl.ref.RS))))
+        mid = msl.dense_gemv(xh, code, K, ic, oc)
+        gate(f"K{K} dense output transform == expert",
+             np.array_equal(
+                 np.array(msl.dense_scaled_had_out(mid, mx.array(rout), msl.ref.RS)),
+                 np.array(msl.scaled_had_out(mid, mx.array(np.stack([junk_out, rout])),
+                                             ones, msl.ref.RS))))
+
+        # 3. row-blocking must not change a bit, including a partial tail group
+        ok = True
+        for rows, R in ((5, 2), (9, 4), (17, 8)):
+            x2 = mx.array((rng.standard_normal((rows, ic)) * 0.3).astype(np.float16))
+            if not np.array_equal(
+                    np.array(msl.dense_gemm_rows(x2, code, K, ic, oc, R)),
+                    np.array(msl.dense_gemv(x2, code, K, ic, oc))):
+                ok = False
+        gate(f"K{K} row-blocked GEMM == per-row (partial tail groups)", ok)
+
+
+@section
 def g03_q8():
     import numpy as np
     import mlx.core as mx
@@ -201,6 +265,7 @@ def main() -> None:
 
     g01_decode()
     g02_gemv()
+    g02b_dense()
     g03_q8()
     g04_memory(args.model)
 

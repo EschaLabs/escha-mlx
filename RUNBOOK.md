@@ -37,6 +37,9 @@ pytest tests/test_ref_decode.py -v
 pytest tests/test_mlx_cpu.py -v -k "not ckpt_golden"
 
 # 1c. THE METAL GATES — kernel bit-exactness, expert-stride, hash==LUT, bench
+#     p0_gates covers BOTH kernel families: G0.2 expert, G0.2b dense (values vs
+#     the decoded weight, parity against the expert kernel at a NON-zero expert
+#     index, and row-blocking bit-identity with partial tail groups).
 pytest tests/test_metal.py -v
 python bench/p0_gates.py     # exception-isolated; capture FULL output
 
