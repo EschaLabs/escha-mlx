@@ -500,3 +500,49 @@ def test_dense_block_r_is_latched_at_construction(dense_linear_golden, monkeypat
     monkeypatch.setenv("ESCHA_MLX_DENSE_BLOCK_R", "9")
     assert lin._block_r_pin == before
     assert msl.dense_block_r_pin() == 9      # a NEW module would pick it up
+
+
+@needs_mlx
+def test_dense_block_r_never_pads_and_is_bounded():
+    """R <= m always (a dense group issuing MACs for rows that do not exist is
+    pure waste), R is a power of two (each value is a separate compilation), and
+    R > 1 from m = 2 (a ladder that stayed at 1 for small batches would read the
+    whole coded stream once per row at exactly the concurrency a server runs)."""
+    from escha_mlx import msl
+
+    rs = {m: msl.dense_block_r(m) for m in range(1, 600)}
+    assert all(r <= m for m, r in rs.items())
+    assert set(rs.values()) <= {1, 2, 4, 8}
+    assert rs[1] == 1 and rs[2] == 2 and rs[4] == 4 and rs[8] == 8
+    assert all(rs[m] == msl.DENSE_R_MAX for m in range(msl.DENSE_R_MAX, 600))
+    assert all(rs[m] <= rs[m + 1] for m in range(1, 599))    # monotone
+
+
+@needs_mlx
+def test_coded_bytes_sees_streams_that_parameters_cannot(dense_linear_golden, monkeypatch):
+    """The coded stream is deliberately off the parameter tree, so any byte
+    ledger that walks parameters() alone values a coded linear at its bias —
+    zero when there is none. bench/roofline.py depends on this helper."""
+    monkeypatch.setenv("ESCHA_MLX_LINEAR", "ops")
+    import mlx.nn as nn
+    from mlx.utils import tree_flatten
+    from escha_mlx import dense
+
+    g = dense_linear_golden
+    lin = dense.build({"escha_code": g["code"], "escha_rin": g["rin"],
+                       "escha_rout": g["rout"]})          # no bias
+    assert [k for k, _ in tree_flatten(lin.parameters())] == []
+
+    class Holder(nn.Module):
+        def __init__(self, a, b):
+            super().__init__()
+            self.a, self.stack = a, [b, b]
+
+    want = sum(a.nbytes for a in lin._w.arrays())
+    assert dense.coded_bytes(lin) == want
+    # nested, and each distinct module counted once even when aliased in a list
+    other = dense.build({"escha_code": g["code"], "escha_rin": g["rin"],
+                         "escha_rout": g["rout"]})
+    assert dense.coded_bytes(Holder(lin, other)) == 2 * want
+    assert dense.coded_bytes([lin, other]) == 2 * want
+    assert dense.coded_bytes(nn.Linear(4, 4)) == 0
