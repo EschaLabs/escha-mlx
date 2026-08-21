@@ -453,6 +453,55 @@ def test_row_blocked_gemm_does_not_touch_rows_outside_the_batch():
 
 
 @needs_metal
+def test_simdgroup_matrix_gemm_is_deterministic_and_close():
+    """The one non-bit-identical kernel in the runtime, held to the two
+    properties it is allowed to have instead.
+
+    It may reassociate the f32 sum, so it is NOT compared with array_equal.  It
+    may NOT be sloppy (the M4 MMA keeps the half x half product exact, so the
+    only error is reassociation -- an order of magnitude below the fold_scales
+    deviation this runtime already ships), and it may NOT be nondeterministic:
+    a reassociated sum is still a FIXED sum, so a run-to-run difference would
+    mean a race -- the failure mode a split-K style epilogue produces when a
+    barrier is missing, which corrupts generation rarely and catastrophically
+    and is nearly impossible to catch downstream.  Tails are included: a
+    partial group takes a different store path.
+    """
+    import mlx.core as mx
+    from escha_mlx import msl
+
+    rng = np.random.default_rng(909)
+    for ic, oc, K in ((BIG_IC, BIG_OC, 2), (256, 384, 3)):
+        code = mx.array(msl.code_to_u32(
+            rng.integers(-32768, 32768, size=(ic // 16, oc // 16, 16 * K), dtype=np.int16)))
+        for m in (16, 17, 33):
+            xh = mx.array((rng.standard_normal((m, ic)) * 0.3).astype(np.float16))
+            ref = msl.dense_gemm_rows(xh, code, K, ic, oc, 16)
+            got = msl.dense_gemm_mat(xh, code, K, ic, oc)
+            mx.eval(ref, got)
+            scale = float(mx.abs(ref).mean())
+            dev = float(mx.abs(ref - got).max()) / scale
+            assert dev < 1e-3, f"K={K} m={m} deviates {dev:.2e} -- too far for reassociation"
+
+            again = msl.dense_gemm_mat(xh, code, K, ic, oc)
+            mx.eval(again)
+            assert bool((got.view(mx.uint32) == again.view(mx.uint32)).all()), \
+                f"K={K} m={m} not reproducible run to run"
+
+
+@needs_metal
+def test_simdgroup_matrix_gemm_is_off_by_default(monkeypatch):
+    """Every default path in this runtime is bit-identical to the goldens; the
+    matrix kernel is not, so it must stay behind its flag."""
+    from escha_mlx import msl
+
+    monkeypatch.delenv("ESCHA_MLX_DENSE_MAT", raising=False)
+    assert msl.use_dense_mat() is False
+    monkeypatch.setenv("ESCHA_MLX_DENSE_MAT", "1")
+    assert msl.use_dense_mat() is True
+
+
+@needs_metal
 def test_blocked_path_is_reachable_from_the_module(dense_linear_golden):
     """The policy must actually route a prefill-sized batch to the blocked
     kernel, and the module's output must not depend on which one ran."""

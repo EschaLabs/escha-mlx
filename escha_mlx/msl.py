@@ -1209,6 +1209,153 @@ def dense_block_r(m: int, pin: int | None = None) -> int:
     return max(1, r)
 
 
+_SGMAT_HEADER = ("#include <metal_stdlib>\n#include <metal_simdgroup_matrix>\n"
+                 "using namespace metal;\n" + _HEADER)
+
+
+def _dense_gemm_mat_source(K: int, use_lut: bool) -> str:
+    """R=16 dense GEMM whose inner product is 8 simdgroup MMAs per 16x16 tile.
+
+    NOT bit-identical to the scalar kernels -- deterministic, but the sum is
+    reassociated.  It is NOT, however, a precision downgrade: probed on M4,
+    ``simdgroup_multiply_accumulate`` with half operands and a float8x8
+    accumulator computes the product at FULL precision ((1+2^-10)^2 returns
+    exact) and accumulates in f32 (2048 additions of 2^-12 return exact).  A
+    half x half product needs 22 mantissa bits and f32 has 24, so it is exact
+    by construction.  The deviation is therefore f32 reassociation only --
+    measured max ~4e-5 and mean ~1e-6 relative to mean |output|, i.e. an order
+    of magnitude BELOW the fold_scales deviation this runtime already ships.
+    Same class as the split-K path: deterministic, tolerance-gated.
+
+    The matrix units cannot read per-lane registers, so decoded weights make a
+    threadgroup round-trip that the scalar kernel avoids; that is the cost this
+    trades against 16x fewer FMA instructions.  Accumulators also shrink from
+    2R=32 floats per lane to 8, which is why R is fixed at 16 here.
+    """
+    wpt = 8 * K
+    extract = _substitute_fetch(_EXTRACT_K2 if K == 2 else _EXTRACT_K3)
+    stores = []
+    for j in range(8):
+        fi = j >> 1
+        row = f"(lane & 3u) * 2u + {j & 1}u + {(fi & 1) * 8}u"
+        col = f"2u * ((l0 >> 3) + {4 if j >= 4 else 0}u) + c_off"
+        stores.append(f"        s_w[sg * 256u + ({row}) * 16u + ({col})] = "
+                      f"{_dec(f's{j}', use_lut)};")
+    return f"""
+    uint tid  = thread_position_in_threadgroup.x;
+    uint ocb  = thread_position_in_grid.x >> 8;
+    uint grp  = thread_position_in_grid.y;
+    uint lane = thread_index_in_simdgroup;
+    uint sg   = simdgroup_index_in_threadgroup;
+    if (grp * 16u >= (uint)M) return;
+
+    threadgroup half s_x[256];
+    threadgroup half s_w[2048];
+    threadgroup float s_c[256];      // tail-group store staging (see below)
+
+    simdgroup_float8x8 C00 = simdgroup_float8x8(0.0f), C01 = simdgroup_float8x8(0.0f),
+                       C10 = simdgroup_float8x8(0.0f), C11 = simdgroup_float8x8(0.0f);
+    uint l0 = lane & ~4u;
+    uint c_off = (lane >> 2) & 1u;
+    uint xr = tid >> 4, xc = tid & 15u;
+    // Tail rows clamp to the last real row; their stores are guarded below.
+    uint srow = min(grp * 16u + xr, (uint)M - 1u);
+
+    for (uint kt = 0; kt < TK; ++kt) {{
+        s_x[tid] = xh[(ulong)srow * IC + kt * 16u + xc];
+        device const uint* wp = code + ((ulong)kt * TN + ocb * 8u + sg) * {wpt}u;
+{extract}
+{chr(10).join(stores)}
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        simdgroup_half8x8 A00, A01, A10, A11, B00, B01, B10, B11;
+        simdgroup_load(A00, s_x, 16);          simdgroup_load(A01, s_x + 8u, 16);
+        simdgroup_load(A10, s_x + 128u, 16);   simdgroup_load(A11, s_x + 136u, 16);
+        threadgroup const half* wb = s_w + sg * 256u;
+        simdgroup_load(B00, wb, 16);           simdgroup_load(B01, wb + 8u, 16);
+        simdgroup_load(B10, wb + 128u, 16);    simdgroup_load(B11, wb + 136u, 16);
+        simdgroup_multiply_accumulate(C00, A00, B00, C00);
+        simdgroup_multiply_accumulate(C00, A01, B10, C00);
+        simdgroup_multiply_accumulate(C01, A00, B01, C01);
+        simdgroup_multiply_accumulate(C01, A01, B11, C01);
+        simdgroup_multiply_accumulate(C10, A10, B00, C10);
+        simdgroup_multiply_accumulate(C10, A11, B10, C10);
+        simdgroup_multiply_accumulate(C11, A10, B01, C11);
+        simdgroup_multiply_accumulate(C11, A11, B11, C11);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }}
+
+    // A full group stores straight from the fragments.  A tail group cannot:
+    // simdgroup_store writes all 8 rows of a fragment, so rows past M would be
+    // written.  It stages through s_c instead and guards the row -- one
+    // simdgroup at a time, since 8 x 256 floats will not fit in threadgroup
+    // memory and this runs once per group, not once per kt.  `grp` and `M` are
+    // uniform, so every thread takes the same branch and the barriers below are
+    // reached by the whole threadgroup.
+    ulong obase = (ulong)(grp * 16u) * OC + ocb * 128u + sg * 16u;
+    if (grp * 16u + 16u <= (uint)M) {{
+        device float* o = mid + obase;
+        simdgroup_store(C00, o, OC);            simdgroup_store(C01, o + 8u, OC);
+        simdgroup_store(C10, o + 8u * OC, OC);  simdgroup_store(C11, o + 8u * OC + 8u, OC);
+    }} else {{
+        for (uint wv = 0; wv < 8u; ++wv) {{
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            if (sg == wv) {{
+                simdgroup_store(C00, s_c, 16);          simdgroup_store(C01, s_c + 8u, 16);
+                simdgroup_store(C10, s_c + 128u, 16);   simdgroup_store(C11, s_c + 136u, 16);
+            }}
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            if (sg == wv) {{
+                for (uint i = lane; i < 256u; i += 32u) {{
+                    uint rr = i >> 4, cc = i & 15u;
+                    if (grp * 16u + rr < (uint)M)
+                        mid[obase + (ulong)rr * OC + cc] = s_c[i];
+                }}
+            }}
+        }}
+    }}
+"""
+
+
+@lru_cache(maxsize=None)
+def _dense_gemm_mat_kernel(K: int, lut: bool):
+    return mx.fast.metal_kernel(
+        name=f"escha_gemm_dense_sgmat_k{K}{'_lut' if lut else ''}",
+        input_names=["xh", "code"] + (["lut"] if lut else []),
+        output_names=["mid"],
+        header=_SGMAT_HEADER, source=_dense_gemm_mat_source(K, lut),
+    )
+
+
+def use_dense_mat() -> bool:
+    """simdgroup-matrix dense GEMM. DEFAULT OFF -- deterministic, NOT bit-identical.
+
+    Enabled with ESCHA_MLX_DENSE_MAT=1.  Off by default for the same reason
+    split-K is: every other kernel in this runtime is bit-identical to the
+    goldens, and a path that reassociates the sum cannot be A/B'd against them
+    with np.array_equal.  See _dense_gemm_mat_source for the measured deviation.
+    """
+    return os.environ.get("ESCHA_MLX_DENSE_MAT", "0") != "0"
+
+
+def dense_gemm_mat(xh: mx.array, code_u32: mx.array, K: int, IC: int,
+                   OC: int) -> mx.array:
+    """Row-blocked dense GEMM at a fixed R=16 via simdgroup matrix ops."""
+    m = xh.shape[0]
+    lut = use_lut()
+    kern = _dense_gemm_mat_kernel(K, lut)
+    inputs = [xh, code_u32.reshape(-1)] + ([_lut_array()] if lut else [])
+    (mid,) = kern(
+        inputs=inputs,
+        template=[("TK", IC // 16), ("TN", OC // 16), ("IC", IC), ("OC", OC),
+                  ("M", m)],
+        grid=(256 * (OC // 128), (m + 15) // 16, 1),
+        threadgroup=(256, 1, 1),
+        output_shapes=[(m, OC)],
+        output_dtypes=[mx.float32],
+    )
+    return mid
+
+
 def dense_gemm_rows(xh: mx.array, code_u32: mx.array, K: int, IC: int, OC: int,
                     R: int) -> mx.array:
     """Row-blocked dense GEMM: mid = xh @ decode(code), R rows per decode.
