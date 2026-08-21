@@ -37,6 +37,11 @@ needs_ckpt = pytest.mark.skipif(
 needs_dense_ckpt = pytest.mark.skipif(
     not Path(DENSE_CKPT).exists(),
     reason=f"dense checkpoint not found: {DENSE_CKPT}")
+# Opt-in: reads real coded weights and peaks around 8 GB RSS. Not something a
+# plain `pytest tests/` on a laptop should start without being asked.
+needs_slow = pytest.mark.skipif(
+    os.environ.get("ESCHA_MLX_SLOW_TESTS") != "1",
+    reason="slow/heavy test; set ESCHA_MLX_SLOW_TESTS=1")
 
 
 @pytest.fixture(scope="session")
