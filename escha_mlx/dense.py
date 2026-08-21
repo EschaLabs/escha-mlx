@@ -301,6 +301,37 @@ def build(group: dict[str, np.ndarray]) -> EschaLinear:
     return EschaLinear(w, group.get("bias"))
 
 
+def coded_bytes(obj) -> int:
+    """Bytes of every coded stream under `obj` — the ones NOT on the parameter tree.
+
+    ``EschaWeight`` deliberately hangs off a leading-underscore attribute so the
+    coded stream never enters ``Module.parameters()``. That is right for
+    training and update semantics and wrong for accounting: anything that sizes
+    a model by walking ``parameters()`` sees a coded linear as its bias alone —
+    literally zero bytes when there is no bias — so a dense model weighs in at
+    a rounding error instead of its real size. Byte ledgers must add this.
+
+    Accepts a Module, or any list/tuple/dict of them (mlx's ``Module`` is itself
+    a dict whose values are its children, so the walk is uniform).
+    """
+    total = 0
+    stack = [obj]
+    seen: set[int] = set()
+    while stack:
+        node = stack.pop()
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        if isinstance(node, EschaLinear):
+            total += sum(a.nbytes for a in node._w.arrays())
+            continue
+        if isinstance(node, dict):
+            stack.extend(node.values())
+        elif isinstance(node, (list, tuple)):
+            stack.extend(node)
+    return total
+
+
 #: Leaf names that together define one coded linear.
 LEAVES = frozenset({"escha_code", "escha_rin", "escha_rout",
                     "escha_s_in", "escha_s_out", "escha_config", "bias"})

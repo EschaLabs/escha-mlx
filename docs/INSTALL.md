@@ -178,15 +178,18 @@ hardware-dependent and may favour wider GPUs (M-series Max/Ultra). All are gated
 bit-identical.
 
 **`ESCHA_MLX_DENSE_BLOCK_R` is the one unmeasured default in this table.** The
-dense path was developed on Linux, where the Metal kernels do not run, so its
-rows-per-group thresholds come from the structure of the kernel rather than from
-a sweep: unlike the MoE case, every row of a dense linear shares the one coded
-stream, so a group is never mostly padding and the decoded-stream reads fall by
-very nearly R. That argues for R as large as the register and staging budget
-allows, but it is an argument, not a measurement — the shipped default is
-deliberately modest, and sweeping this is the first thing worth doing on a
-dense model on real hardware. Correctness does not depend on it: every R is
-gated bit-identical to the per-row kernel.
+dense path was developed on Linux, where the Metal kernels do not run, so the
+policy comes from the structure of the kernel rather than from a sweep. Unlike
+the MoE case, every row of a dense linear shares the one coded stream, so a
+group is never mostly padding and the decoded-stream reads fall by very nearly
+R — the default is therefore `R = min(rows, 8)` snapped down to a power of two:
+never more rows-per-group than there are rows (so it never pads), and greater
+than 1 from two rows upward, because at concurrency 2 or 3 an `R = 1` would
+read the entire coded stream once per row. The ceiling of 8 is where the
+argument runs out (registers and staging), not where a measurement put it.
+Sweeping this is the first thing worth doing on a dense model on real hardware.
+Correctness does not depend on it: every R is gated bit-identical to the
+per-row kernel.
 
 ## Troubleshooting
 

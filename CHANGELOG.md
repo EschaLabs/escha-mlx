@@ -61,6 +61,19 @@
   - docs/INSTALL.md gains a dense memory section: 64 KiB/token of KV (3.2× the MoE),
     the real GDN state figure, and the fact that `--max-kv-size` is inert on any hybrid
     GDN model because the architecture defines `make_cache` (true of stock mlx-lm too).
+  - **Byte ledger fixed for dense models** (`bench/roofline.py`). `mod_bytes` walked
+    `parameters()`, but a coded linear keeps its stream off the parameter tree on
+    purpose — so it counted a dense linear at its bias, literally zero when there is
+    none — and `layer.mlp` was only read inside the MoE branch, so the dense MLP, the
+    majority of the bytes, was invisible. A dense model ledgered at ~0.05 GB instead of
+    10.15. Adds `dense.coded_bytes`, an `mlp_dense_MB` term, and a guard that raises if
+    the ledger ever again misses coded streams. Verified on a truncated real load:
+    0.471 GB counted against 0.470 GB on disk.
+  - **Rows-per-group policy replaced.** The first version was a size ladder inherited
+    from the MoE's thresholds, which returned R=1 below 4 rows — so a server at
+    concurrency 2 or 3 read the whole coded stream once per row, the exact cost the
+    row-blocked kernel exists to remove. Now `R = min(rows, 8)` snapped to a power of
+    two: never pads, R>1 from two rows, four compiled variants.
   - **Not yet run on Metal.** The dense path was developed on Linux with `mlx[cpu]`,
     where the Metal kernels do not execute. The reference, the module, the loader and
     the real-checkpoint structure are all gated and green; the dense kernel sources

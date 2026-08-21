@@ -1062,6 +1062,11 @@ def dense_gemv(xh: mx.array, code_u32: mx.array, K: int, IC: int, OC: int,
     return moe_gemv(xh, code_u32, None, K, IC, OC, splits)
 
 
+#: Largest rows-per-group the dense row-blocked GEMM will choose on its own.
+#: Structural, not measured -- see dense_block_r.
+DENSE_R_MAX = 8
+
+
 def dense_block_r_pin() -> int | None:
     """Resolve ESCHA_MLX_DENSE_BLOCK_R once. None = use the size policy.
 
@@ -1089,26 +1094,37 @@ def dense_block_r(m: int, pin: int | None = None) -> int:
     shares the single stream, so only the last group is ever partly padding and
     the decoded-stream reads fall by very nearly R across the board.
 
-    That argument says "R as large as the register and threadgroup budget
-    allows" -- acc0[R] + acc1[R] floats per lane plus 16*R*KB halves of staging
-    -- but it is an argument, not a measurement, and NONE of these thresholds
-    have been measured on Metal (this path was developed on Linux CPU, where
-    the kernels do not run).  So the default is deliberately modest and the
-    knob is exposed: ESCHA_MLX_DENSE_BLOCK_R pins R (resolved once by
-    ``dense_block_r_pin`` and passed in), and sweeping it is the first thing to
-    do on real hardware.  R=1 is always correct and is what
-    small row counts use, where the staging barriers cost more than the shared
-    decode saves.
+    So the policy is simply R = min(m, R_MAX), snapped DOWN to a power of two.
+    Two consequences worth stating, because the first version of this function
+    used a size ladder inherited from the MoE's thresholds and both were wrong:
+
+      * It never pads.  R <= m always, so no group issues MACs for rows that do
+        not exist -- the padding tax that shapes the MoE policy is absent here
+        by construction, not merely small.
+      * It does not treat small row counts as decode-only.  A ladder that
+        returned R=1 below m=4 meant a server at concurrency 2 or 3 read the
+        entire coded stream two or three times per token, which is precisely
+        the cost this kernel exists to remove.  Batch is rows; rows share the
+        stream; share them.
+
+    Snapping to a power of two bounds the compiled-kernel count to R in
+    {1, 2, 4, 8} -- R is a template parameter, so every distinct value is a
+    separate compilation -- at the price of at most halving the sharing.
+
+    R_MAX is where the argument runs out: acc0[R] + acc1[R] floats per lane plus
+    16*R*KB halves of staging.  NONE of this has been measured on Metal (this
+    path was developed on Linux CPU, where the kernels do not run), so R_MAX is
+    deliberately modest and the knob is exposed: ESCHA_MLX_DENSE_BLOCK_R pins R
+    (resolved once by ``dense_block_r_pin`` and passed in), and sweeping it is
+    the first thing to do on real hardware.  R=1 is always correct and is what
+    m=1 uses.
     """
     if pin is not None:
         return pin
-    if m >= 64:
-        return 8
-    if m >= 16:
-        return 4
-    if m >= 4:
-        return 2
-    return 1
+    r = min(m, DENSE_R_MAX)
+    while r & (r - 1):                      # snap down to a power of two
+        r &= r - 1
+    return max(1, r)
 
 
 def dense_gemm_rows(xh: mx.array, code_u32: mx.array, K: int, IC: int, OC: int,

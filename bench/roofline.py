@@ -150,6 +150,7 @@ def byte_ledger(model, top_k: int) -> dict:
     """Walk the LOADED model and total the bytes read for ONE decode token."""
     # The MoE block moved out of escha_mlx.moe when models/ was split per
     # architecture; escha_mlx.moe now holds only the expert toolkit.
+    from escha_mlx import dense as dense_mod
     from escha_mlx.models import qwen3_5_moe as moe_mod
 
     lm = model.language_model
@@ -159,22 +160,33 @@ def byte_ledger(model, top_k: int) -> dict:
     from mlx.utils import tree_flatten
 
     def mod_bytes(mod) -> int:
-        """Every leaf array of a module: weight + (for Q8) scales and biases.
+        """Every byte a module reads: parameters PLUS coded streams.
 
         nn.Module.parameters() returns a NESTED dict, so it must be flattened --
         iterating it directly silently yields 0 for every composite module.
+
+        And parameters() is not the whole story: a trellis-coded linear keeps
+        its stream off the parameter tree on purpose (escha_mlx.dense), so a
+        parameters()-only walk values a dense layer at its biases -- about
+        0.5% of what it actually reads. dense.coded_bytes recovers the rest.
         """
         if mod is None:
             return 0
-        return sum(v.nbytes for _k, v in tree_flatten(mod.parameters())
-                   if isinstance(v, mx.array))
+        params = sum(v.nbytes for _k, v in tree_flatten(mod.parameters())
+                     if isinstance(v, mx.array))
+        return params + dense_mod.coded_bytes(mod)
 
     layers = lm.model.layers
-    dense_attn = dense_gdn = shared = gate = norms = 0
+    dense_attn = dense_gdn = shared = gate = norms = mlp = 0
     expert_per_token = 0
     n_gdn = n_attn = 0
     for layer in layers:
         blk = layer.mlp
+        if not isinstance(blk, moe_mod.EschaSparseMoeBlock):
+            # A dense MLP is read in full every token and is the majority of
+            # the model's bytes. It used to be invisible here: layer.mlp was
+            # only ever read inside the MoE branch below.
+            mlp += mod_bytes(blk)
         if isinstance(blk, moe_mod.EschaSparseMoeBlock):
             gu, dn = blk._gu, blk._dn
             # ONE expert's stream, both projections, times top_k active experts
@@ -193,13 +205,28 @@ def byte_ledger(model, top_k: int) -> dict:
         norms += mod_bytes(layer.input_layernorm) + mod_bytes(layer.post_attention_layernorm)
     head = mod_bytes(getattr(lm, "lm_head", None))
 
-    total = expert_per_token + dense_attn + dense_gdn + shared + gate + head + norms
+    total = (expert_per_token + dense_attn + dense_gdn + shared + gate + head
+             + norms + mlp)
+
+    # Guard against the ledger silently missing a whole category, which is how
+    # it failed for dense models: every coded stream in the decoder stack is
+    # read once per token on a dense model, so the ledger must contain all of
+    # them. (On a MoE model the expert streams are deliberately counted at
+    # top_k/E, so this only applies when there are no routed experts.)
+    coded_total = dense_mod.coded_bytes(layers)
+    if expert_per_token == 0 and coded_total:
+        counted = dense_attn + dense_gdn + mlp
+        if counted < coded_total * 0.999:
+            raise AssertionError(
+                f"byte ledger missed coded streams: counted {counted/1e9:.3f} GB "
+                f"of {coded_total/1e9:.3f} GB present in the decoder stack")
     return {
         "n_layers": n_layers, "top_k": top_k,
         "n_gdn_layers": n_gdn, "n_attn_layers": n_attn,
         "experts_MB": round(expert_per_token / 1e6, 1),
         "attn_dense_MB": round(dense_attn / 1e6, 1),
         "gdn_dense_MB": round(dense_gdn / 1e6, 1),
+        "mlp_dense_MB": round(mlp / 1e6, 1),
         "shared_expert_MB": round(shared / 1e6, 1),
         "router_gate_MB": round(gate / 1e6, 1),
         "norms_MB": round(norms / 1e6, 1),
