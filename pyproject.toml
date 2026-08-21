@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 license = "Apache-2.0"
 authors = [{ name = "Escha Labs" }]
 keywords = [
-    "mlx", "apple-silicon", "metal", "quantization", "eschamoe",
+    "mlx", "apple-silicon", "metal", "quantization", "escha", "eschamoe",
     "qwen3", "mixture-of-experts", "inference", "llm",
 ]
 classifiers = [
