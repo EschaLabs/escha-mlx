@@ -287,3 +287,54 @@ def test_fused_module_matches_reference(dense_linear_golden):
     deploy = g["deploy"].astype(np.float32)
     rel = np.abs(got - deploy).mean() / np.abs(deploy).mean()
     assert rel < REL_TOL
+
+
+@needs_metal
+@pytest.mark.parametrize("m,R", [(2, 2), (5, 2), (8, 4), (9, 4), (16, 8), (17, 8), (64, 8)])
+def test_row_blocked_gemm_matches_per_row_gemv(dense_linear_golden, m, R):
+    """The row-blocked dense GEMM changes the loop nest, not the accumulation
+    order, so it must be BIT-identical to the per-row kernel — including for row
+    counts that leave the last group partly padding (the odd m values here)."""
+    import mlx.core as mx
+    from escha_mlx import msl
+
+    g = dense_linear_golden
+    code = mx.array(msl.code_to_u32(g["code"]))
+    rng = np.random.default_rng(11)
+    xh = mx.array((rng.standard_normal((m, 128)) * 0.3).astype(np.float16))
+    want = msl.dense_gemv(xh, code, g["K"], 128, 128)
+    got = msl.dense_gemm_rows(xh, code, g["K"], 128, 128, R)
+    assert got.shape == (m, 128)
+    assert np.array_equal(np.array(got), np.array(want))
+
+
+@needs_metal
+def test_blocked_path_is_reachable_from_the_module(dense_linear_golden):
+    """The policy must actually route a prefill-sized batch to the blocked
+    kernel, and the module's output must not depend on which one ran."""
+    import mlx.core as mx
+    from escha_mlx import dense, msl
+
+    assert msl.dense_block_r(1) == 1
+    assert msl.dense_block_r(256) > 1
+
+    g = dense_linear_golden
+    lin = dense.build({"escha_code": g["code"], "escha_rin": g["rin"],
+                       "escha_rout": g["rout"], "escha_s_in": g["s_in"],
+                       "escha_s_out": g["s_out"], "bias": g["bias"]})
+    rng = np.random.default_rng(12)
+    x = mx.array((rng.standard_normal((96, 128)) * 0.5).astype(np.float16))
+    many = np.array(lin(x))
+    one_at_a_time = np.concatenate(
+        [np.array(lin(x[i:i + 1])) for i in range(x.shape[0])], axis=0)
+    assert np.array_equal(many, one_at_a_time)
+
+
+@needs_mlx
+def test_dense_block_r_env_override(monkeypatch):
+    from escha_mlx import msl
+
+    monkeypatch.setenv("ESCHA_MLX_DENSE_BLOCK_R", "1")
+    assert msl.dense_block_r(4096) == 1
+    monkeypatch.setenv("ESCHA_MLX_DENSE_BLOCK_R", "16")
+    assert msl.dense_block_r(1) == 16

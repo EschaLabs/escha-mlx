@@ -26,6 +26,13 @@ end-to-end scales s_in/s_out separately, and ``ref.fold_scales`` multiplies them
 in at load time because they act at exactly the points rin/rout do. See that
 function for the (documented, one-rounding-point-fewer) deviation this implies.
 
+Row counts. A decode step passes one row per sequence, a prefill chunk passes
+hundreds. The per-row GEMV reads the whole coded stream per row — no batch
+amortization at all — so above a few rows the forward switches to the
+row-blocked kernel, which shares one decode across R rows and is bit-identical
+to the per-row path (``msl.dense_block_r`` picks R; ESCHA_MLX_DENSE_BLOCK_R
+pins it).
+
 Paths:
   * fused (default on Metal)  — escha_mlx.msl kernels.
   * ops   (ESCHA_MLX_LINEAR=ops or no Metal) — numpy tile decode + mx matmul.
@@ -154,6 +161,7 @@ class EschaLinear(nn.Module):
         # Read once at construction: flipping it per-forward would defeat the
         # compile cache and make A/Bs depend on call order.
         self._fused_had = msl.use_fused_had() and self._mode == "fused"
+        self._block_r = msl.dense_block_r if self._mode == "fused" else None
 
     @property
     def K(self) -> int:
@@ -175,6 +183,13 @@ class EschaLinear(nn.Module):
     def _gemv(self, xh: mx.array) -> mx.array:
         w = self._w
         if self._mode == "fused":
+            # Above a few rows the row-blocked kernel shares one decode of the
+            # coded stream across R rows. Without it a prefill chunk would
+            # decode every projection once PER TOKEN -- the per-row kernel has
+            # no batch amortization by construction. Bit-identical either way.
+            r = 1 if self._block_r is None else self._block_r(xh.shape[0])
+            if r > 1:
+                return msl.dense_gemm_rows(xh, w.code, w.K, w.IC, w.OC, r)
             return msl.dense_gemv(xh, w.code, w.K, w.IC, w.OC)
         # ops path: numpy decode + matmul (test/CPU only — slow, see module doc)
         return mx.array(np.array(xh).astype(np.float32) @ w.weight_numpy())
