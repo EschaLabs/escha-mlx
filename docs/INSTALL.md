@@ -123,6 +123,28 @@ cap on long prompts.
 
 ---
 
+## Generating from a reasoning model
+
+Three things about Qwen3.8-27B that will otherwise read as a broken model:
+
+- **It thinks by default.** Its chat template defaults to `reasoning_effort:
+  xhigh`, and the published numbers for it were produced under a hard thinking
+  budget of 28,672 tokens inside a 32,768-token cap. `escha-mlx-generate`
+  defaults to `--max-tokens 128`, which with thinking on truncates *inside* the
+  reasoning and returns an empty answer. Raise `--max-tokens` well past the
+  reasoning length, or lower the effort: `--reasoning-effort low|medium|xhigh`.
+  This runtime has no budget enforcement — there is no logit processor that
+  closes the reasoning block at a token count.
+- **Sampling defaults are not read from the checkpoint.** `generation_config.json`
+  asks for `temperature 1.0, top_k 20, top_p 0.95`; the loader takes only
+  `eos_token_id` from it, so `escha-mlx-generate` runs greedy (`--temp 0.0`)
+  and the server inherits mlx-lm's defaults. Set them yourself if you are
+  comparing against numbers produced elsewhere.
+- **243 `lm_head` rows have no token.** The head emits 248,320 logits; the
+  tokenizer knows 248,077 ids. Those trailing rows carry live, non-zero scales,
+  so at `temperature > 0` a sample can in principle land on an id the
+  detokenizer cannot render. Nothing masks them.
+
 ## The per-linear correction (`ESCHA_MLX_BIAS`)
 
 A dense escha export stores a `bias` tensor beside every coded linear — the
