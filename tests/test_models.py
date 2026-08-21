@@ -1,11 +1,16 @@
-"""Architecture registry + synthetic end-to-end checkpoint test.
+"""Architecture registry + synthetic end-to-end checkpoint tests.
 
-The synthetic test is the CI stand-in for the 12.3 GB model: it writes a tiny
-but format-faithful eschamoe export (coded expert trios, Q8 pairs, raw-HF fp16
-remainder including the unsanitized conv1d layout), then runs the REAL
-`load_model` pipeline — registry dispatch, streaming consume, module swaps,
-mlx-lm sanitize, post-load quirks — and a forward pass. Every new architecture
-plugin must add its own variant of this test.
+The synthetic tests are the CI stand-in for the multi-GB models: each writes a
+tiny but format-faithful export, then runs the REAL `load_model` pipeline —
+registry dispatch, streaming consume, module swaps, mlx-lm sanitize, post-load
+quirks — and a forward pass. Every new architecture plugin must add its own
+variant.
+
+  * `eschamoe` / qwen3_5_moe: coded expert trios, Q8 pairs, raw-HF fp16
+    remainder including the unsanitized conv1d layout.
+  * `escha` / qwen3_5 (dense): every projection coded at a per-tensor rate
+    (K=3 for the wide MLP legs, K=2 elsewhere, as shipped), Q8 embed/head, and
+    a variant with the optional end-to-end leaves absent.
 """
 from __future__ import annotations
 
