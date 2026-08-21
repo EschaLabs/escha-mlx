@@ -36,9 +36,13 @@ pins it).
 Paths:
   * fused (default on Metal)  — escha_mlx.msl kernels.
   * ops   (ESCHA_MLX_LINEAR=ops or no Metal) — numpy tile decode + mx matmul.
-    Slow, and it materialises the fp16 weight (IC*OC*2 bytes per linear, cached
-    on first use); it exists so the full model runs — and is testable — on any
-    backend, not as a deployment path.
+    Slow, and it materialises the decoded weight as **f32** (IC*OC*4 bytes per
+    linear, cached for the module's lifetime) because that is what the
+    reference contract multiplies in. It exists so a model runs — and is
+    testable — on any backend, not as a deployment path, and it does NOT scale
+    to a large checkpoint: touching every linear of a 24.3 G-parameter coded
+    body once materialises ~97 GB. Use it on small models, on a truncated
+    load, or one layer at a time.
 """
 from __future__ import annotations
 
@@ -55,6 +59,46 @@ from .moe import had_blocks   # the shared 128-block WHT, not expert-specific
 logger = logging.getLogger(__name__)
 
 RS = ref.RS
+
+#: Rates the codec implements. Both msl and ref dispatch on `K == 2 ? k2 : k3`,
+#: so anything else must be refused at load rather than mis-decoded.
+SUPPORTED_K = frozenset({2, 3})
+
+#: escha_config layout: [L, K, V, codebook_id, in_features, out_features].
+_CONFIG_LEN = 6
+_PRODUCTION_CODEBOOK = 1
+
+
+def _check_scale(name: str, vec, expect: int) -> None:
+    """A scale vector must be 1-D of exactly `expect` entries, or absent."""
+    if vec is None:
+        return
+    shape = tuple(np.shape(vec))
+    if shape != (expect,):
+        raise ValueError(f"{name} must have shape ({expect},), got {shape}")
+
+
+_WARNED_OPS_ON_METAL = False
+
+
+def _warn_ops_on_metal() -> None:
+    """Say so, once, when the NumPy oracle runs on a machine that has Metal.
+
+    Every fallback in this module is silent and condition-driven — the fused
+    transforms need f16/f32 inputs, the fused GEMV needs `fused` mode — so an
+    ESCHA_MLX_LINEAR left exported in a shell degrades the whole model to the
+    oracle path with correct output, no error, and orders of magnitude less
+    throughput. That reads as "the kernels are slow", not as a misconfiguration.
+    """
+    global _WARNED_OPS_ON_METAL
+    if _WARNED_OPS_ON_METAL:
+        return
+    _WARNED_OPS_ON_METAL = True
+    logger.warning(
+        "escha_mlx: dense linears are using the NumPy oracle path "
+        "(ESCHA_MLX_LINEAR=ops) on a machine that HAS Metal. This is orders of "
+        "magnitude slower and materialises each weight in f32 — unset "
+        "ESCHA_MLX_LINEAR to use the kernels.")
 
 
 def linear_mode() -> str:
@@ -107,6 +151,14 @@ class EschaWeight:
                 raise ValueError(f"escha code last dim must be 16*K, got {wpt2}")
             self.K = wpt2 // 16
             code_mx = pack_code(code)
+        # K is inferred from the stream, so an unimplemented rate must be
+        # refused HERE: both the kernels and the reference select the unpacker
+        # with `K == 2 ? k2 : k3`, so any other K would be decoded by the K=3
+        # unpacker and yield plausible Gaussian weights with no error at all.
+        if self.K not in SUPPORTED_K:
+            raise ValueError(
+                f"escha code implies K={self.K}; this runtime implements "
+                f"K in {sorted(SUPPORTED_K)}")
         self.IC, self.OC = tk * 16, tn * 16
         if rin.shape[-1] != self.IC or rout.shape[-1] != self.OC:
             raise ValueError(
@@ -127,16 +179,32 @@ class EschaWeight:
         # otherwise decode into plausible-looking noise.
         if config is not None:
             cfg = [int(v) for v in np.asarray(config).ravel()]
-            if len(cfg) >= 6:
-                _, k_cfg, _, cb, ic_cfg, oc_cfg = cfg[:6]
-                if (k_cfg, ic_cfg, oc_cfg) != (self.K, self.IC, self.OC):
-                    raise ValueError(
-                        f"escha_config {(k_cfg, ic_cfg, oc_cfg)} disagrees with the "
-                        f"code stream {(self.K, self.IC, self.OC)}")
-                if cb != 1:
-                    raise ValueError(
-                        f"escha_config selects codebook id {cb}; this runtime "
-                        f"implements the production codebook (id 1) only")
+            # Refuse an unexpected header rather than skipping the check: a
+            # shorter one would silently bypass the codebook gate below, which
+            # is the only thing standing between a future non-production
+            # codebook and a model that decodes to confident noise.
+            if len(cfg) != _CONFIG_LEN:
+                raise ValueError(
+                    f"escha_config has {len(cfg)} fields, expected {_CONFIG_LEN} "
+                    f"([L, K, V, codebook_id, in_features, out_features]); this "
+                    f"export was written by an incompatible version")
+            _, k_cfg, _, cb, ic_cfg, oc_cfg = cfg
+            if (k_cfg, ic_cfg, oc_cfg) != (self.K, self.IC, self.OC):
+                raise ValueError(
+                    f"escha_config {(k_cfg, ic_cfg, oc_cfg)} disagrees with the "
+                    f"code stream {(self.K, self.IC, self.OC)}")
+            if cb != _PRODUCTION_CODEBOOK:
+                raise ValueError(
+                    f"escha_config selects codebook id {cb}; this runtime "
+                    f"implements the production codebook "
+                    f"(id {_PRODUCTION_CODEBOOK}) only")
+        # The scales are folded by a bare multiply, which BROADCASTS: an s_in
+        # of shape [n, IC] would yield a 2-D rin that the fused kernel indexes
+        # as `blk*128 + tid`, silently applying row 0 to every channel, and a
+        # scalar would silently apply one scale everywhere. Check the shape,
+        # not just the trailing length.
+        _check_scale("escha_s_in", s_in, self.IC)
+        _check_scale("escha_s_out", s_out, self.OC)
         self.code = code_mx                                  # [TK, TN, 8K] u32
         ri, ro = ref.fold_scales(rin, rout, s_in, s_out)
         self.rin = mx.array(ri)                              # [IC] f32
@@ -145,7 +213,11 @@ class EschaWeight:
         self._code_np: np.ndarray | None = None
 
     def weight_numpy(self) -> np.ndarray:
-        """Decoded fp16 bare weight [IC, OC] — ops path only (see module doc)."""
+        """Decoded bare weight [IC, OC] as f32 — ops path only.
+
+        Cached for the module's lifetime, at 4 bytes per coded weight. See the
+        module docstring: this does not scale to a large checkpoint.
+        """
         if self._w_np is None:
             if self._code_np is None:
                 self._code_np = np.array(self.code)
@@ -166,10 +238,12 @@ class EschaLinear(nn.Module):
         self._w = w
         self.bias = None if bias is None else mx.array(bias.astype(np.float16))
         self._mode = linear_mode()
+        if self._mode == "ops" and mx.metal.is_available():
+            _warn_ops_on_metal()
         # Read once at construction: flipping it per-forward would defeat the
         # compile cache and make A/Bs depend on call order.
         self._fused_had = msl.use_fused_had() and self._mode == "fused"
-        self._block_r = msl.dense_block_r if self._mode == "fused" else None
+        self._block_r_pin = msl.dense_block_r_pin() if self._mode == "fused" else None
 
     @property
     def K(self) -> int:
@@ -195,7 +269,7 @@ class EschaLinear(nn.Module):
             # coded stream across R rows. Without it a prefill chunk would
             # decode every projection once PER TOKEN -- the per-row kernel has
             # no batch amortization by construction. Bit-identical either way.
-            r = 1 if self._block_r is None else self._block_r(xh.shape[0])
+            r = msl.dense_block_r(xh.shape[0], self._block_r_pin)
             if r > 1:
                 return msl.dense_gemm_rows(xh, w.code, w.K, w.IC, w.OC, r)
             return msl.dense_gemv(xh, w.code, w.K, w.IC, w.OC)

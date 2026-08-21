@@ -321,7 +321,15 @@ def install(model, dtype: mx.Dtype | None = None) -> mx.Dtype:
     lm.make_cache = make_cache
     model.make_cache = make_cache
     n_linear = sum(1 for l in layers if l.is_linear)
+    # Read the geometry off the model rather than assuming it: the state is
+    # [num_v_heads, head_k_dim, head_v_dim] per layer, and those differ per
+    # architecture (32 v-heads on the 35B MoE, 48 on the 27B dense). A
+    # hardcoded 32 understates the dense saving by 1.5x in the one line an
+    # operator reads before sizing concurrency.
+    gdn = next((l.linear_attn for l in layers if l.is_linear), None)
+    per_layer = (gdn.num_v_heads * gdn.head_k_dim * gdn.head_v_dim
+                 if gdn is not None else 0)
     logger.info("escha_mlx: GDN recurrent state -> %s across %d linear layers; "
                 "allocation-free first state (%.1f MB/seq saved)", dt, n_linear,
-                n_linear * 32 * 128 * 128 * (4 - dt.size) / 1e6)
+                n_linear * per_layer * (4 - dt.size) / 1e6)
     return dt

@@ -386,3 +386,23 @@ def test_dense_checkpoint_without_optional_leaves(tmp_path, monkeypatch):
     out = model(mx.array([[1, 2, 3, 4]]), cache=cache)
     mx.eval(out)
     assert np.isfinite(np.array(out.astype(mx.float32))).all()
+
+
+@needs_mlx
+def test_dense_checkpoint_rejects_unknown_escha_leaf(tmp_path):
+    """An escha_* tensor this version does not know is a format mismatch, and
+    must say so — not die inside model.update with a parameter-name error."""
+    from safetensors import safe_open
+    from safetensors.numpy import save_file
+    from escha_mlx.loader import load_model
+
+    _write_tiny_dense_checkpoint(tmp_path, np.random.default_rng(4))
+    t = {}
+    with safe_open(str(tmp_path / "model.safetensors"), framework="numpy") as f:
+        for k in f.keys():
+            t[k] = f.get_tensor(k)
+    t["model.language_model.layers.0.mlp.gate_proj.escha_rotation_theta"] = \
+        np.zeros((4, 4), dtype=np.int8)
+    save_file(t, str(tmp_path / "model.safetensors"))
+    with pytest.raises(ValueError, match="unknown escha tensor"):
+        load_model(tmp_path)

@@ -250,36 +250,134 @@ def test_linear_mode_rejects_nonsense(monkeypatch):
 # --------------------------------------------------------------- kernel parity
 
 
+# A deliberately RECTANGULAR, MULTI-BLOCK shape. 128x128 -- the golden corner --
+# is the one geometry at which every dense-vs-MoE address expression coincides
+# by construction (see test_dense_kernels_match_expert_kernels), and at which
+# blk, ocb and any TK/TN confusion are all invisible because they are zero or
+# equal. IC != OC and both > 128 make each of those observable.
+BIG_IC, BIG_OC = 256, 384
+
+
+def _synth(K, rng, ic=BIG_IC, oc=BIG_OC):
+    """A random coded linear at a rectangular multi-block shape.
+
+    Random codes are legitimate input: the trellis is tail-biting, so every bit
+    string decodes to a valid weight (there is no invalid code to construct).
+    """
+    return {
+        "escha_code": rng.integers(-32768, 32768, size=(ic // 16, oc // 16, 16 * K),
+                                   dtype=np.int16),
+        "escha_rin": (rng.standard_normal(ic) * 0.05).astype(np.float16),
+        "escha_rout": (rng.standard_normal(oc) * 0.05).astype(np.float16),
+        "escha_s_in": (1.0 + rng.standard_normal(ic) * 0.02).astype(np.float32),
+        "escha_s_out": (1.0 + rng.standard_normal(oc) * 0.02).astype(np.float32),
+        "bias": (rng.standard_normal(oc) * 0.01).astype(np.float16),
+    }
+
+
+@needs_mlx
+@pytest.mark.parametrize("K", [2, 3])
+def test_module_matches_reference_rectangular(K, monkeypatch):
+    """The module against the reference at IC != OC, both multi-block.
+
+    Runs on the portable path, so it gates the address arithmetic that the
+    128x128 golden cannot reach even where Metal is unavailable.
+    """
+    monkeypatch.setenv("ESCHA_MLX_LINEAR", "ops")
+    import mlx.core as mx
+    from escha_mlx import dense
+
+    ref = _ref()
+    rng = np.random.default_rng(100 + K)
+    g = _synth(K, rng)
+    lin = dense.build(g)
+    assert (lin._w.IC, lin._w.OC, lin.K) == (BIG_IC, BIG_OC, K)
+    x = (rng.standard_normal((5, BIG_IC)) * 0.4).astype(np.float16)
+    got = np.array(lin(mx.array(x)))
+    rin, rout = ref.fold_scales(g["escha_rin"], g["escha_rout"],
+                                g["escha_s_in"], g["escha_s_out"])
+    want = ref.dense_linear(x, g["escha_code"], rin, rout, K, bias=g["bias"])
+    assert np.array_equal(got.view(np.uint16), want.view(np.uint16))
+
+
 @needs_metal
-def test_dense_kernels_match_expert_kernels(dense_linear_golden):
-    """The dense kernels are a compile-time variant of the expert kernels: the
-    same decode, the same accumulation order, minus the row_expert indirection.
-    Against a one-expert stream they must therefore be BIT-identical, which is
-    what lets the dense path inherit the expert kernels' goldens.
+@pytest.mark.parametrize("K", [2, 3])
+def test_dense_kernels_match_expert_kernels(K):
+    """The dense kernels are a compile-time variant of the expert kernels: same
+    decode, same accumulation order, minus the row_expert indirection. They must
+    therefore be BIT-identical to the expert kernels -- which is what lets the
+    dense path inherit the expert kernels' accumulated gate history.
+
+    For that inheritance to mean anything the reference must be NON-DEGENERATE.
+    Run against E=1 with row_expert=0 the MoE prologue computes
+    `base = code + 0*(TK*TN*wpt)` and `roff = 0*dim + blk*128 + tid`, which are
+    arithmetically identical to the dense `base = code` and
+    `roff = blk*128 + tid` -- so the comparison would prove only that both
+    sources compile. Here the real stream sits at expert index 1 behind a
+    garbage expert 0 and row_expert is all ones, so both `e*` terms are
+    non-zero, and the shape is rectangular and multi-block so blk, ocb and any
+    TK/TN transposition are live.
     """
     import mlx.core as mx
     from escha_mlx import msl
 
-    g = dense_linear_golden
-    K = g["K"]
-    code = mx.array(msl.code_to_u32(g["code"]))                 # [8, 8, 8K]
-    rng = np.random.default_rng(7)
-    xh = mx.array((rng.standard_normal((8, 128)) * 0.3).astype(np.float16))
-    rin = mx.array(g["rin"].astype(np.float32))
-    rout = mx.array((rng.standard_normal(128) * 0.1).astype(np.float32))
-    row_expert = mx.zeros((8,), dtype=mx.int32)
+    rng = np.random.default_rng(200 + K)
+    ic, oc = BIG_IC, BIG_OC
+    tk, tn = ic // 16, oc // 16
+    code_i16 = rng.integers(-32768, 32768, size=(tk, tn, 16 * K), dtype=np.int16)
+    garbage = rng.integers(-32768, 32768, size=(tk, tn, 16 * K), dtype=np.int16)
+    code = mx.array(msl.code_to_u32(code_i16))                       # [TK,TN,8K]
+    stacked = mx.array(msl.code_to_u32(np.stack([garbage, code_i16])))  # [2,...]
 
-    d_mid = msl.dense_gemv(xh, code, K, 128, 128)
-    m_mid = msl.moe_gemv(xh, code.reshape(1, 8, 8, 8 * K), row_expert, K, 128, 128)
+    m = 6
+    xh = mx.array((rng.standard_normal((m, ic)) * 0.3).astype(np.float16))
+    rin = (rng.standard_normal(ic) * 0.1).astype(np.float32)
+    rout = (rng.standard_normal(oc) * 0.1).astype(np.float32)
+    junk_in = (rng.standard_normal(ic) * 5.0).astype(np.float32)
+    junk_out = (rng.standard_normal(oc) * 5.0).astype(np.float32)
+    ones = mx.ones((m,), dtype=mx.int32)
+
+    d_mid = msl.dense_gemv(xh, code, K, ic, oc)
+    m_mid = msl.moe_gemv(xh, stacked, ones, K, ic, oc)
     assert np.array_equal(np.array(d_mid), np.array(m_mid))
 
-    d_in = msl.dense_scaled_had(xh, rin, msl.ref.RS)
-    m_in = msl.scaled_had(xh, rin.reshape(1, 128), row_expert, msl.ref.RS)
+    d_in = msl.dense_scaled_had(xh, mx.array(rin), msl.ref.RS)
+    m_in = msl.scaled_had(xh, mx.array(np.stack([junk_in, rin])), ones, msl.ref.RS)
     assert np.array_equal(np.array(d_in), np.array(m_in))
 
-    d_out = msl.dense_scaled_had_out(d_mid, rout, msl.ref.RS)
-    m_out = msl.scaled_had_out(m_mid, rout.reshape(1, 128), row_expert, msl.ref.RS)
+    d_out = msl.dense_scaled_had_out(d_mid, mx.array(rout), msl.ref.RS)
+    m_out = msl.scaled_had_out(m_mid, mx.array(np.stack([junk_out, rout])), ones,
+                               msl.ref.RS)
     assert np.array_equal(np.array(d_out), np.array(m_out))
+
+
+@needs_metal
+@pytest.mark.parametrize("K", [2, 3])
+def test_dense_gemv_against_decoded_weight(K):
+    """An oracle check independent of the MoE kernels entirely.
+
+    dense_gemv must equal `xh @ decode_tiles(code)`. decode_tiles is gated
+    against the committed codec goldens, so this ties the dense GEMV's
+    addressing to the format rather than to a sibling kernel -- it catches a
+    TK/TN swap or an IC/OC confusion that a dense-vs-MoE comparison could
+    never see, because both kernels share that text.
+    """
+    import mlx.core as mx
+    from escha_mlx import msl
+
+    rng = np.random.default_rng(300 + K)
+    ic, oc = BIG_IC, BIG_OC
+    code_i16 = rng.integers(-32768, 32768, size=(ic // 16, oc // 16, 16 * K),
+                            dtype=np.int16)
+    code = mx.array(msl.code_to_u32(code_i16))
+    xh = (rng.standard_normal((4, ic)) * 0.3).astype(np.float16)
+    w = np.array(msl.decode_tiles(code, K, ic, oc))          # [IC, OC] f16
+    want = xh.astype(np.float32) @ w.astype(np.float32)
+    got = np.array(msl.dense_gemv(mx.array(xh), code, K, ic, oc))
+    assert got.shape == (4, oc)
+    # f32 reduction order differs from numpy's; the bar is rounding, and a
+    # transposition or stride bug is orders of magnitude outside it.
+    assert np.abs(got - want).max() < 1e-2 * max(1.0, np.abs(want).max())
 
 
 @needs_metal
@@ -304,22 +402,50 @@ def test_fused_module_matches_reference(dense_linear_golden):
 
 
 @needs_metal
-@pytest.mark.parametrize("m,R", [(2, 2), (5, 2), (8, 4), (9, 4), (16, 8), (17, 8), (64, 8)])
-def test_row_blocked_gemm_matches_per_row_gemv(dense_linear_golden, m, R):
+@pytest.mark.parametrize("K", [2, 3])
+@pytest.mark.parametrize("m,R", [(1, 2), (2, 2), (5, 2), (8, 4), (9, 4),
+                                 (16, 8), (17, 8), (64, 8), (63, 8)])
+def test_row_blocked_gemm_matches_per_row_gemv(K, m, R):
     """The row-blocked dense GEMM changes the loop nest, not the accumulation
-    order, so it must be BIT-identical to the per-row kernel — including for row
-    counts that leave the last group partly padding (the odd m values here)."""
+    order, so it must be BIT-identical to the per-row kernel.
+
+    The odd row counts are the point: they leave the tail group partly padding,
+    which is where the store guard and the staging clamp live. m=1 with R=2
+    means the FIRST group is already partly padding. Rectangular multi-block so
+    the group's row addressing is observable.
+    """
     import mlx.core as mx
     from escha_mlx import msl
 
-    g = dense_linear_golden
-    code = mx.array(msl.code_to_u32(g["code"]))
-    rng = np.random.default_rng(11)
-    xh = mx.array((rng.standard_normal((m, 128)) * 0.3).astype(np.float16))
-    want = msl.dense_gemv(xh, code, g["K"], 128, 128)
-    got = msl.dense_gemm_rows(xh, code, g["K"], 128, 128, R)
-    assert got.shape == (m, 128)
+    rng = np.random.default_rng(400 + K + m)
+    ic, oc = BIG_IC, BIG_OC
+    code = mx.array(msl.code_to_u32(
+        rng.integers(-32768, 32768, size=(ic // 16, oc // 16, 16 * K), dtype=np.int16)))
+    xh = mx.array((rng.standard_normal((m, ic)) * 0.3).astype(np.float16))
+    want = msl.dense_gemv(xh, code, K, ic, oc)
+    got = msl.dense_gemm_rows(xh, code, K, ic, oc, R)
+    assert got.shape == (m, oc)
     assert np.array_equal(np.array(got), np.array(want))
+
+
+@needs_metal
+def test_row_blocked_gemm_does_not_touch_rows_outside_the_batch():
+    """The dense GEMM has no padding sink row: the tail group's padding slots
+    stage a real row and are dropped by a store guard. If that guard were wrong
+    they would write over a live row instead."""
+    import mlx.core as mx
+    from escha_mlx import msl
+
+    rng = np.random.default_rng(500)
+    ic, oc, K = BIG_IC, BIG_OC, 2
+    code = mx.array(msl.code_to_u32(
+        rng.integers(-32768, 32768, size=(ic // 16, oc // 16, 16 * K), dtype=np.int16)))
+    xh = mx.array((rng.standard_normal((7, ic)) * 0.3).astype(np.float16))
+    full = np.array(msl.dense_gemm_rows(xh, code, K, ic, oc, 4))
+    # every row must equal the per-row kernel's answer for THAT row alone
+    for i in range(7):
+        one = np.array(msl.dense_gemv(xh[i:i + 1], code, K, ic, oc))
+        assert np.array_equal(full[i:i + 1], one), f"row {i} corrupted"
 
 
 @needs_metal
@@ -348,7 +474,29 @@ def test_blocked_path_is_reachable_from_the_module(dense_linear_golden):
 def test_dense_block_r_env_override(monkeypatch):
     from escha_mlx import msl
 
+    monkeypatch.delenv("ESCHA_MLX_DENSE_BLOCK_R", raising=False)
+    assert msl.dense_block_r_pin() is None
     monkeypatch.setenv("ESCHA_MLX_DENSE_BLOCK_R", "1")
-    assert msl.dense_block_r(4096) == 1
+    assert msl.dense_block_r(4096, msl.dense_block_r_pin()) == 1
     monkeypatch.setenv("ESCHA_MLX_DENSE_BLOCK_R", "16")
-    assert msl.dense_block_r(1) == 16
+    assert msl.dense_block_r(1, msl.dense_block_r_pin()) == 16
+    monkeypatch.setenv("ESCHA_MLX_DENSE_BLOCK_R", "0")
+    with pytest.raises(ValueError, match="ESCHA_MLX_DENSE_BLOCK_R"):
+        msl.dense_block_r_pin()
+
+
+@needs_mlx
+def test_dense_block_r_is_latched_at_construction(dense_linear_golden, monkeypatch):
+    """The pin is resolved once, so flipping the env mid-process cannot change
+    an already-built module — the invariant every other knob here holds to."""
+    from escha_mlx import dense, msl
+
+    monkeypatch.setenv("ESCHA_MLX_LINEAR", "ops")
+    monkeypatch.delenv("ESCHA_MLX_DENSE_BLOCK_R", raising=False)
+    g = dense_linear_golden
+    lin = dense.build({"escha_code": g["code"], "escha_rin": g["rin"],
+                       "escha_rout": g["rout"]})
+    before = lin._block_r_pin
+    monkeypatch.setenv("ESCHA_MLX_DENSE_BLOCK_R", "9")
+    assert lin._block_r_pin == before
+    assert msl.dense_block_r_pin() == 9      # a NEW module would pick it up

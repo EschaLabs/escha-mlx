@@ -45,6 +45,22 @@
     end-to-end checkpoint test, and `tests/test_dense_checkpoint.py`, which validates a
     real export's structure from safetensors headers alone (leaf completeness, declared
     vs implied rate, kernel shape preconditions).
+  - **Load-time guards** (each verified to be a real silent-failure path before being
+    added): K must be in {2, 3} — anything else was decoded by the K=3 unpacker into
+    plausible Gaussian weights; `escha_config` must have exactly its 6 fields — a
+    shorter header skipped the codebook gate entirely; `escha_s_in`/`escha_s_out` must
+    be 1-D of the right length — the fold broadcasts, so a 2-D scale silently applied
+    row 0 to every channel and a scalar applied one value everywhere; an unrecognised
+    `escha_*` tensor is a clear version error rather than a parameter-name crash inside
+    `model.update`. The int8-pair and conv1d-shift checks became raises, since `python
+    -O` strips asserts and both failures are silent.
+  - `ESCHA_MLX_DENSE_BLOCK_R` is now latched at module construction like every other
+    knob, instead of being read on each forward.
+  - `gdn_cache.install` reads the GDN geometry off the model instead of assuming the
+    MoE's 32 v-heads; the dense 27B saving is 75.5 MB/seq, not the 50.3 it was printing.
+  - docs/INSTALL.md gains a dense memory section: 64 KiB/token of KV (3.2× the MoE),
+    the real GDN state figure, and the fact that `--max-kv-size` is inert on any hybrid
+    GDN model because the architecture defines `make_cache` (true of stock mlx-lm too).
   - **Not yet run on Metal.** The dense path was developed on Linux with `mlx[cpu]`,
     where the Metal kernels do not execute. The reference, the module, the loader and
     the real-checkpoint structure are all gated and green; the dense kernel sources

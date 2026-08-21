@@ -483,20 +483,33 @@ def _moe_gemm_rows_source(K: int, use_lut: bool, R: int, KB: int = 1,
     # the write side is far cheaper than un-permuting the whole mid tensor.
     if dense:
         # Row address is computed, not loaded: group grp owns rows grp*R..+R.
-        # min(.., M) sends the tail group's padding slots to the caller's zero row.
         # (uint)M: the template parameter is emitted as an int, and MSL's min()
         # overloads are ambiguous across signedness.
-        row_of = "min(grp * %du + %s, (uint)M)" % (R, "{i}")
-        stage_body = ("            s_x[i] = xh[(ulong)%s * IC\n"
+        #
+        # No padding sink row.  The MoE contract has the CALLER append a zero
+        # row at index M and routes padding slots to it; here the tail group's
+        # padding slots stage a real row instead (harmless -- their accumulators
+        # are never stored) and the STORE is guarded.  That removes a full
+        # [m, IC] copy per call, which the dense path would otherwise pay at
+        # every one of ~400 coded linears on every forward: at a 2048-row
+        # prefill through a 17408-wide leg that is ~71 MB copied in plus a
+        # non-contiguous slice copied out, per linear.  It lands exactly on the
+        # prefill path this kernel exists to make viable, and being independent
+        # of R it would bias any rows-per-group sweep against blocking.
+        row_of = "(grp * %du + %s)" % (R, "{i}")
+        store_guard = "if ((lane & 3u) == 0u && grp * %du + r < (uint)M)" % R
+        stage_body = ("            s_x[i] = xh[(ulong)min(%s, (uint)M - 1u) * IC\n"
                       "                        + (kb + kk) * 16u + cc];"
                       % row_of.format(i="rr"))
     elif sortx:
+        store_guard = "if ((lane & 3u) == 0u)"
         row_of = "rows_idx[grp * %du + %s]" % (R, "{i}")
         stage_body = ("            uint sr = src_row0[grp] + rr;\n"
                       "            s_x[i] = (rr < n_valid[grp])\n"
                       "                ? xh[(ulong)sr * IC + (kb + kk) * 16u + cc]\n"
                       "                : (half)0.0h;")
     else:
+        store_guard = "if ((lane & 3u) == 0u)"
         row_of = "rows_idx[grp * %du + %s]" % (R, "{i}")
         stage_body = ("            s_x[i] = xh[(ulong)rows_idx[grp * %du + rr] * IC\n"
                       "                        + (kb + kk) * 16u + cc];" % R)
@@ -550,7 +563,7 @@ def _moe_gemm_rows_source(K: int, use_lut: bool, R: int, KB: int = 1,
         a0 += simd_shuffle_xor(a0, 2u);
         a1 += simd_shuffle_xor(a1, 1u);
         a1 += simd_shuffle_xor(a1, 2u);
-        if ((lane & 3u) == 0u) {{
+        {store_guard} {{
             uint col = 2u * (l0 >> 3) + c_off;
             ulong ob = (ulong){row_of.format(i="r")} * OC + ocb * 128u + sg * 16u;
             mid[ob + col] = a0;
@@ -1049,7 +1062,24 @@ def dense_gemv(xh: mx.array, code_u32: mx.array, K: int, IC: int, OC: int,
     return moe_gemv(xh, code_u32, None, K, IC, OC, splits)
 
 
-def dense_block_r(m: int) -> int:
+def dense_block_r_pin() -> int | None:
+    """Resolve ESCHA_MLX_DENSE_BLOCK_R once. None = use the size policy.
+
+    Read at module construction, not per forward: every other knob in this
+    runtime is latched the same way, so that flipping an env var mid-process
+    cannot make an A/B depend on call order, and a malformed value fails at
+    load instead of from inside the hot loop.
+    """
+    env = os.environ.get("ESCHA_MLX_DENSE_BLOCK_R")
+    if not env:
+        return None
+    r = int(env)
+    if r < 1:
+        raise ValueError(f"ESCHA_MLX_DENSE_BLOCK_R must be >= 1, got {r}")
+    return r
+
+
+def dense_block_r(m: int, pin: int | None = None) -> int:
     """Rows per group for the dense row-blocked GEMM (1 = the per-row GEMV).
 
     The dense case is the one the MoE policy in EschaSparseMoeBlock._blocked_R
@@ -1064,14 +1094,14 @@ def dense_block_r(m: int) -> int:
     -- but it is an argument, not a measurement, and NONE of these thresholds
     have been measured on Metal (this path was developed on Linux CPU, where
     the kernels do not run).  So the default is deliberately modest and the
-    knob is exposed: ESCHA_MLX_DENSE_BLOCK_R pins R, and sweeping it is the
-    first thing to do on real hardware.  R=1 is always correct and is what
+    knob is exposed: ESCHA_MLX_DENSE_BLOCK_R pins R (resolved once by
+    ``dense_block_r_pin`` and passed in), and sweeping it is the first thing to
+    do on real hardware.  R=1 is always correct and is what
     small row counts use, where the staging barriers cost more than the shared
     decode saves.
     """
-    env = os.environ.get("ESCHA_MLX_DENSE_BLOCK_R")
-    if env:
-        return max(1, int(env))
+    if pin is not None:
+        return pin
     if m >= 64:
         return 8
     if m >= 16:
@@ -1085,27 +1115,27 @@ def dense_gemm_rows(xh: mx.array, code_u32: mx.array, K: int, IC: int, OC: int,
                     R: int) -> mx.array:
     """Row-blocked dense GEMM: mid = xh @ decode(code), R rows per decode.
 
-    xh: [M, IC] f16 (the padding row is appended here, not by the caller).
+    xh: [M, IC] f16 -- no padding row; the kernel guards its stores instead.
     Returns mid [M, OC] f32 -- bit-identical to ``dense_gemv`` on the same input
     (same kt/j accumulation order; only the loop nest around it differs).
     """
     m = xh.shape[0]
+    if m < 1:
+        raise ValueError("dense_gemm_rows needs at least one row")
     tk, tn = IC // 16, OC // 16
     lut = use_lut()
     kb = kt_block()
     if tk % kb:                      # a partial block would drop kt iterations
         kb = 1
     n_groups = (m + R - 1) // R
-    xh_pad = mx.concatenate(
-        [xh, mx.zeros((1, IC), dtype=xh.dtype)], axis=0)
     kern = _moe_gemm_rows_kernel(K, lut, R, kb, False, use_prefetch(), True)
-    inputs = [xh_pad, code_u32.reshape(-1)] + ([_lut_array()] if lut else [])
+    inputs = [xh, code_u32.reshape(-1)] + ([_lut_array()] if lut else [])
     (mid,) = kern(
         inputs=inputs,
         template=[("TK", tk), ("TN", tn), ("IC", IC), ("OC", OC), ("M", m)],
         grid=(256 * (OC // 128), n_groups, 1),
         threadgroup=(256, 1, 1),
-        output_shapes=[(m + 1, OC)],
+        output_shapes=[(m, OC)],
         output_dtypes=[mx.float32],
     )
-    return mid[:m]
+    return mid
