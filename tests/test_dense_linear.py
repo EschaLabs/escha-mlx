@@ -118,6 +118,7 @@ def test_end_to_end_scales_are_actually_applied(dense_linear_golden):
 def test_module_matches_reference(dense_linear_golden, monkeypatch):
     """EschaLinear's portable path must be bit-exact against ref.dense_linear."""
     monkeypatch.setenv("ESCHA_MLX_LINEAR", "ops")
+    monkeypatch.setenv("ESCHA_MLX_BIAS", "1")     # gate the correction path
     import mlx.core as mx
     from escha_mlx import dense
 
@@ -155,6 +156,7 @@ def test_prepacked_code_is_equivalent(dense_linear_golden, monkeypatch):
     """The streaming loader packs each code stream on arrival; that must build
     the same weight as handing the raw int16 tensor over."""
     monkeypatch.setenv("ESCHA_MLX_LINEAR", "ops")
+    monkeypatch.setenv("ESCHA_MLX_BIAS", "1")
     import mlx.core as mx
     from escha_mlx import dense
 
@@ -284,6 +286,7 @@ def test_module_matches_reference_rectangular(K, monkeypatch):
     128x128 golden cannot reach even where Metal is unavailable.
     """
     monkeypatch.setenv("ESCHA_MLX_LINEAR", "ops")
+    monkeypatch.setenv("ESCHA_MLX_BIAS", "1")     # gate the correction path
     import mlx.core as mx
     from escha_mlx import dense
 
@@ -381,11 +384,12 @@ def test_dense_gemv_against_decoded_weight(K):
 
 
 @needs_metal
-def test_fused_module_matches_reference(dense_linear_golden):
+def test_fused_module_matches_reference(dense_linear_golden, monkeypatch):
     """The whole fused linear against the portable reference."""
     import mlx.core as mx
     from escha_mlx import dense
 
+    monkeypatch.setenv("ESCHA_MLX_BIAS", "1")
     ref = _ref()
     g = dense_linear_golden
     lin = dense.build({"escha_code": g["code"], "escha_rin": g["rin"],
@@ -546,3 +550,38 @@ def test_coded_bytes_sees_streams_that_parameters_cannot(dense_linear_golden, mo
     assert dense.coded_bytes(Holder(lin, other)) == 2 * want
     assert dense.coded_bytes([lin, other]) == 2 * want
     assert dense.coded_bytes(nn.Linear(4, 4)) == 0
+
+
+# ------------------------------------------------------------- bias policy
+
+
+@needs_mlx
+def test_bias_is_off_by_default_and_toggleable(dense_linear_golden, monkeypatch):
+    """The export ships a per-linear correction the reference runtime does not
+    apply (escha_mlx.dense.apply_bias). Default off so this runtime reproduces
+    the published model; ESCHA_MLX_BIAS=1 applies it. Both must be reachable —
+    the difference is far too large to leave undecidable."""
+    import mlx.core as mx
+    from escha_mlx import dense
+
+    monkeypatch.setenv("ESCHA_MLX_LINEAR", "ops")
+    g = dense_linear_golden
+    group = {"escha_code": g["code"], "escha_rin": g["rin"], "escha_rout": g["rout"],
+             "escha_s_in": g["s_in"], "escha_s_out": g["s_out"], "bias": g["bias"]}
+
+    monkeypatch.delenv("ESCHA_MLX_BIAS", raising=False)
+    assert not dense.apply_bias()
+    off = dense.build(group)
+    assert off.bias is None
+
+    monkeypatch.setenv("ESCHA_MLX_BIAS", "1")
+    assert dense.apply_bias()
+    on = dense.build(group)
+    assert on.bias is not None
+
+    x = mx.array(g["x"])
+    delta = np.array(on(x).astype(mx.float32)) - np.array(off(x).astype(mx.float32))
+    assert np.abs(delta - g["bias"].astype(np.float32)).max() < 1e-3
+    # and it is not a rounding-level difference: this is a fork in the model
+    rel = np.abs(delta).mean() / np.abs(np.array(on(x).astype(mx.float32))).mean()
+    assert rel > 0.01, f"correction is only {rel:.1%} — re-check the goldens"

@@ -123,6 +123,28 @@ cap on long prompts.
 
 ---
 
+## The per-linear correction (`ESCHA_MLX_BIAS`)
+
+A dense escha export stores a `bias` tensor beside every coded linear — the
+additive correction its end-to-end stage learned. On Qwen3.8-27B all 400 are
+non-zero, and applying one moves that linear's output by **6.7–8.3%** (measured
+on the goldens in `tests/data/qwen3_5/`), compounding over 64 layers. That is
+four orders of magnitude above the fp16-rounding differences every other gate
+in this runtime is held to.
+
+**The path those published numbers come from does not apply them.** That
+quantization method registers exactly the six `escha_*` tensors and no bias;
+every coded linear is constructed `bias=False`; and unmatched `.bias` names are
+dropped through a GPTQ-era guard, silently and without a warning. So every published
+number for this checkpoint was produced *without* the correction.
+
+This runtime therefore leaves it **off by default**, so that what you serve is
+the model those numbers describe, and logs at load that the tensors are present
+and unused. `ESCHA_MLX_BIAS=1` applies them, which is what the export format's
+own written contract asks for. Which is correct is a question about the
+checkpoint, not about this runtime: run it as a paired A/B on a real task
+before trusting either.
+
 ## Memory on the dense 27B
 
 The numbers above are the 35B MoE's. The dense Qwen3.8-27B has a different
@@ -168,6 +190,7 @@ these is gated bit-identical or documented where it is not.
 | `ESCHA_MLX_DENSE=fp16` | fp16 dense weights instead of the Q8 repack. +~1.9 GB resident; bit-identical weight values. |
 | `ESCHA_MLX_LUT=1` | table-based codec decode instead of the multiply-hash. Bit-exact by construction; use if a future Metal compiler ever breaks fp16 round-to-nearest-even in the hash path. |
 | `ESCHA_MLX_MOE=ops` | NumPy expert path. Very slow; a correctness oracle, not for serving. |
+| `ESCHA_MLX_BIAS=1` | apply the per-linear correction a dense export ships. **Off by default, and this is a real fork in the model, not a tuning knob** — see below. |
 | `ESCHA_MLX_LINEAR=ops` | NumPy path for the coded linears of a **dense** model (the MoE flag's counterpart). Very slow, and it materializes each fp16 weight; a correctness oracle, not for serving. |
 | `ESCHA_MLX_DENSE_BLOCK_R=N` | pin rows-per-group for the dense row-blocked GEMM (1 = always the per-row kernel). Default is size-dependent and, unlike the rest of this table, **has not been measured on Metal** — see below. Bit-identical at every R. |
 

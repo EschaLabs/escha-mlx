@@ -295,6 +295,7 @@ def test_dense_synthetic_checkpoint_end_to_end(tmp_path, monkeypatch):
     from escha_mlx.quant import EschaQ8Embedding, EschaQ8Linear
 
     monkeypatch.setenv("ESCHA_MLX_LINEAR", "ops")   # portable path: CI has no Metal
+    monkeypatch.setenv("ESCHA_MLX_BIAS", "1")       # exercise the correction path
     _write_tiny_dense_checkpoint(tmp_path, np.random.default_rng(0))
     model = load_model(tmp_path)
 
@@ -373,6 +374,7 @@ def test_dense_checkpoint_without_optional_leaves(tmp_path, monkeypatch):
     from escha_mlx.loader import load_model
 
     monkeypatch.setenv("ESCHA_MLX_LINEAR", "ops")
+    monkeypatch.setenv("ESCHA_MLX_BIAS", "1")
     _write_tiny_dense_checkpoint(tmp_path, np.random.default_rng(3), optional=False)
     model = load_model(tmp_path)
 
