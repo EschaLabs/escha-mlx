@@ -16,6 +16,12 @@ def main() -> None:
     ap.add_argument("--max-tokens", type=int, default=128)
     ap.add_argument("--raw", action="store_true", help="no chat template")
     ap.add_argument("--thinking", action="store_true", help="enable thinking mode")
+    ap.add_argument("--reasoning-effort",
+                    help="reasoning effort for models whose chat template takes one "
+                         "(Qwen3.8: low | medium | xhigh, default xhigh). Passed "
+                         "through to the template only when given, so each model "
+                         "keeps its own default; a template that does not use it "
+                         "ignores it.")
     ap.add_argument("--temp", type=float, default=0.0, help="0 = greedy")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
@@ -34,10 +40,12 @@ def main() -> None:
     if args.raw:
         prompt = args.prompt
     else:
+        extra = ({"reasoning_effort": args.reasoning_effort}
+                 if args.reasoning_effort else {})
         prompt = tokenizer.apply_chat_template(
             [{"role": "user", "content": args.prompt}],
             add_generation_prompt=True, tokenize=False,
-            enable_thinking=args.thinking)
+            enable_thinking=args.thinking, **extra)
 
     sampler = make_sampler(temp=args.temp)
     last = None
