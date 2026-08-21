@@ -34,6 +34,12 @@
   - **Load-time metadata cross-check**: `escha_config`'s K and shapes are checked against
     the code stream's own shape, and an unknown codebook id is refused — a mismatch would
     otherwise decode into plausible, finite, entirely wrong weights.
+  - **Load-time shape guard**: both dimensions of a coded linear must be multiples of
+    128. The kernels assume it and do not check — a 16-aligned but not 128-aligned
+    dimension would silently drop the remainder of the last block.
+  - `escha-mlx-generate --reasoning-effort` passes an effort through to chat templates
+    that take one (Qwen3.8: low/medium/xhigh, default xhigh); omitted unless given, so
+    every model keeps its own default.
   - New gates: real-data goldens under `tests/data/qwen3_5/` (a 128×128 corner of two
     shipped linears with their reference outputs), a dense synthetic
     end-to-end checkpoint test, and `tests/test_dense_checkpoint.py`, which validates a

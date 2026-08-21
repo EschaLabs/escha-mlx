@@ -112,6 +112,14 @@ class EschaWeight:
             raise ValueError(
                 f"transform vectors {rin.shape[-1]}/{rout.shape[-1]} do not match "
                 f"the code stream's {self.IC}x{self.OC}")
+        # The kernels assume this and do not check it: the transforms run one
+        # 128-block per threadgroup and the GEMV grid covers 128 output channels
+        # per threadgroup, so a dimension that is a multiple of 16 (tile-aligned)
+        # but not of 128 would silently drop the remainder instead of failing.
+        if self.IC % 128 or self.OC % 128:
+            raise ValueError(
+                f"escha linear dimensions must be multiples of 128, got "
+                f"{self.IC}x{self.OC}")
         # escha_config is [L, K, V, codebook_id, IC, OC]. The shapes above are
         # authoritative (they are what the kernels index with), so the config is
         # a cross-check rather than a source: a K or a shape that disagrees means

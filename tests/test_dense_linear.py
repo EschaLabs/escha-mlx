@@ -215,6 +215,20 @@ def test_transform_vector_length_mismatch_is_rejected(dense_linear_golden):
 
 
 @needs_mlx
+@pytest.mark.parametrize("tk,tn", [(9, 8), (8, 9)])
+def test_non_hadamard_dimensions_are_rejected(dense_linear_golden, tk, tn):
+    """16-aligned but not 128-aligned: the kernels would silently drop the
+    remainder of the last block rather than fail."""
+    from escha_mlx import dense
+
+    g = dense_linear_golden
+    K = g["K"]
+    code = np.zeros((tk, tn, 16 * K), dtype=np.int16)
+    with pytest.raises(ValueError, match="multiples of 128"):
+        dense.EschaWeight(code, np.ones(tk * 16, np.float16), np.ones(tn * 16, np.float16))
+
+
+@needs_mlx
 def test_incomplete_group_is_rejected(dense_linear_golden):
     from escha_mlx import dense
 
