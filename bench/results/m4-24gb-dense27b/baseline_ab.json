@@ -1,0 +1,49 @@
+{
+  "escha_mlx_git_revision": "b9eb6288780e3f95b154c4224b239e56630864b7",
+  "model_hf_revision": "a7329bde673acf42826f17bf525154e633006cbd",
+  "mlx": "0.32.0",
+  "model": "EschaLabs/Qwen3.8-27B-Escha-W2",
+  "A_correctness": {
+    "paris_raw": {
+      "text": "Paris.\nThe capital of Germany is Berlin.\nThe capital of Italy is",
+      "gen_tps": 7.77,
+      "prompt_tps": 5.99,
+      "peak_gb": 10.42
+    },
+    "mult_chat": {
+      "text": "391",
+      "gen_tps": 9.72,
+      "prompt_tps": 24.47,
+      "peak_gb": 10.54
+    },
+    "haiku_think": {
+      "text": "We need to respond to user: \"Write a haiku about Tokyo.\" Need produce haiku likely 5-7-5 syllables. Need final only haiku maybe. Need ensure syllables. Let's craft: \"Neon lights glow\" (Neon 2? ne-on =2, lights=1, glow=1 total4? Need 5. \"Neon lights glow\" = Neon (2) lights (1) glow (1)=4. Add \"bright\"? \"Neon lights glow bright\" = 2+1+1+1=5. Line1 5.\nLine2 7: \"trains hum through the night\" trains(1) hum(1) through(1) the(1) night(1)=5. Need 7. \"trains hum softly through night\" trains1 hum1 softly2 through1 night1=6. \"trains hum softly in night\" 1+1+2",
+      "gen_tps": 7.32,
+      "prompt_tps": 24.18,
+      "peak_gb": 10.77
+    }
+  },
+  "B_bs1": {
+    "128": {
+      "prefill_s": 3.77,
+      "prefill_tps": 34.0,
+      "decode_tps": 6.77,
+      "ms_per_token": 147.66,
+      "peak_gb": 11.04
+    },
+    "512": {
+      "prefill_s": 15.39,
+      "prefill_tps": 33.3,
+      "decode_tps": 6.77,
+      "ms_per_token": 147.77,
+      "peak_gb": 11.5
+    },
+    "2048": {
+      "prefill_s": 64.233,
+      "prefill_tps": 31.9,
+      "decode_tps": 6.43,
+      "ms_per_token": 155.57,
+      "peak_gb": 11.54
+    }
+  }
+}
