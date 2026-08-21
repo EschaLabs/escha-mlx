@@ -45,6 +45,10 @@
     end-to-end checkpoint test, and `tests/test_dense_checkpoint.py`, which validates a
     real export's structure from safetensors headers alone (leaf completeness, declared
     vs implied rate, kernel shape preconditions).
+  - **Not yet run on Metal.** The dense path was developed on Linux with `mlx[cpu]`,
+    where the Metal kernels do not execute. The reference, the module, the loader and
+    the real-checkpoint structure are all gated and green; the dense kernel sources
+    themselves meet the Metal compiler for the first time at RUNBOOK step 1e.
 - **Fused expert output Hadamard transform** (companion to 0.1.0's input-side
   fusion): transform + output-scale gather + f16 cast in one Metal kernel,
   bit-exact with the native chain. M5 Pro: +5.6% decode at B=1, +5.8% prefill

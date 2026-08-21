@@ -42,15 +42,33 @@ python bench/p0_gates.py     # exception-isolated; capture FULL output
 
 # 1d. layer-0 MoE block vs the committed golden (slow, ~minutes; needs $ESCHA_MODEL)
 pytest tests/test_mlx_cpu.py -v -s -k ckpt_golden
+
+# 1e. DENSE architectures (qwen3_5 — Qwen3.8-27B and siblings). Skip if you are
+#     only bringing up the MoE model.
+pytest tests/test_dense_linear.py -v          # incl. the Metal parity gates
+ESCHA_MLX_SLOW_TESTS=1 ESCHA_DENSE_MODEL=<dir> pytest tests/test_dense_checkpoint.py -v
 ```
+
+> **The dense Metal kernels have not been executed on hardware yet.** The dense
+> path was developed on Linux with `mlx[cpu]`, where the Metal kernels do not
+> run — everything else (the NumPy reference, the module against real shipped
+> tensors, the loader against the real checkpoint, mixed-rate routing) is gated
+> and green, but **step 1e is the first time the dense kernel sources meet the
+> Metal compiler.** That is the same position the MoE runtime was in at its own
+> bring-up, and it came out bit-exact on first contact; still, treat 1e as a
+> genuine gate rather than a formality, and report a compile diagnostic or a
+> value mismatch as a bug. `ESCHA_MLX_LINEAR=ops` runs the whole dense model
+> through the NumPy oracle if you need to separate a kernel fault from a
+> model fault.
 
 **If a hash-decode gate fails but the LUT variant passes:** the Metal compiler
 broke fp16 RNE on the hash path — `export ESCHA_MLX_LUT=1` for everything
 below and report mlx/macOS versions.
 
 **If kernels fail to COMPILE (Metal compiler error, not a value mismatch):**
-capture the full compiler diagnostic; `ESCHA_MLX_MOE=ops` still lets step 2
-run as a correctness oracle (slow, ~20 s/token).
+capture the full compiler diagnostic; `ESCHA_MLX_MOE=ops` (MoE) or
+`ESCHA_MLX_LINEAR=ops` (dense) still lets step 2 run as a correctness oracle
+(slow, ~20 s/token).
 
 **If the Q8 repack gate fails:** `export ESCHA_MLX_DENSE=fp16`
 (+~1.9 GB resident; still fits at short ctx) and report.
