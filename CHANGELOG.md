@@ -74,6 +74,16 @@
     concurrency 2 or 3 read the whole coded stream once per row, the exact cost the
     row-blocked kernel exists to remove. Now `R = min(rows, 8)` snapped to a power of
     two: never pads, R>1 from two rows, four compiled variants.
+  - **The per-linear correction is OFF by default** (`ESCHA_MLX_BIAS=1` applies it).
+    A dense export ships a `bias` beside every coded linear; on Qwen3.8-27B all 400 are
+    non-zero and applying one moves that linear's output by 6.7-8.3%. The path
+    those published numbers come from does not apply them — that method registers no
+    bias parameter, every coded linear is built `bias=False`, and unmatched `.bias`
+    names are dropped through a GPTQ-era guard without warning — so every published number
+    for this checkpoint was produced without it. Defaulting off keeps this runtime
+    comparable to those numbers; the loader logs that the tensors are present and
+    unused. Which behaviour is correct is a question about the checkpoint, not about
+    this runtime.
   - **Not yet run on Metal.** The dense path was developed on Linux with `mlx[cpu]`,
     where the Metal kernels do not execute. The reference, the module, the loader and
     the real-checkpoint structure are all gated and green; the dense kernel sources

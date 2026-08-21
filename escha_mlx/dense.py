@@ -19,7 +19,10 @@ transform vectors.
 Per-linear forward (see escha_mlx.ref for the rounding contract):
     xh  = f16( H128(x * rin) * RS )
     mid = xh @ decode(code)                       (f32, fused Metal kernel)
-    y   = f16( H128(mid) * RS * rout ) + bias
+    y   = f16( H128(mid) * RS * rout ) [+ bias]
+The bracketed correction is OFF by default because the reference runtime does
+not apply it either -- see ``apply_bias``, which is worth reading before
+comparing this runtime's output to anything.
 
 ``rin``/``rout`` are the *folded* transform vectors: dense exports ship the
 end-to-end scales s_in/s_out separately, and ``ref.fold_scales`` multiplies them
@@ -99,6 +102,34 @@ def _warn_ops_on_metal() -> None:
         "(ESCHA_MLX_LINEAR=ops) on a machine that HAS Metal. This is orders of "
         "magnitude slower and materialises each weight in f32 — unset "
         "ESCHA_MLX_LINEAR to use the kernels.")
+
+
+def apply_bias() -> bool:
+    """Whether to apply the per-linear correction the export ships (default NO).
+
+    A dense export stores a `bias` beside every coded linear -- the additive
+    correction the end-to-end stage learned. On the shipped Qwen3.8-27B all 400
+    are non-zero, and applying one moves that linear's output by 6.7-8.3%
+    (measured on the committed goldens): four orders of magnitude above the
+    fp16-rounding differences every other gate in this package is held to. This
+    is a fork in the model, not a rounding choice.
+
+    The path the published numbers come from does NOT apply them. That
+    quantization method registers exactly the six escha_* tensors and no bias,
+    every coded linear is constructed `bias=False`, and unmatched `.bias` names
+    are dropped by a GPTQ-era
+    `if name.endswith(".bias") and name not in params_dict: continue`
+    -- silently, with no warning. So every published number for this checkpoint
+    was produced WITHOUT the correction.
+
+    Default off, therefore: this runtime's job is to reproduce the published
+    model, and a 6-8% per-linear divergence compounding over 64 layers would
+    make any comparison against the model card meaningless. ESCHA_MLX_BIAS=1
+    applies them, which is what the export's own written contract
+    (`y = (x * s_in) @ W * s_out + bias`) asks for -- run it as a paired A/B on
+    a real task before treating either as correct.
+    """
+    return os.environ.get("ESCHA_MLX_BIAS", "0") == "1"
 
 
 def linear_mode() -> str:
@@ -298,7 +329,8 @@ def build(group: dict[str, np.ndarray]) -> EschaLinear:
     w = EschaWeight(group["escha_code"], group["escha_rin"], group["escha_rout"],
                     group.get("escha_s_in"), group.get("escha_s_out"),
                     group.get("escha_config"))
-    return EschaLinear(w, group.get("bias"))
+    bias = group.get("bias") if apply_bias() else None
+    return EschaLinear(w, bias)
 
 
 def coded_bytes(obj) -> int:

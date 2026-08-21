@@ -189,6 +189,7 @@ def test_truncated_real_load(monkeypatch):
     from escha_mlx.quant import EschaQ8Embedding, EschaQ8Linear
 
     monkeypatch.setenv("ESCHA_MLX_LINEAR", "ops")
+    monkeypatch.setenv("ESCHA_MLX_BIAS", "1")   # exercise the correction path
     n_layers = 4                     # 3 linear_attention + 1 full_attention
     config = json.loads((Path(DENSE_CKPT) / "config.json").read_text())
     small = copy.deepcopy(config)
@@ -224,7 +225,7 @@ def test_truncated_real_load(monkeypatch):
                      for n in ("gate_proj", "up_proj", "down_proj")})
         assert all(isinstance(m, EschaLinear) for m in mods.values()), \
             {k: type(m).__name__ for k, m in mods.items()}
-        assert all(m.bias is not None for m in mods.values())
+        assert all(m.bias is not None for m in mods.values())   # ESCHA_MLX_BIAS=1
         # the shipped mixed rate
         assert mods["up_proj"].K == 3 and mods["down_proj"].K == 3
         assert mods["gate_proj"].K == 2

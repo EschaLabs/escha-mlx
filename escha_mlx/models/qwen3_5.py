@@ -83,6 +83,7 @@ class CheckpointLoader:
         self._int8_np: dict[str, dict[str, np.ndarray]] = {}
         self._base: dict[str, np.ndarray] = {}
         self.n_coded = 0
+        self.n_bias = 0
         self.n_q8 = 0
         self.dropped = 0
 
@@ -166,6 +167,7 @@ class CheckpointLoader:
             held = self._bias.pop(base, None)
             if held is not None:
                 group["bias"] = held[1]
+                self.n_bias += 1
             lin = self._install_coded(base, group)
             rates[lin.K] = rates.get(lin.K, 0) + 1
             escha_arrays += lin._w.arrays()
@@ -204,4 +206,14 @@ class CheckpointLoader:
                     "%d Q8 dense, %d dropped", self.n_coded, self.n_layers,
                     ", ".join(f"K={k}: {n}" for k, n in sorted(rates.items())),
                     self.n_q8, self.dropped)
+        if self.n_bias and not dense.apply_bias():
+            # Say it out loud: these tensors exist, they are not zero, and this
+            # runtime is choosing not to apply them because the reference
+            # runtime does not either. See escha_mlx.dense.apply_bias.
+            logger.info(
+                "escha_mlx: %d per-linear bias tensors present and NOT applied "
+                "(matching the reference runtime, which has no destination for "
+                "them). ESCHA_MLX_BIAS=1 applies them — see "
+                "escha_mlx.dense.apply_bias before comparing outputs.",
+                self.n_bias)
         return escha_arrays
