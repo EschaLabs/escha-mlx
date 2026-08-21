@@ -516,7 +516,9 @@ def test_dense_block_r_never_pads_and_is_bounded():
 
     rs = {m: msl.dense_block_r(m) for m in range(1, 600)}
     assert all(r <= m for m, r in rs.items())
-    assert set(rs.values()) <= {1, 2, 4, 8}
+    pow2s = {1 << i for i in range(msl.DENSE_R_MAX.bit_length())
+             if 1 << i <= msl.DENSE_R_MAX}
+    assert set(rs.values()) <= pow2s
     assert rs[1] == 1 and rs[2] == 2 and rs[4] == 4 and rs[8] == 8
     assert all(rs[m] == msl.DENSE_R_MAX for m in range(msl.DENSE_R_MAX, 600))
     assert all(rs[m] <= rs[m + 1] for m in range(1, 599))    # monotone

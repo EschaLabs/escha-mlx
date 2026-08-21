@@ -174,7 +174,7 @@ def g02b_dense():
 
         # 3. row-blocking must not change a bit, including a partial tail group
         ok = True
-        for rows, R in ((5, 2), (9, 4), (17, 8)):
+        for rows, R in ((5, 2), (9, 4), (17, 8), (33, 16)):
             x2 = mx.array((rng.standard_normal((rows, ic)) * 0.3).astype(np.float16))
             if not np.array_equal(
                     np.array(msl.dense_gemm_rows(x2, code, K, ic, oc, R)),

@@ -200,7 +200,7 @@ def _decode_tiles_source(K: int, use_lut: bool) -> str:
 
 
 def _moe_gemv_direct_source(K: int, use_lut: bool, shuffle: bool = False,
-                            dense: bool = False) -> str:
+                            dense: bool = False, pf: int = 1) -> str:
     """Barrier-free per-row GEMV: no threadgroup staging of code OR of x.
 
     The staged variant below runs TK iterations (128 for gate_up) with TWO
@@ -214,19 +214,70 @@ def _moe_gemv_direct_source(K: int, use_lut: bool, shuffle: bool = False,
     reads are redundant across lanes but hit the same cache line, and no thread
     ever waits on another -- the inner loop has zero synchronization.
 
+    ``pf`` > 1 unrolls the kt loop and hoists the code-word fetches of pf
+    consecutive tiles ahead of their decode+accumulate bodies, so each lane
+    keeps 2*pf loads in flight instead of 2.  The kernel is latency-bound at
+    bs1, and the next tile's address is affine in kt -- independent of the
+    current decode -- so the only thing stopping deeper pipelining is that the
+    single-tile loop consumes each word the instruction after it loads.  The
+    bodies still run in ascending kt order with the same j order, so the f32
+    accumulation order -- and every output bit -- is unchanged (the same
+    argument, and the same fetch-substitution helper, as the row-blocked GEMM's
+    prefetch variant).  Requires TK % pf == 0; the wrapper falls back to pf=1
+    otherwise.
+
     Accumulation order per (row, out-channel) is unchanged => bit-identical.
     """
     wpt = 8 * K
     raw = _EXTRACT_K2 if K == 2 else _EXTRACT_K3
-    extract = (_substitute_fetch_shuffle(raw) if shuffle else _substitute_fetch(raw))
-    fetch = (f"        uint myw = (lane < {wpt}u) ? wp[lane] : 0u;\n"
-             if shuffle else "")
-    accs = []
+    # The 8 x reads per lane-tile cover only 4 distinct halves (xrow, xrow+1,
+    # xrow+8, xrow+9), each used by one acc0 and one acc1 term.  Load them as
+    # two half2 vectors -- xrow is even, so both addresses are 4B-aligned --
+    # and feed the SAME values to the FMAs in the SAME j order: a pure
+    # load-merge, bit-identical.  Measured ~8% of the m=1 kernel: redundant
+    # scalar loads all hit one cache line but still occupy issue slots.
+    xv = ("        half2 xv0 = *(device const half2*)(xrowp + xrow);\n"
+          "        half2 xv1 = *(device const half2*)(xrowp + xrow + 8u);")
+    _XCOMP = {0: "xv0.x", 1: "xv0.y", 8: "xv1.x", 9: "xv1.y"}
+    accs = [xv]
     for j in range(8):
         fi = j >> 1
-        xo = f"xrow + {j & 1}u + {(fi & 1) * 8}u"
+        xo = (j & 1) + (fi & 1) * 8
         acc = "acc0" if j < 4 else "acc1"
-        accs.append(f"        {acc} += (float)xrowp[{xo}] * (float){_dec(f's{j}', use_lut)};")
+        accs.append(f"        {acc} += (float){_XCOMP[xo]} * (float){_dec(f's{j}', use_lut)};")
+    if pf > 1:
+        extract = _substitute_fetch_prefetch(raw, K)
+        pf_idx = _PF_IDX_K2 if K == 2 else _PF_IDX_K3
+        pf_b = "pi1" if K == 2 else "pi2"
+        loop = f"""
+{pf_idx}
+    for (uint kb = 0; kb < TK; kb += {pf}u) {{
+        uint pfa[{pf}], pfb[{pf}];
+#pragma clang loop unroll(full)
+        for (uint u = 0; u < {pf}u; ++u) {{
+            device const uint* wpk = base + ((ulong)(kb + u) * TN + ocb * 8u + sg) * {wpt}u;
+            pfa[u] = wpk[pi0];
+            pfb[u] = wpk[{pf_b}];
+        }}
+#pragma clang loop unroll(full)
+        for (uint k2 = 0; k2 < {pf}u; ++k2) {{
+            device const half* xrowp = xbase + (kb + k2) * 16u;
+{extract}
+{chr(10).join('    ' + a for a in accs)}
+        }}
+    }}"""
+    else:
+        extract = (_substitute_fetch_shuffle(raw) if shuffle
+                   else _substitute_fetch(raw))
+        fetch = (f"        uint myw = (lane < {wpt}u) ? wp[lane] : 0u;\n"
+                 if shuffle else "")
+        loop = f"""
+    for (uint kt = 0; kt < TK; kt++) {{
+        device const uint* wp = base + ((ulong)kt * TN + ocb * 8u + sg) * {wpt}u;
+        device const half* xrowp = xbase + kt * 16u;
+{fetch}{extract}
+{chr(10).join(accs)}
+    }}"""
     return f"""
     uint ocb = thread_position_in_grid.x >> 8;
     uint row = thread_position_in_grid.y;
@@ -239,13 +290,7 @@ def _moe_gemv_direct_source(K: int, use_lut: bool, shuffle: bool = False,
     uint l0 = lane & ~4u;
     uint c_off = (lane >> 2) & 1u;
     uint xrow = (lane & 3u) * 2u;
-
-    for (uint kt = 0; kt < TK; kt++) {{
-        device const uint* wp = base + ((ulong)kt * TN + ocb * 8u + sg) * {wpt}u;
-        device const half* xrowp = xbase + kt * 16u;
-{fetch}{extract}
-{chr(10).join(accs)}
-    }}
+{loop}
 
     acc0 += simd_shuffle_xor(acc0, 1u);
     acc0 += simd_shuffle_xor(acc0, 2u);
@@ -463,18 +508,32 @@ def _moe_gemm_rows_source(K: int, use_lut: bool, R: int, KB: int = 1,
         wp_decl = ("            uint kt = kb + k2;\n"
                    "            device const uint* wp = base + ((ulong)kt * TN "
                    "+ ocb * 8u + sg) * %du;" % wpt)
-    accs = []
-    for j in range(8):
-        fi = j >> 1
-        xo = f"xrow + {j & 1}u + {(fi & 1) * 8}u"
-        acc = "acc0" if j < 4 else "acc1"
-        accs.append(f"""
-        {{
-            float d = (float){_dec(f's{j}', use_lut)};
-            uint xo = {xo};
+    # Hoist the 8 decodes, then run r-outer with two half2 threadgroup loads
+    # per row: the 8 scalar s_x reads per (lane, r) cover 4 distinct halves at
+    # even offsets (xrow, +1, +8, +9), so they merge into 2 vector loads --
+    # 8R -> 2R threadgroup accesses per tile.  Loop order changed from j-outer
+    # to r-outer, but each accumulator acc{0,1}[r] still receives its four
+    # terms in ascending-j order, so every f32 sum -- and every output bit --
+    # is unchanged.  (xb, r*16 and xrow are all even => half2 alignment holds.)
+    decs = "\n".join(f"            float d{j} = (float){_dec(f's{j}', use_lut)};"
+                     for j in range(8))
+    accs = [f"""
+{decs}
 #pragma clang loop unroll(full)
-            for (uint r = 0; r < {R}u; ++r) {acc}[r] += (float)s_x[xb + r * 16u + xo] * d;
-        }}""")
+            for (uint r = 0; r < {R}u; ++r) {{
+                threadgroup const half2* xp =
+                    (threadgroup const half2*)(s_x + xb + r * 16u + xrow);
+                half2 xv0 = xp[0];
+                half2 xv1 = xp[4];
+                acc0[r] += (float)xv0.x * d0;
+                acc0[r] += (float)xv0.y * d1;
+                acc0[r] += (float)xv1.x * d2;
+                acc0[r] += (float)xv1.y * d3;
+                acc1[r] += (float)xv0.x * d4;
+                acc1[r] += (float)xv0.y * d5;
+                acc1[r] += (float)xv1.x * d6;
+                acc1[r] += (float)xv1.y * d7;
+            }}"""]
     # Sorted-x staging: rows of a group are CONSECUTIVE in xs, so the address is
     # computed (src_row0 + rr) rather than loaded from rows_idx and chased.  The
     # values staged are identical -- padding contributes 0 either way -- so the
@@ -747,12 +806,17 @@ def _decode_tiles_kernel(K: int, lut: bool):
 
 @lru_cache(maxsize=None)
 def _moe_gemv_kernel(K: int, lut: bool, direct: bool = False, shuffle: bool = False,
-                     dense: bool = False):
+                     dense: bool = False, pf: int = 1):
     inputs = (["xh", "code"] + ([] if dense else ["row_expert"])
               + (["lut"] if lut else []))
-    src = (_moe_gemv_direct_source(K, lut, shuffle, dense) if direct
+    src = (_moe_gemv_direct_source(K, lut, shuffle, dense, pf) if direct
            else _moe_gemv_source(K, lut, dense))
-    tag = ("_direct" if direct else "") + ("_shf" if direct and shuffle else "")
+    # pf is baked into the source, so it MUST be in the name: MLX keys its
+    # compiled-kernel cache by name, and a collision would silently serve the
+    # wrong kernel.
+    tag = (("_direct" if direct else "")
+           + ("_shf" if direct and shuffle and pf == 1 else "")
+           + (f"_pf{pf}" if direct and pf > 1 else ""))
     return mx.fast.metal_kernel(
         name=f"escha_gemv{_variant(dense)}_k{K}{tag}{'_lut' if lut else ''}"
              if dense else
@@ -762,6 +826,17 @@ def _moe_gemv_kernel(K: int, lut: bool, direct: bool = False, shuffle: bool = Fa
         header=_HEADER,
         source=src,
     )
+
+
+def gemv_pf() -> int:
+    """kt-tiles whose code words are fetched ahead in the direct GEMV.
+
+    ESCHA_MLX_GEMV_PF, default 1 (today's single-tile loop).  Values > 1 keep
+    2*pf code loads in flight per lane; bit-identical at every depth (only load
+    scheduling changes -- see _moe_gemv_direct_source).  Applied per linear
+    only when TK divides evenly; ignored by the staged/shuffle variants.
+    """
+    return int(os.environ.get("ESCHA_MLX_GEMV_PF", "1"))
 
 
 def use_direct() -> bool:
@@ -1034,7 +1109,10 @@ def moe_gemv(xh: mx.array, code_u32: mx.array, row_expert: mx.array | None,
         # Fixed-order reduction (NOT an atomic): deterministic across runs.
         return part.sum(axis=0)
 
-    kern = _moe_gemv_kernel(K, lut, use_direct(), use_shuffle(), dense)
+    pf = gemv_pf()
+    if pf < 1 or tk % pf or use_shuffle() or not use_direct():
+        pf = 1
+    kern = _moe_gemv_kernel(K, lut, use_direct(), use_shuffle(), dense, pf)
     (mid,) = kern(
         inputs=inputs,
         template=[("TK", tk), ("TN", tn), ("IC", IC), ("OC", OC)],
@@ -1063,8 +1141,13 @@ def dense_gemv(xh: mx.array, code_u32: mx.array, K: int, IC: int, OC: int,
 
 
 #: Largest rows-per-group the dense row-blocked GEMM will choose on its own.
-#: Structural, not measured -- see dense_block_r.
-DENSE_R_MAX = 8
+#: Measured on M4 base (24 GB, Qwen3.8-27B W2, ISL 512, chunk 256, medians):
+#: R=4 25.8 / R=8 33.3 / R=16 36.6 / R=20 22.1 / R=24 32.6 / R=32 24.0
+#: prefill tok/s -- 16 wins, 32 falls off a register/occupancy cliff, and
+#: non-power-of-two R is always worse than its pow2 neighbor.  Bit-identity
+#: at R=16/32 incl. partial tails is gated (bench/p0_gates.py G0.2b and the
+#: high-R check in tests).  See dense_block_r for the policy.
+DENSE_R_MAX = 16
 
 
 def dense_block_r_pin() -> int | None:
@@ -1108,16 +1191,15 @@ def dense_block_r(m: int, pin: int | None = None) -> int:
         stream; share them.
 
     Snapping to a power of two bounds the compiled-kernel count to R in
-    {1, 2, 4, 8} -- R is a template parameter, so every distinct value is a
+    {1, 2, 4, 8, 16} -- R is a template parameter, so every distinct value is a
     separate compilation -- at the price of at most halving the sharing.
 
-    R_MAX is where the argument runs out: acc0[R] + acc1[R] floats per lane plus
-    16*R*KB halves of staging.  NONE of this has been measured on Metal (this
-    path was developed on Linux CPU, where the kernels do not run), so R_MAX is
-    deliberately modest and the knob is exposed: ESCHA_MLX_DENSE_BLOCK_R pins R
-    (resolved once by ``dense_block_r_pin`` and passed in), and sweeping it is
-    the first thing to do on real hardware.  R=1 is always correct and is what
-    m=1 uses.
+    R_MAX = 16 is MEASURED on M4 base (see DENSE_R_MAX): the prefill optimum,
+    with a hard falloff at 32 (acc0[R] + acc1[R] fp32 accumulators per lane hit
+    a register/occupancy cliff) and non-power-of-two values always losing to
+    their pow2 neighbor.  ESCHA_MLX_DENSE_BLOCK_R still pins R for re-sweeps on
+    other machines (resolved once by ``dense_block_r_pin`` and passed in).
+    R=1 is always correct and is what m=1 uses.
     """
     if pin is not None:
         return pin
