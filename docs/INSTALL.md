@@ -123,6 +123,33 @@ cap on long prompts.
 
 ---
 
+## Memory on the dense 27B
+
+The numbers above are the 35B MoE's. The dense Qwen3.8-27B has a different
+split, and the KV term is the one that bites:
+
+| term | size |
+|---|---|
+| weights | 10.15 GB (2.469 bpw over 24.3 G coded params + int8 embed/head) |
+| KV cache | **64 KiB per token** — 16 full-attention layers × 4 KV heads × 256 head dim × 2 (K,V) × 2 B. That is 2.15 GB at ctx 32k, 4.29 GB at 64k, 8.59 GB at 128k. |
+| GDN recurrent state | 75.5 MB per sequence at fp16 (48 GDN layers × 48 v-heads × 128 × 128) |
+
+Per token the dense model's KV is ~3.2× the MoE's (which has 10 attention
+layers × 2 KV heads), so context, not batch, is the first thing to run out of
+room. Against the ~19 GB working set a 24 GB Mac gives you, 10.15 GB of weights
+leaves roughly 8.8 GB — a single-stream ceiling somewhere near 120k tokens,
+against the `max_position_embeddings` of 262144 the config advertises. Budget
+context first, then concurrency.
+
+One caveat with teeth: **`--max-kv-size` and the rotating KV cache are silently
+inert on this architecture.** `mlx_lm.models.cache.make_prompt_cache` only
+builds a `RotatingKVCache` "if the model does not have a `make_cache` method",
+and every hybrid GDN model defines one — it has to, because the linear-attention
+layers need a recurrent-state cache rather than a KV cache. That is true of
+stock mlx-lm as well; this runtime's fp16 GDN state does not cause it and
+`ESCHA_MLX_GDN_STATE=fp32` does not undo it. Plan for a KV that grows with the
+sequence, and bound context at the request level.
+
 ## Tuning reference
 
 All optional. The defaults are what we measured as best on an M4; every one of
@@ -132,7 +159,7 @@ these is gated bit-identical or documented where it is not.
 |---|---|
 | `ESCHA_MLX_WIRED_GB=N` | wire N GB. **Required above a ~18 GB working set** (see the cliff above). Must be ≤ the cap. |
 | `ESCHA_MLX_FUSED_HAD=0` | use native MLX op chains for the expert input and output transforms. The default fused Metal kernels combine the scale gathers, radix-2 Hadamard, scaling and f16 cast without changing the final f16 bits; set this to 0 for performance comparison or debugging. |
-| `ESCHA_MLX_GDN_STATE=fp32` | store the recurrent state in f32 instead of fp16. Costs ~10% throughput at batch ≥32 and 31.5 MB/sequence; use it if you need the pre-fp16 numerics exactly. |
+| `ESCHA_MLX_GDN_STATE=fp32` | store the recurrent state in f32 instead of fp16. Costs ~10% throughput at batch ≥32; the per-sequence cost is architecture-dependent — 31.5 MB on the 35B MoE (30 GDN layers × 32 v-heads), 75.5 MB on the 27B dense (48 × 48). The loader logs the actual figure for your model. Use it if you need the pre-fp16 numerics exactly. |
 | `ESCHA_MLX_LAST_LOGIT=0` | compute logits for **all** prompt positions, not just the last. Needed for per-position scoring (loglikelihood eval); costs ~7% prefill. |
 | `ESCHA_MLX_Q8_GROUP=64` | 64-wide Q8 groups instead of 128. Identical numerics, +140 MB. |
 | `ESCHA_MLX_BLOCK_R=N` | pin rows-per-expert-group. Default is size-dependent. |

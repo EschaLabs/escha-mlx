@@ -112,6 +112,18 @@ class CheckpointLoader:
             group = self._coded.setdefault(base, {})
             group[leaf] = dense.pack_code(w) if leaf == "escha_code" else w
             return
+        if leaf.startswith("escha_"):
+            # An escha_* leaf this version does not know is an export written
+            # against a newer format — a learned transform replacing the fixed
+            # Hadamard, say. Left to fall through it would reach model.update
+            # and die as 'Module does not have parameter named ...', which
+            # reads as a loader bug rather than a version mismatch. And an
+            # unknown TRANSFORM cannot be ignored the way an unknown scale
+            # could: the weights would decode in the wrong basis.
+            raise ValueError(
+                f"{name}: unknown escha tensor {leaf!r}. This export uses a "
+                f"format feature this runtime does not implement (known leaves: "
+                f"{sorted(dense.LEAVES)}); upgrade escha-mlx.")
         if leaf == "bias":
             self._bias[base] = (name, w)
             return
@@ -135,7 +147,12 @@ class CheckpointLoader:
         return lin
 
     def finalize(self) -> list[mx.array]:
-        assert not self._int8_np, list(self._int8_np)
+        # Raise, not assert: an unpaired weight_int8/weight_scale would leave
+        # embed or lm_head at random init, and `python -O` strips asserts.
+        if self._int8_np:
+            raise ValueError(
+                f"incomplete int8 tensor pairs: "
+                f"{ {k: sorted(v) for k, v in self._int8_np.items()} }")
 
         # ---- coded linears -----------------------------------------------
         escha_arrays: list[mx.array] = []
@@ -161,9 +178,16 @@ class CheckpointLoader:
         self._bias.clear()
 
         # ---- fp16 remainder through mlx-lm's own sanitize ----------------
-        assert any(k.endswith("conv1d.weight") and v.shape[-1] != 1
-                   for k, v in self._base.items()), \
-            "conv1d already sanitized? norm (1+w) shift heuristic would not fire"
+        # mlx-lm only applies the (1+w) norm shift when it sees an unsanitized
+        # conv1d (this export carries no mtp weights, the other trigger). If
+        # that heuristic stops firing, 130 norms are silently mis-scaled — so
+        # this is a raise, not an assert that `python -O` would strip.
+        if not any(k.endswith("conv1d.weight") and v.shape[-1] != 1
+                   for k, v in self._base.items()):
+            raise ValueError(
+                "no unsanitized conv1d.weight in the checkpoint: mlx-lm's "
+                "(1+w) norm shift would not fire and every RMSNorm would be "
+                "off by one")
         sanitized = self.model.sanitize({k: mx.array(v) for k, v in self._base.items()})
         self.model.update(tree_unflatten(list(sanitized.items())))
         self._base.clear()
