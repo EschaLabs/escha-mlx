@@ -143,6 +143,40 @@ def _substitute_fetch_shuffle(extract: str) -> str:
             .replace("W(i2 % 24u)", "simd_shuffle(myw, i2 % 24u)"))
 
 
+def _code_base(wpt: int, dense: bool) -> str:
+    """Prologue resolving the code-stream base pointer for one row.
+
+    This is the ONLY structural difference between the MoE and the dense GEMV
+    kernels: a MoE row selects one of E stacked streams through ``row_expert``,
+    a dense row always uses the single stream this linear owns.  Sharing the
+    rest of the source verbatim keeps one codec engine — the decode, the
+    accumulation order and the store are the same instructions either way, so
+    the dense kernel inherits every gate the MoE kernel already passes.
+
+    Dropping the indirection also drops a dependent device load from the
+    per-row prologue and frees the kernel from carrying a row_expert buffer.
+    """
+    if dense:
+        return "    device const uint* base = code;\n"
+    return (f"    int e = row_expert[row];\n"
+            f"    device const uint* base = code + (ulong)e * ((ulong)TK * TN * {wpt}u);\n")
+
+
+def _scale_offsets(dim: str, dense: bool) -> str:
+    """Prologue resolving the row and per-channel scale offsets for one row.
+
+    Same split as ``_code_base``: the MoE transforms gather rin/rout from an
+    E-stacked [E, dim] vector, the dense ones read the single [dim] vector this
+    linear owns.  Emitted as one block (rather than only the scale offset) so
+    the MoE text stays byte-identical to the pre-dense kernel.
+    """
+    row_off = f"    ulong off = (ulong)row * {dim} + (ulong)blk * 128u + tid;\n"
+    if dense:
+        return row_off + "    ulong roff = (ulong)blk * 128u + tid;\n"
+    return ("    int e = row_expert[row];\n" + row_off
+            + f"    ulong roff = (ulong)e * {dim} + (ulong)blk * 128u + tid;\n")
+
+
 def _decode_tiles_source(K: int, use_lut: bool) -> str:
     wpt = 8 * K
     extract = _substitute_fetch(_EXTRACT_K2 if K == 2 else _EXTRACT_K3)
@@ -165,7 +199,8 @@ def _decode_tiles_source(K: int, use_lut: bool) -> str:
 """
 
 
-def _moe_gemv_direct_source(K: int, use_lut: bool, shuffle: bool = False) -> str:
+def _moe_gemv_direct_source(K: int, use_lut: bool, shuffle: bool = False,
+                            dense: bool = False) -> str:
     """Barrier-free per-row GEMV: no threadgroup staging of code OR of x.
 
     The staged variant below runs TK iterations (128 for gate_up) with TWO
@@ -198,9 +233,7 @@ def _moe_gemv_direct_source(K: int, use_lut: bool, shuffle: bool = False) -> str
     uint lane = thread_index_in_simdgroup;
     uint sg = simdgroup_index_in_threadgroup;
 
-    int e = row_expert[row];
-    device const uint* base = code + (ulong)e * ((ulong)TK * TN * {wpt}u);
-    device const half* xbase = xh + (ulong)row * IC;
+{_code_base(wpt, dense)}    device const half* xbase = xh + (ulong)row * IC;
 
     float acc0 = 0.0f, acc1 = 0.0f;
     uint l0 = lane & ~4u;
@@ -227,7 +260,8 @@ def _moe_gemv_direct_source(K: int, use_lut: bool, shuffle: bool = False) -> str
 """
 
 
-def _moe_gemv_splitk_source(K: int, use_lut: bool, shuffle: bool, S: int) -> str:
+def _moe_gemv_splitk_source(K: int, use_lut: bool, shuffle: bool, S: int,
+                            dense: bool = False) -> str:
     """Split-K GEMV: partition the kt chain across S threadgroups.
 
     The per-row kernel above launches (OC/128) * M threadgroups -- only 64 for
@@ -271,9 +305,7 @@ def _moe_gemv_splitk_source(K: int, use_lut: bool, shuffle: bool, S: int) -> str
     uint lane = thread_index_in_simdgroup;
     uint sg = simdgroup_index_in_threadgroup;
 
-    int e = row_expert[row];
-    device const uint* base = code + (ulong)e * ((ulong)TK * TN * {wpt}u);
-    device const half* xbase = xh + (ulong)row * IC;
+{_code_base(wpt, dense)}    device const half* xbase = xh + (ulong)row * IC;
 
     // TK is a multiple of S by construction (the caller only picks S that
     // divides it), so every split covers exactly kps iterations.
@@ -306,7 +338,7 @@ def _moe_gemv_splitk_source(K: int, use_lut: bool, shuffle: bool, S: int) -> str
 """
 
 
-def _moe_gemv_source(K: int, use_lut: bool) -> str:
+def _moe_gemv_source(K: int, use_lut: bool, dense: bool = False) -> str:
     wpt = 8 * K
     extract = _substitute_fetch(_EXTRACT_K2 if K == 2 else _EXTRACT_K3)
     accs = []
@@ -325,9 +357,7 @@ def _moe_gemv_source(K: int, use_lut: bool) -> str:
     threadgroup uint s_code[{8 * wpt}];
     threadgroup half s_x[16];
 
-    int e = row_expert[row];
-    device const uint* base = code + (ulong)e * ((ulong)TK * TN * {wpt}u);
-
+{_code_base(wpt, dense)}
     float acc0 = 0.0f, acc1 = 0.0f;
     uint l0 = lane & ~4u;
     uint c_off = (lane >> 2) & 1u;
@@ -493,7 +523,7 @@ def _moe_gemm_rows_source(K: int, use_lut: bool, R: int, KB: int = 1,
 """
 
 
-def _scaled_had_source(rs: float) -> str:
+def _scaled_had_source(rs: float, dense: bool = False) -> str:
     """Fused  f16( H128( f32(rows) * rin[e] ) * RS )  in one kernel.
 
     The unfused chain is arithmetically trivial and memory-brutal: at m=2048,
@@ -518,10 +548,7 @@ def _scaled_had_source(rs: float) -> str:
     uint blk = thread_position_in_grid.x >> 7;
     uint row = thread_position_in_grid.y;
 
-    int e = row_expert[row];
-    ulong off = (ulong)row * IC + (ulong)blk * 128u + tid;
-    ulong roff = (ulong)e * IC + (ulong)blk * 128u + tid;
-
+{_scale_offsets('IC', dense)}
     threadgroup float v[128];
     v[tid] = (float)rows[off] * rin[roff];
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -540,7 +567,7 @@ def _scaled_had_source(rs: float) -> str:
 """
 
 
-def _scaled_had_out_source(rs: float) -> str:
+def _scaled_had_out_source(rs: float, dense: bool = False) -> str:
     """Fused  f16( H128(mid) * RS * rout[e] )  in one kernel.
 
     Keep the two post-transform multiplies as separate f32 statements in the
@@ -552,10 +579,7 @@ def _scaled_had_out_source(rs: float) -> str:
     uint blk = thread_position_in_grid.x >> 7;
     uint row = thread_position_in_grid.y;
 
-    int e = row_expert[row];
-    ulong off = (ulong)row * OC + (ulong)blk * 128u + tid;
-    ulong roff = (ulong)e * OC + (ulong)blk * 128u + tid;
-
+{_scale_offsets('OC', dense)}
     threadgroup float v[128];
     v[tid] = mid[off];
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -576,23 +600,31 @@ def _scaled_had_out_source(rs: float) -> str:
 """
 
 
+# The kernel NAME is part of MLX's compiled-kernel identity, so every source
+# variant must contribute to it.  A dense kernel compiled under the MoE name
+# would be served from the cache to the MoE path (and vice versa) with no
+# error — the signatures differ only by a buffer that is silently absent.
+def _variant(dense: bool) -> str:
+    return "_dense" if dense else ""
+
+
 @lru_cache(maxsize=None)
-def _scaled_had_kernel(rs: float):
+def _scaled_had_kernel(rs: float, dense: bool = False):
     return mx.fast.metal_kernel(
-        name="escha_scaled_had",
-        input_names=["rows", "rin", "row_expert"],
+        name=f"escha_scaled_had{_variant(dense)}",
+        input_names=["rows", "rin"] + ([] if dense else ["row_expert"]),
         output_names=["out"],
-        source=_scaled_had_source(rs),
+        source=_scaled_had_source(rs, dense),
     )
 
 
 @lru_cache(maxsize=None)
-def _scaled_had_out_kernel(rs: float):
+def _scaled_had_out_kernel(rs: float, dense: bool = False):
     return mx.fast.metal_kernel(
-        name="escha_scaled_had_out",
-        input_names=["mid", "rout", "row_expert"],
+        name=f"escha_scaled_had_out{_variant(dense)}",
+        input_names=["mid", "rout"] + ([] if dense else ["row_expert"]),
         output_names=["out"],
-        source=_scaled_had_out_source(rs),
+        source=_scaled_had_out_source(rs, dense),
     )
 
 
@@ -601,13 +633,18 @@ def use_fused_had() -> bool:
     return os.environ.get("ESCHA_MLX_FUSED_HAD", "1") != "0"
 
 
-def scaled_had(rows: mx.array, rin: mx.array, row_expert: mx.array,
+def scaled_had(rows: mx.array, rin: mx.array, row_expert: mx.array | None,
                rs: float) -> mx.array:
-    """rows [m, IC] f16, rin [E, IC] f32, row_expert [m] i32 -> [m, IC] f16."""
+    """rows [m, IC] f16, rin [E, IC] f32, row_expert [m] i32 -> [m, IC] f16.
+
+    ``row_expert=None`` selects the dense variant: rin is the single [IC]
+    vector this linear owns and no per-row gather is issued.
+    """
     m, ic = rows.shape
-    kern = _scaled_had_kernel(float(rs))
+    dense = row_expert is None
+    kern = _scaled_had_kernel(float(rs), dense)
     (out,) = kern(
-        inputs=[rows, rin, row_expert],
+        inputs=[rows, rin] + ([] if dense else [row_expert]),
         template=[("IC", ic)],
         grid=(128 * (ic // 128), m, 1),
         threadgroup=(128, 1, 1),
@@ -617,13 +654,17 @@ def scaled_had(rows: mx.array, rin: mx.array, row_expert: mx.array,
     return out
 
 
-def scaled_had_out(mid: mx.array, rout: mx.array, row_expert: mx.array,
+def scaled_had_out(mid: mx.array, rout: mx.array, row_expert: mx.array | None,
                    rs: float) -> mx.array:
-    """mid [m, OC] f32, rout [E, OC] f32 -> transformed [m, OC] f16."""
+    """mid [m, OC] f32, rout [E, OC] f32 -> transformed [m, OC] f16.
+
+    ``row_expert=None`` selects the dense variant (rout is a single [OC] vector).
+    """
     m, oc = mid.shape
-    kern = _scaled_had_out_kernel(float(rs))
+    dense = row_expert is None
+    kern = _scaled_had_out_kernel(float(rs), dense)
     (out,) = kern(
-        inputs=[mid, rout, row_expert],
+        inputs=[mid, rout] + ([] if dense else [row_expert]),
         template=[("OC", oc)],
         grid=(128 * (oc // 128), m, 1),
         threadgroup=(128, 1, 1),
@@ -655,13 +696,17 @@ def _decode_tiles_kernel(K: int, lut: bool):
 
 
 @lru_cache(maxsize=None)
-def _moe_gemv_kernel(K: int, lut: bool, direct: bool = False, shuffle: bool = False):
-    inputs = ["xh", "code", "row_expert"] + (["lut"] if lut else [])
-    src = (_moe_gemv_direct_source(K, lut, shuffle) if direct
-           else _moe_gemv_source(K, lut))
+def _moe_gemv_kernel(K: int, lut: bool, direct: bool = False, shuffle: bool = False,
+                     dense: bool = False):
+    inputs = (["xh", "code"] + ([] if dense else ["row_expert"])
+              + (["lut"] if lut else []))
+    src = (_moe_gemv_direct_source(K, lut, shuffle, dense) if direct
+           else _moe_gemv_source(K, lut, dense))
     tag = ("_direct" if direct else "") + ("_shf" if direct and shuffle else "")
     return mx.fast.metal_kernel(
-        name=f"escha_moe_gemv_k{K}{tag}{'_lut' if lut else ''}",
+        name=f"escha_gemv{_variant(dense)}_k{K}{tag}{'_lut' if lut else ''}"
+             if dense else
+             f"escha_moe_gemv_k{K}{tag}{'_lut' if lut else ''}",
         input_names=inputs,
         output_names=["mid"],
         header=_HEADER,
@@ -700,15 +745,18 @@ def use_shuffle() -> bool:
 
 
 @lru_cache(maxsize=None)
-def _moe_gemv_splitk_kernel(K: int, lut: bool, shuffle: bool, S: int):
-    inputs = ["xh", "code", "row_expert"] + (["lut"] if lut else [])
+def _moe_gemv_splitk_kernel(K: int, lut: bool, shuffle: bool, S: int,
+                            dense: bool = False):
+    inputs = (["xh", "code"] + ([] if dense else ["row_expert"])
+              + (["lut"] if lut else []))
+    stem = "escha_gemv_dense" if dense else "escha_moe_gemv"
     return mx.fast.metal_kernel(
-        name=f"escha_moe_gemv_k{K}_sk{S}{'_shf' if shuffle else ''}"
+        name=f"{stem}_k{K}_sk{S}{'_shf' if shuffle else ''}"
              f"{'_lut' if lut else ''}",
         input_names=inputs,
         output_names=["part"],
         header=_HEADER,
-        source=_moe_gemv_splitk_source(K, lut, shuffle, S),
+        source=_moe_gemv_splitk_source(K, lut, shuffle, S, dense),
     )
 
 
@@ -891,13 +939,15 @@ def decode_tiles(code_u32: mx.array, K: int, IC: int, OC: int) -> mx.array:
     return w
 
 
-def moe_gemv(xh: mx.array, code_u32: mx.array, row_expert: mx.array,
+def moe_gemv(xh: mx.array, code_u32: mx.array, row_expert: mx.array | None,
              K: int, IC: int, OC: int, splits: int | None = None) -> mx.array:
     """Fused expert GEMV: mid[r, :] = xh[r, :] @ decode(code[row_expert[r]]).
 
     xh: [M, IC] f16 (already input-transformed per row).
-    code_u32: [E, TK, TN, 8K] uint32 (E-stacked, as loaded).
-    row_expert: [M] int32.
+    code_u32: [E, TK, TN, 8K] uint32 (E-stacked, as loaded), or [TK, TN, 8K]
+        for a dense linear.
+    row_expert: [M] int32, or None for a dense linear — every row then reads
+        the single stream and the expert indirection is compiled out.
     splits: kt-split factor; None = the size policy, 1 = force the sequential
         kernel.  Pass 1 when you need the result to be bit-identical to the
         row-blocked GEMM (split-K reassociates the sum -- see
@@ -907,14 +957,16 @@ def moe_gemv(xh: mx.array, code_u32: mx.array, row_expert: mx.array,
     m = xh.shape[0]
     tk, tn = IC // 16, OC // 16
     lut = use_lut()
-    inputs = [xh, code_u32.reshape(-1), row_expert] + ([_lut_array()] if lut else [])
+    dense = row_expert is None
+    inputs = ([xh, code_u32.reshape(-1)] + ([] if dense else [row_expert])
+              + ([_lut_array()] if lut else []))
 
     if splits is not None:
         s = splits if splits > 1 and tk % splits == 0 else 1
     else:
         s = split_k_for(m, OC, tk) if use_direct() else 1
     if s > 1:
-        kern = _moe_gemv_splitk_kernel(K, lut, use_shuffle(), s)
+        kern = _moe_gemv_splitk_kernel(K, lut, use_shuffle(), s, dense)
         (part,) = kern(
             inputs=inputs,
             template=[("TK", tk), ("TN", tn), ("IC", IC), ("OC", OC), ("M", m)],
@@ -926,7 +978,7 @@ def moe_gemv(xh: mx.array, code_u32: mx.array, row_expert: mx.array,
         # Fixed-order reduction (NOT an atomic): deterministic across runs.
         return part.sum(axis=0)
 
-    kern = _moe_gemv_kernel(K, lut, use_direct(), use_shuffle())
+    kern = _moe_gemv_kernel(K, lut, use_direct(), use_shuffle(), dense)
     (mid,) = kern(
         inputs=inputs,
         template=[("TK", tk), ("TN", tn), ("IC", IC), ("OC", OC)],
@@ -936,3 +988,19 @@ def moe_gemv(xh: mx.array, code_u32: mx.array, row_expert: mx.array,
         output_dtypes=[mx.float32],
     )
     return mid
+
+
+def dense_scaled_had(rows: mx.array, rin: mx.array, rs: float) -> mx.array:
+    """f16( H128(rows * rin) * RS ) for a dense linear. rin [IC] f32."""
+    return scaled_had(rows, rin, None, rs)
+
+
+def dense_scaled_had_out(mid: mx.array, rout: mx.array, rs: float) -> mx.array:
+    """f16( H128(mid) * RS * rout ) for a dense linear. rout [OC] f32."""
+    return scaled_had_out(mid, rout, None, rs)
+
+
+def dense_gemv(xh: mx.array, code_u32: mx.array, K: int, IC: int, OC: int,
+               splits: int | None = None) -> mx.array:
+    """Fused dense GEMV: mid = xh @ decode(code). code_u32 [TK, TN, 8K] uint32."""
+    return moe_gemv(xh, code_u32, None, K, IC, OC, splits)

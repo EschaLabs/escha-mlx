@@ -2,7 +2,8 @@
 
 Usage:
     from escha_mlx import load
-    model, tokenizer = load("/path/to/Qwen3.6-35B-A3B-Escha-W2")
+    model, tokenizer = load("/path/to/Qwen3.6-35B-A3B-Escha-W2")   # MoE
+    model, tokenizer = load("/path/to/Qwen3.8-27B-Escha-W2")       # dense
 
 CLI:
     python -m escha_mlx.generate --model <dir> --prompt "..."

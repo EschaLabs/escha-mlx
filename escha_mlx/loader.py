@@ -24,6 +24,13 @@ from . import quant
 logger = logging.getLogger(__name__)
 
 
+#: quant_method values this runtime serves. Exports name the method after the
+#: weight layout, not the model: "escha" is one coded stream per linear (dense
+#: architectures), "eschamoe" is E-stacked expert streams. Both decode with the
+#: same codec; which plugin runs is decided by config.json's model_type.
+QUANT_METHODS = frozenset({"escha", "eschamoe"})
+
+
 def is_escha_checkpoint(path: str | Path) -> bool:
     path = Path(path)
     for fname in ("quantize_config.json", "config.json"):
@@ -31,7 +38,7 @@ def is_escha_checkpoint(path: str | Path) -> bool:
         if f.exists():
             cfg = json.loads(f.read_text())
             qc = cfg if fname == "quantize_config.json" else cfg.get("quantization_config", {})
-            if qc.get("quant_method") == "eschamoe":
+            if qc.get("quant_method") in QUANT_METHODS:
                 return True
     return False
 
@@ -184,7 +191,9 @@ def load(path: str | Path, tokenizer_config: dict | None = None, **_ignored):
 
     path = Path(path)
     if not is_escha_checkpoint(path):
-        raise ValueError(f"{path} is not an eschamoe checkpoint")
+        raise ValueError(
+            f"{path} is not an escha checkpoint (expected quantization_config."
+            f"quant_method in {sorted(QUANT_METHODS)})")
     if _ignored:
         logger.warning("escha_mlx.load: ignoring unsupported kwargs %s", list(_ignored))
     eos_ids = None
