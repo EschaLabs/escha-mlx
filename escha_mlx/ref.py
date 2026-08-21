@@ -8,8 +8,11 @@ supply them).
 
 Terminology (public export naming):
   code  — packed weight stream, int16 [E, in/16, out/16, 16*K] per projection
+          (dense exports carry one projection: [in/16, out/16, 16*K])
   rin   — per-channel fp16 input scale vector  [E, in]
   rout  — per-channel fp16 output scale vector [E, out]
+  s_in  — per-channel fp32 end-to-end input scale  [in]   (dense exports only)
+  s_out — per-channel fp32 end-to-end output scale [out]  (dense exports only)
   cbA   — the production codebook (integer hash decode, see ``cba_lut``)
 
 The per-linear forward contract (all rounding points deliberate):
@@ -234,6 +237,60 @@ def expert_linear(x: np.ndarray, code: np.ndarray, rin: np.ndarray, rout: np.nda
     xh = input_transform(x, rin)
     mid = xh.astype(np.float32) @ w_bare.astype(np.float32)
     return output_transform(mid, rout)
+
+
+def fold_scales(rin: np.ndarray, rout: np.ndarray,
+                s_in: np.ndarray | None, s_out: np.ndarray | None):
+    """Fold the end-to-end scales into the transform vectors -> (f32, f32).
+
+    Dense exports ship two extra per-channel vectors alongside rin/rout: s_in
+    [IC] and s_out [OC], the scales learned by the end-to-end fine-tune.  The
+    deployed contract is
+
+        y = f16(x * s_in) @ W_deploy * s_out + bias
+
+    and because s_in multiplies the activation at exactly the point rin does
+    (per input channel, before the transform) and s_out at exactly the point
+    rout does (per output channel, after it), the pair collapses into the
+    existing two-vector form with no new kernel and no new tensor:
+
+        rin_eff = f32(rin) * f32(s_in)      rout_eff = f32(rout) * f32(s_out)
+
+    Deliberate deviation, one rounding point FEWER than applying the scales
+    separately: doing that rounds ``x * s_in`` to f16 before applying rin, and
+    rounds again before applying s_out, because the transform primitive takes
+    the scale vectors as separate arguments.  Folding keeps both products in f32
+    and rounds once, at the same place every other escha-mlx linear rounds.
+    Checked against the reference deploy reconstruction on shipped tensors
+    (tests/test_dense_linear.py): the two agree to fp16 rounding, which is the
+    same bar the Q8 repack deviation in escha_mlx.quant is held to.
+
+    Passing None for either scale returns that vector unchanged (as f32) — the
+    MoE exports, whose s_in/s_out are all-ones, take that path.
+    """
+    ri = rin.astype(np.float32)
+    ro = rout.astype(np.float32)
+    if s_in is not None:
+        ri = ri * s_in.astype(np.float32)
+    if s_out is not None:
+        ro = ro * s_out.astype(np.float32)
+    return ri, ro
+
+
+def dense_linear(x: np.ndarray, code: np.ndarray, rin: np.ndarray, rout: np.ndarray,
+                 K: int, bias: np.ndarray | None = None,
+                 w_bare: np.ndarray | None = None) -> np.ndarray:
+    """Full dense escha linear: x [M, IC] -> [M, OC] fp16.
+
+    Same codec and rounding contract as ``expert_linear`` — one weight stream
+    instead of an E-stacked one — plus the additive fp16 output correction the
+    end-to-end fine-tune leaves behind.  ``rin``/``rout`` are expected to be
+    the folded vectors from ``fold_scales``.
+    """
+    y = expert_linear(x, code, rin, rout, K, w_bare=w_bare)
+    if bias is None:
+        return y
+    return (y.astype(np.float32) + bias.astype(np.float32)).astype(np.float16)
 
 
 def swiglu(gate_up_f16: np.ndarray) -> np.ndarray:

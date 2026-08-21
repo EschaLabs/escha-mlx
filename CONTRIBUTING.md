@@ -86,11 +86,12 @@ differ in what's *fastest*, not in what's *correct*, so chip support is data, no
 
 ## Adding a new model architecture
 
-This repo is meant to grow one architecture at a time (Qwen3.5-VLM dense next; MoE
-architectures like Kimi K3 / GLM / DeepSeek after). The runtime is a codec engine plus
-**one plugin module per architecture** — `escha_mlx/models/<model_type>.py`, resolved
-from the checkpoint's `config.json` (contract: `escha_mlx/models/__init__.py`). Copy
-`models/qwen3_5_moe.py` as the template:
+This repo is meant to grow one architecture at a time (MoE architectures like Kimi K3 /
+GLM / DeepSeek next). The runtime is a codec engine plus **one plugin module per
+architecture** — `escha_mlx/models/<model_type>.py`, resolved from the checkpoint's
+`config.json` (contract: `escha_mlx/models/__init__.py`). Copy the closest existing
+plugin as the template — `models/qwen3_5_moe.py` for a mixture of experts,
+`models/qwen3_5.py` for a dense model:
 
 1. **Skeleton from mlx-lm**: the model class, attention/SSM, caches and chat template come
    from `mlx_lm.models.<model_type>` untouched. If mlx-lm can't load the fp16 version of
@@ -99,9 +100,13 @@ from the checkpoint's `config.json` (contract: `escha_mlx/models/__init__.py`). 
    maps the export's tensor names in `consume` (coded trios / Q8 pairs / fp16
    remainder), and installs modules + post-load quirks in `finalize`. Routing
    conventions live in the plugin's MoE block over the shared
-   `escha_mlx.moe.EschaExperts` toolkit — the kernels never fork per architecture.
-   Loading stays streaming (per-tensor `safe_open`); never materialize the checkpoint
-   twice.
+   `escha_mlx.moe.EschaExperts` toolkit; a dense architecture installs
+   `escha_mlx.dense.EschaLinear` per projection and writes no block at all — the
+   kernels never fork per architecture. Loading stays streaming (per-tensor
+   `safe_open`); never materialize the checkpoint twice. Note that a dense export
+   groups its tensors by *leaf name*, not by module, so a linear cannot be installed
+   the moment its group completes: convert each code stream on arrival
+   (`dense.pack_code`) and assemble in `finalize`, or peak memory doubles.
 3. **Goldens before Metal**: obtain per-layer golden inputs/outputs for the new export
    (open a model-request issue — we generate and supply goldens for published escha
    exports), commit them under `tests/data/<model_type>/` (they are small), and make the

@@ -2,7 +2,7 @@
 
 Thin wrapper over mlx_lm.server (continuous batching via BatchGenerator, prefix
 caching via LRUPromptCache, reasoning-content parsing, tool calls): routes model
-loading through escha_mlx.loader for eschamoe checkpoints, delegates everything
+loading through escha_mlx.loader for escha checkpoints, delegates everything
 else verbatim.
 
 Adds one serving extension: ``"ignore_eos": true`` in the request body, which

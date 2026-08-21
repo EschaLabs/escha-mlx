@@ -35,8 +35,15 @@ custom Metal kernels that are **bit-exact against the codec's committed referenc
 | model | quant | resident | status |
 |---|---|---|---|
 | [`EschaLabs/Qwen3.6-35B-A3B-Escha-W2`](https://huggingface.co/EschaLabs/Qwen3.6-35B-A3B-Escha-W2) | 2-bit experts + int8 dense | 12.3 GB | ✅ supported |
-| Qwen3.5 VLM (dense) | — | — | 🚧 planned |
+| [`EschaLabs/Qwen3.8-27B-Escha-W2`](https://huggingface.co/EschaLabs/Qwen3.8-27B-Escha-W2) | mixed-rate 2/3-bit dense + int8 embed/head | 10.2 GB | ✅ supported |
 | Kimi K3 / GLM / DeepSeek MoE | — | — | 🔭 exploring |
+
+The two are different shapes of the same codec. The 35B is a mixture of experts: only
+its expert stacks are coded, and one fused kernel walks them through a router. The 27B
+is **dense** — all 400 projections are coded, at a per-tensor rate (`mlp.{up,down}_proj`
+at 3 bits, everything else at 2, 2.469 bits/weight overall), and each is an ordinary
+matmul. Same decode, same goldens; the Metal kernels take the single-stream case as a
+compile-time variant with the expert indirection removed.
 
 Want an architecture that isn't listed? Open a
 [model request](https://github.com/EschaLabs/escha-mlx/issues/new?template=new_model.yml).
@@ -182,8 +189,8 @@ campaign — including every negative result, so you don't repeat them:
 |---|---|
 | `escha_mlx/ref.py` | NumPy bit-exact codec reference — **the semantic contract** |
 | `escha_mlx/msl.py` | the Metal kernels (`mx.fast.metal_kernel`): decode, GEMV ×2, row-blocked GEMM, fused transform |
-| `escha_mlx/quant.py` / `moe.py` / `loader.py` | int8→Q8 repack · expert toolkit · streaming loader — all architecture-agnostic |
-| `escha_mlx/models/` | one plugin per architecture (`qwen3_5_moe` today): skeleton, tensor map, router, quirks |
+| `escha_mlx/quant.py` / `moe.py` / `dense.py` / `loader.py` | int8→Q8 repack · expert toolkit · dense-linear toolkit · streaming loader — all architecture-agnostic |
+| `escha_mlx/models/` | one plugin per architecture (`qwen3_5_moe`, `qwen3_5`): skeleton, tensor map, router, quirks |
 | `escha_mlx/gdn_cache.py` | recurrent-state cache (fp16 state) + allocation-free first-state Metal kernel |
 | `escha_mlx/{generate,server}.py` | CLI / OpenAI-compatible server |
 | `tests/` + `tests/data/` | golden-gated suite + the committed reference vectors |

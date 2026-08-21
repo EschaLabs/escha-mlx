@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+- **Dense architecture support (`qwen3_5`)** — serves
+  [`EschaLabs/Qwen3.8-27B-Escha-W2`](https://huggingface.co/EschaLabs/Qwen3.8-27B-Escha-W2),
+  a 27B dense hybrid (GDN + attention) whose 400 projections are all trellis-coded at a
+  **per-tensor rate** (`mlp.{up,down}_proj` at K=3, the rest at K=2 — 2.469 bits/weight).
+  New `escha_mlx/dense.py` (single-stream weight container + `EschaLinear`) and
+  `escha_mlx/models/qwen3_5.py` (plugin); the skeleton is `mlx_lm.models.qwen3_5`
+  untouched, so no architecture code is carried here.
+  - **Dense Metal kernels** as a compile-time variant of the expert kernels rather than
+    a second implementation: the GEMV (direct / staged / split-K) and both fused
+    Hadamard transforms drop the `row_expert` indirection and the per-row transform-vector
+    gather. Every MoE kernel source is byte-identical to before, and the dense variants
+    are gated bit-identical against the expert kernels on a one-expert stream
+    (`tests/test_dense_linear.py`).
+  - **End-to-end scales folded at load**: dense exports ship `escha_s_in`/`escha_s_out`
+    alongside `escha_rin`/`escha_rout`. They multiply at the same points, so
+    `ref.fold_scales` folds them in f32 at load time — no new kernel, no new tensor, and
+    one rounding point fewer than applying the scales separately (documented deviation, gated
+    against real shipped tensors). Dropping them would be a ~2% silent error; there is a
+    test that fails if they are.
+  - **Per-linear bias**: the additive correction the end-to-end stage leaves behind is
+    applied in f32 after the output transform.
+  - **Load-time metadata cross-check**: `escha_config`'s K and shapes are checked against
+    the code stream's own shape, and an unknown codebook id is refused — a mismatch would
+    otherwise decode into plausible, finite, entirely wrong weights.
+  - New gates: real-data goldens under `tests/data/qwen3_5/` (a 128×128 corner of two
+    shipped linears with their reference outputs), a dense synthetic
+    end-to-end checkpoint test, and `tests/test_dense_checkpoint.py`, which validates a
+    real export's structure from safetensors headers alone (leaf completeness, declared
+    vs implied rate, kernel shape preconditions).
 - **Fused expert output Hadamard transform** (companion to 0.1.0's input-side
   fusion): transform + output-scale gather + f16 cast in one Metal kernel,
   bit-exact with the native chain. M5 Pro: +5.6% decode at B=1, +5.8% prefill

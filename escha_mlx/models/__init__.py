@@ -23,15 +23,17 @@ and exports:
 
 The generic side (streaming, Q8 repack, wired limit, tokenizer/eos handling)
 lives in escha_mlx.loader and is shared by every plugin. To add an
-architecture, copy qwen3_5_moe.py as the template, add goldens under
-tests/data/<model_type>/, extend the synthetic-checkpoint test, and register
-the module below.
+architecture, copy the closest existing plugin as the template — qwen3_5_moe.py
+for a mixture-of-experts model, qwen3_5.py for a dense one — add goldens under
+tests/data/<model_type>/, extend the synthetic-checkpoint test, and register the
+module below.
 """
 from __future__ import annotations
 
 from importlib import import_module
 
 REGISTRY: dict[str, str] = {
+    "qwen3_5": ".qwen3_5",
     "qwen3_5_moe": ".qwen3_5_moe",
 }
 
