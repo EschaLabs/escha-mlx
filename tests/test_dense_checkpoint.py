@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from .conftest import DENSE_CKPT, needs_dense_ckpt
+from .conftest import DENSE_CKPT, needs_dense_ckpt, needs_slow
 
 CODED_LEAVES = ("escha_code", "escha_rin", "escha_rout",
                 "escha_s_in", "escha_s_out", "escha_config")
@@ -165,3 +165,77 @@ def test_embed_and_head_are_int8_pairs(dense_ckpt):
         sc = tensors[f"{base}.weight_scale"]
         assert w8["dtype"] == "I8"
         assert sc["shape"] == [w8["shape"][0]], (base, sc["shape"])
+
+
+@needs_dense_ckpt
+@needs_slow
+def test_truncated_real_load(monkeypatch):
+    """Run the REAL loader over the REAL tensors of the first few layers.
+
+    The synthetic checkpoint proves the pipeline against an export this repo
+    writes; this proves it against the one actually shipped — real tensor names,
+    real dtypes, the nested text_config/vision_config, and the real mixed rate.
+    Truncating the layer count keeps it to a few GB; embed and lm_head are the
+    full-size real tensors.
+    """
+    import copy
+    import glob
+    import mlx.core as mx
+    import numpy as np
+    from safetensors import safe_open
+    from escha_mlx import models
+    from escha_mlx.dense import EschaLinear
+    from escha_mlx.loader import LastPositionHead
+    from escha_mlx.quant import EschaQ8Embedding, EschaQ8Linear
+
+    monkeypatch.setenv("ESCHA_MLX_LINEAR", "ops")
+    n_layers = 4                     # 3 linear_attention + 1 full_attention
+    config = json.loads((Path(DENSE_CKPT) / "config.json").read_text())
+    small = copy.deepcopy(config)
+    small["text_config"]["num_hidden_layers"] = n_layers
+    small["text_config"]["layer_types"] = small["text_config"]["layer_types"][:n_layers]
+    assert "full_attention" in small["text_config"]["layer_types"], \
+        "truncation must keep at least one attention layer"
+
+    plugin = models.resolve(small).CheckpointLoader(small, 128)
+    for shard in sorted(glob.glob(str(Path(DENSE_CKPT) / "*.safetensors"))):
+        with safe_open(shard, framework="numpy") as f:
+            for name in f.keys():
+                if name.startswith("model.language_model.layers."):
+                    if int(name.split(".")[3]) >= n_layers:
+                        continue
+                plugin.consume(name, f.get_tensor(name))
+    arrays = plugin.finalize()
+    model = plugin.model
+    mx.eval(model.parameters())
+    mx.eval(arrays)
+
+    layers = model.language_model.model.layers
+    for layer in layers:
+        if layer.is_linear:
+            mods = {n: getattr(layer.linear_attn, n)
+                    for n in ("in_proj_qkv", "in_proj_z", "out_proj")}
+            # the small GDN routers are not coded
+            assert not isinstance(layer.linear_attn.in_proj_a, EschaLinear)
+            assert not isinstance(layer.linear_attn.in_proj_b, EschaLinear)
+        else:
+            mods = {f"{k}_proj": getattr(layer.self_attn, f"{k}_proj") for k in "qkvo"}
+        mods.update({n: getattr(layer.mlp, n)
+                     for n in ("gate_proj", "up_proj", "down_proj")})
+        assert all(isinstance(m, EschaLinear) for m in mods.values()), \
+            {k: type(m).__name__ for k, m in mods.items()}
+        assert all(m.bias is not None for m in mods.values())
+        # the shipped mixed rate
+        assert mods["up_proj"].K == 3 and mods["down_proj"].K == 3
+        assert mods["gate_proj"].K == 2
+
+    assert isinstance(model.language_model.model.embed_tokens, EschaQ8Embedding)
+    head = model.language_model.lm_head
+    assert isinstance(head, LastPositionHead) and isinstance(head.inner, EschaQ8Linear)
+
+    # mlx-lm's (1+w) norm shift must have fired: HF stores these centred on 0.
+    # Reduce in f32 — a 5120-wide f16 sum loses the tail entirely.
+    norm = model.language_model.model.norm.weight
+    assert abs(float(mx.mean(norm.astype(mx.float32))) - 1.944138) < 1e-4
+    inp = layers[0].input_layernorm.weight
+    assert abs(float(mx.mean(inp.astype(mx.float32))) - (1.0 - 0.0334)) < 1e-2
