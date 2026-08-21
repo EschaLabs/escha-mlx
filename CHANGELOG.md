@@ -21,6 +21,14 @@
     one rounding point fewer than applying the scales separately (documented deviation, gated
     against real shipped tensors). Dropping them would be a ~2% silent error; there is a
     test that fails if they are.
+  - **Row-blocked dense GEMM** — the dense counterpart of the expert row-blocking, and
+    what makes dense prefill viable: the per-row GEMV reads the whole coded stream once
+    per row, so a 256-token chunk would decode every projection 256 times. A dense group
+    needs no grouping machinery (rows are consecutive, one stream, only the last group
+    partly padding), so it carries neither `rows_idx` nor `group_expert`. Bit-identical
+    to the per-row kernel at every R. `ESCHA_MLX_DENSE_BLOCK_R` pins R; the default
+    thresholds are structural, **not measured on Metal** — the first thing to sweep on
+    hardware (flagged as such in docs/INSTALL.md).
   - **Per-linear bias**: the additive correction the end-to-end stage leaves behind is
     applied in f32 after the output transform.
   - **Load-time metadata cross-check**: `escha_config`'s K and shapes are checked against

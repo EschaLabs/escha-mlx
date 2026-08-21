@@ -141,12 +141,25 @@ these is gated bit-identical or documented where it is not.
 | `ESCHA_MLX_DENSE=fp16` | fp16 dense weights instead of the Q8 repack. +~1.9 GB resident; bit-identical weight values. |
 | `ESCHA_MLX_LUT=1` | table-based codec decode instead of the multiply-hash. Bit-exact by construction; use if a future Metal compiler ever breaks fp16 round-to-nearest-even in the hash path. |
 | `ESCHA_MLX_MOE=ops` | NumPy expert path. Very slow; a correctness oracle, not for serving. |
+| `ESCHA_MLX_LINEAR=ops` | NumPy path for the coded linears of a **dense** model (the MoE flag's counterpart). Very slow, and it materializes each fp16 weight; a correctness oracle, not for serving. |
+| `ESCHA_MLX_DENSE_BLOCK_R=N` | pin rows-per-group for the dense row-blocked GEMM (1 = always the per-row kernel). Default is size-dependent and, unlike the rest of this table, **has not been measured on Metal** — see below. Bit-identical at every R. |
 
 Four further flags (`ESCHA_MLX_SPLITK`, `ESCHA_MLX_FETCH`, `ESCHA_MLX_SORTX`,
 `ESCHA_MLX_PREFETCH`) select alternate kernel strategies that measured neutral or
 worse on a 10-core M4. They are kept because the trade-offs are
 hardware-dependent and may favour wider GPUs (M-series Max/Ultra). All are gated
 bit-identical.
+
+**`ESCHA_MLX_DENSE_BLOCK_R` is the one unmeasured default in this table.** The
+dense path was developed on Linux, where the Metal kernels do not run, so its
+rows-per-group thresholds come from the structure of the kernel rather than from
+a sweep: unlike the MoE case, every row of a dense linear shares the one coded
+stream, so a group is never mostly padding and the decoded-stream reads fall by
+very nearly R. That argues for R as large as the register and staging budget
+allows, but it is an argument, not a measurement — the shipped default is
+deliberately modest, and sweeping this is the first thing worth doing on a
+dense model on real hardware. Correctness does not depend on it: every R is
+gated bit-identical to the per-row kernel.
 
 ## Troubleshooting
 
@@ -158,8 +171,13 @@ working set exceeded the cap. Lower `--decode-concurrency`, lower
 paging. This is the cliff; it does not raise an error. Check peak memory against
 your cap.
 
-**`ValueError: ... is not an eschamoe checkpoint`** — the path is not an escha
-export. This runtime only loads `eschamoe`; use stock `mlx-lm` for other formats.
+**`ValueError: ... is not an escha checkpoint`** — the path is not an escha
+export. This runtime loads `escha` (dense) and `eschamoe` (mixture-of-experts)
+exports; use stock `mlx-lm` for other formats.
+
+**`ValueError: unsupported model_type ...`** — the export *is* escha, but no
+plugin is registered for its architecture. Supported types are listed in the
+error; open a [model request](https://github.com/EschaLabs/escha-mlx/issues/new?template=new_model.yml).
 
 **Very slow first call after each new prompt length** — expected. Metal
 specialises kernels per shape; the first call at a new shape includes

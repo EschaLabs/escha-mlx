@@ -387,8 +387,20 @@ def _moe_gemv_source(K: int, use_lut: bool, dense: bool = False) -> str:
 """
 
 
+def _gemm_group_prologue(R: int, wpt: int, dense: bool) -> str:
+    """Group-validity prologue for the row-blocked GEMM.
+
+    A MoE group past the end is marked by expert -1; a dense group past the end
+    is simply one whose first row is beyond M.
+    """
+    if dense:
+        return f"    if (grp * {R}u >= M) return;\n"
+    return "    int e = group_expert[grp];\n    if (e < 0) return;\n"
+
+
 def _moe_gemm_rows_source(K: int, use_lut: bool, R: int, KB: int = 1,
-                          sortx: bool = False, prefetch: bool = False) -> str:
+                          sortx: bool = False, prefetch: bool = False,
+                          dense: bool = False) -> str:
     """Row-blocked variant: ONE expert code stream shared by R rows.
 
     The decode-path kernel above reads a full expert stream per ROW, so its cost
@@ -405,6 +417,19 @@ def _moe_gemm_rows_source(K: int, use_lut: bool, R: int, KB: int = 1,
       rows_idx[grp*R + r]  = index into xh/mid of the r-th row of group grp,
                              or M (a zero row appended by the caller) for padding.
       group_expert[grp]    = expert id for the group, or -1 past the end.
+
+    ``dense=True`` drops both buffers. A dense linear has one stream, so every
+    row belongs to it and group grp simply owns rows [grp*R, grp*R+R) -- the
+    membership question the MoE grouping machinery exists to answer does not
+    arise, and neither does its padding: only the LAST group is partly padding,
+    against up to R-1 wasted slots per expert in the MoE case. Rows past the end
+    are clamped to M, the zero row the caller appends, so they stage zeros and
+    write to a discarded row. The kt/j accumulation order is untouched, so a
+    dense group is bit-identical to R dense R=1 GEMV calls.
+
+    This kernel is what makes dense PREFILL viable at all: the per-row GEMV
+    reads the entire coded weight once per row, so a 256-token chunk would
+    decode every projection 256 times.
     """
     wpt = 8 * K
     raw_extract = _EXTRACT_K2 if K == 2 else _EXTRACT_K3
@@ -453,12 +478,23 @@ def _moe_gemm_rows_source(K: int, use_lut: bool, R: int, KB: int = 1,
     # output is bit-identical.  The OUTPUT write keeps the rows_idx indirection:
     # it happens once per group while staging happens TK times, so scattering on
     # the write side is far cheaper than un-permuting the whole mid tensor.
-    if sortx:
+    if dense:
+        # Row address is computed, not loaded: group grp owns rows grp*R..+R.
+        # min(.., M) sends the tail group's padding slots to the caller's zero row.
+        # (uint)M: the template parameter is emitted as an int, and MSL's min()
+        # overloads are ambiguous across signedness.
+        row_of = "min(grp * %du + %s, (uint)M)" % (R, "{i}")
+        stage_body = ("            s_x[i] = xh[(ulong)%s * IC\n"
+                      "                        + (kb + kk) * 16u + cc];"
+                      % row_of.format(i="rr"))
+    elif sortx:
+        row_of = "rows_idx[grp * %du + %s]" % (R, "{i}")
         stage_body = ("            uint sr = src_row0[grp] + rr;\n"
                       "            s_x[i] = (rr < n_valid[grp])\n"
                       "                ? xh[(ulong)sr * IC + (kb + kk) * 16u + cc]\n"
                       "                : (half)0.0h;")
     else:
+        row_of = "rows_idx[grp * %du + %s]" % (R, "{i}")
         stage_body = ("            s_x[i] = xh[(ulong)rows_idx[grp * %du + rr] * IC\n"
                       "                        + (kb + kk) * 16u + cc];" % R)
     return f"""
@@ -468,12 +504,10 @@ def _moe_gemm_rows_source(K: int, use_lut: bool, R: int, KB: int = 1,
     uint lane = thread_index_in_simdgroup;
     uint sg = simdgroup_index_in_threadgroup;
 
-    int e = group_expert[grp];
-    if (e < 0) return;
-
+{_gemm_group_prologue(R, wpt, dense)}
     threadgroup half s_x[{16 * R * KB}];
 
-    device const uint* base = code + (ulong)e * ((ulong)TK * TN * {wpt}u);
+    device const uint* base = {"code" if dense else f"code + (ulong)e * ((ulong)TK * TN * {wpt}u)"};
 
     float acc0[{R}], acc1[{R}];
 #pragma clang loop unroll(full)
@@ -515,7 +549,7 @@ def _moe_gemm_rows_source(K: int, use_lut: bool, R: int, KB: int = 1,
         a1 += simd_shuffle_xor(a1, 2u);
         if ((lane & 3u) == 0u) {{
             uint col = 2u * (l0 >> 3) + c_off;
-            ulong ob = (ulong)rows_idx[grp * {R}u + r] * OC + ocb * 128u + sg * 16u;
+            ulong ob = (ulong){row_of.format(i="r")} * OC + ocb * 128u + sg * 16u;
             mid[ob + col] = a0;
             mid[ob + col + 8u] = a1;
         }}
@@ -866,18 +900,24 @@ def use_sortx() -> bool:
 
 @lru_cache(maxsize=None)
 def _moe_gemm_rows_kernel(K: int, lut: bool, R: int, KB: int = 1,
-                          sortx: bool = False, prefetch: bool = False):
-    idx_inputs = (["src_row0", "n_valid", "rows_idx", "group_expert"] if sortx
-                  else ["rows_idx", "group_expert"])
+                          sortx: bool = False, prefetch: bool = False,
+                          dense: bool = False):
+    if dense:
+        idx_inputs = []           # row addresses are computed, not looked up
+    elif sortx:
+        idx_inputs = ["src_row0", "n_valid", "rows_idx", "group_expert"]
+    else:
+        idx_inputs = ["rows_idx", "group_expert"]
     inputs = ["xh", "code"] + idx_inputs + (["lut"] if lut else [])
+    stem = "escha_gemm_dense" if dense else "escha_moe_gemm"
     return mx.fast.metal_kernel(
-        name=f"escha_moe_gemm_k{K}_r{R}_kb{KB}"
-             f"{'_sx' if sortx else ''}{'_pf' if prefetch else ''}"
+        name=f"{stem}_k{K}_r{R}_kb{KB}"
+             f"{'_sx' if sortx and not dense else ''}{'_pf' if prefetch else ''}"
              f"{'_lut' if lut else ''}",
         input_names=inputs,
         output_names=["mid"],
         header=_HEADER,
-        source=_moe_gemm_rows_source(K, lut, R, KB, sortx, prefetch),
+        source=_moe_gemm_rows_source(K, lut, R, KB, sortx, prefetch, dense),
     )
 
 
@@ -1004,3 +1044,65 @@ def dense_gemv(xh: mx.array, code_u32: mx.array, K: int, IC: int, OC: int,
                splits: int | None = None) -> mx.array:
     """Fused dense GEMV: mid = xh @ decode(code). code_u32 [TK, TN, 8K] uint32."""
     return moe_gemv(xh, code_u32, None, K, IC, OC, splits)
+
+
+def dense_block_r(m: int) -> int:
+    """Rows per group for the dense row-blocked GEMM (1 = the per-row GEMV).
+
+    The dense case is the one the MoE policy in EschaSparseMoeBlock._blocked_R
+    could not have: there, R rows must share an EXPERT, so a group is mostly
+    padding until the row count is large relative to the expert count, and the
+    measured optimum grows slowly and turns harmful early.  Here every row
+    shares the single stream, so only the last group is ever partly padding and
+    the decoded-stream reads fall by very nearly R across the board.
+
+    That argument says "R as large as the register and threadgroup budget
+    allows" -- acc0[R] + acc1[R] floats per lane plus 16*R*KB halves of staging
+    -- but it is an argument, not a measurement, and NONE of these thresholds
+    have been measured on Metal (this path was developed on Linux CPU, where
+    the kernels do not run).  So the default is deliberately modest and the
+    knob is exposed: ESCHA_MLX_DENSE_BLOCK_R pins R, and sweeping it is the
+    first thing to do on real hardware.  R=1 is always correct and is what
+    small row counts use, where the staging barriers cost more than the shared
+    decode saves.
+    """
+    env = os.environ.get("ESCHA_MLX_DENSE_BLOCK_R")
+    if env:
+        return max(1, int(env))
+    if m >= 64:
+        return 8
+    if m >= 16:
+        return 4
+    if m >= 4:
+        return 2
+    return 1
+
+
+def dense_gemm_rows(xh: mx.array, code_u32: mx.array, K: int, IC: int, OC: int,
+                    R: int) -> mx.array:
+    """Row-blocked dense GEMM: mid = xh @ decode(code), R rows per decode.
+
+    xh: [M, IC] f16 (the padding row is appended here, not by the caller).
+    Returns mid [M, OC] f32 -- bit-identical to ``dense_gemv`` on the same input
+    (same kt/j accumulation order; only the loop nest around it differs).
+    """
+    m = xh.shape[0]
+    tk, tn = IC // 16, OC // 16
+    lut = use_lut()
+    kb = kt_block()
+    if tk % kb:                      # a partial block would drop kt iterations
+        kb = 1
+    n_groups = (m + R - 1) // R
+    xh_pad = mx.concatenate(
+        [xh, mx.zeros((1, IC), dtype=xh.dtype)], axis=0)
+    kern = _moe_gemm_rows_kernel(K, lut, R, kb, False, use_prefetch(), True)
+    inputs = [xh_pad, code_u32.reshape(-1)] + ([_lut_array()] if lut else [])
+    (mid,) = kern(
+        inputs=inputs,
+        template=[("TK", tk), ("TN", tn), ("IC", IC), ("OC", OC), ("M", m)],
+        grid=(256 * (OC // 128), n_groups, 1),
+        threadgroup=(256, 1, 1),
+        output_shapes=[(m + 1, OC)],
+        output_dtypes=[mx.float32],
+    )
+    return mid[:m]
