@@ -301,6 +301,10 @@ class EschaLinear(nn.Module):
             # decode every projection once PER TOKEN -- the per-row kernel has
             # no batch amortization by construction. Bit-identical either way.
             r = msl.dense_block_r(xh.shape[0], self._block_r_pin)
+            if r >= 16 and msl.use_dense_mat():
+                # Deterministic but NOT bit-identical (reassociated f32 sum);
+                # default off, ESCHA_MLX_DENSE_MAT=1. See msl.use_dense_mat.
+                return msl.dense_gemm_mat(xh, w.code, w.K, w.IC, w.OC)
             if r > 1:
                 return msl.dense_gemm_rows(xh, w.code, w.K, w.IC, w.OC, r)
             return msl.dense_gemv(xh, w.code, w.K, w.IC, w.OC)
