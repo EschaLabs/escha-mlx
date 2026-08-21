@@ -387,7 +387,7 @@ def _moe_gemv_source(K: int, use_lut: bool, dense: bool = False) -> str:
 """
 
 
-def _gemm_group_prologue(R: int, wpt: int, dense: bool) -> str:
+def _gemm_group_prologue(R: int, dense: bool) -> str:
     """Group-validity prologue for the row-blocked GEMM.
 
     A MoE group past the end is marked by expert -1; a dense group past the end
@@ -507,7 +507,7 @@ def _moe_gemm_rows_source(K: int, use_lut: bool, R: int, KB: int = 1,
     uint lane = thread_index_in_simdgroup;
     uint sg = simdgroup_index_in_threadgroup;
 
-{_gemm_group_prologue(R, wpt, dense)}
+{_gemm_group_prologue(R, dense)}
     threadgroup half s_x[{16 * R * KB}];
 
     device const uint* base = {"code" if dense else f"code + (ulong)e * ((ulong)TK * TN * {wpt}u)"};
