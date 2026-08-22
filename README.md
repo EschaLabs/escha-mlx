@@ -62,7 +62,7 @@ Architectures outside `escha_mlx/native.py`'s `NATIVE_ARCHITECTURES` are refused
 by name rather than served on untested assumptions (`ESCHA_MLX_NATIVE_ANY=1`
 lifts that, unmeasured).
 
-Measured on an M5 Max (137 GB, macOS 26.4.1, MLX 0.32.0 / mlx-lm 0.31.3) with a
+Measured on an M5 Max (128 GB, macOS 26.4.1, MLX 0.32.0 / mlx-lm 0.31.3) with a
 4-bit `qwen3_5_moe` export, 19.6 GB resident:
 
 | check | result |
