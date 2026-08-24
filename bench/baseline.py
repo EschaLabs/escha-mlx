@@ -26,7 +26,11 @@ import mlx.core as mx
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from escha_mlx.benchmark_metadata import annotate_report, benchmark_metadata
+from escha_mlx.benchmark_metadata import (
+    annotate_report,
+    benchmark_metadata,
+    model_display_name,
+)
 
 
 def _gb(x: float) -> float:
@@ -320,7 +324,10 @@ def main() -> None:
     model, tokenizer = load(args.model)
     print(f"model loaded in {time.time()-t0:.1f}s, resident {_gb(mx.get_active_memory()):.2f} GB\n")
 
-    report: dict = {"mlx": mx.__version__, "model": args.model}
+    # The repo id, not args.model: these reports are committed, and an absolute
+    # path publishes the operator's home directory while adding nothing to
+    # model_hf_revision. See benchmark_metadata.model_display_name.
+    report: dict = {"mlx": mx.__version__, "model": model_display_name(args.model)}
     if "A" in args.phases:
         print("--- A. correctness battery ---")
         report["A_correctness"] = phase_a(model, tokenizer)
