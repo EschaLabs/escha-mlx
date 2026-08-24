@@ -81,6 +81,37 @@ def model_hf_revision(model: str | Path) -> str | None:
     return None
 
 
+def model_display_name(model: str | Path) -> str:
+    """Identify a checkpoint without publishing where it sits on disk.
+
+    Benchmark reports are committed under bench/results/, so anything they
+    record about the machine that produced them is published with them. The
+    raw ``--model`` argument is usually an absolute path -- on a Hub cache that
+    means a home directory -- and it carries no information the report does not
+    already have: ``model_hf_revision`` pins the exact revision, which is
+    strictly more precise than a path.
+
+    So report the repo id instead. A Hub cache lays out
+    ``models--Org--Name/snapshots/<revision>``, which recovers ``Org/Name``
+    exactly; anything else falls back to the directory name.
+    """
+    path = Path(model).expanduser()
+    for part in (path, *path.parents):
+        if part.name.startswith("models--"):
+            return part.name[len("models--"):].replace("--", "/", 1)
+    name = path.name
+    # A bare snapshot dir is named for its revision, which says nothing useful;
+    # the directory holding snapshots/ is the checkpoint's real name.
+    if _REVISION.fullmatch(name) and path.parent.name == "snapshots":
+        name = path.parent.parent.name
+    # Whatever component we landed on, it must not be the operator's home
+    # directory -- that is the one name this function exists to keep out of a
+    # committed report, and a layout like <home>/snapshots/<rev> would reach it.
+    if not name or name == Path.home().name:
+        return "local-checkpoint"
+    return name
+
+
 def benchmark_metadata(
     model: str | Path,
     repo: str | Path = _ESCHA_MLX_ROOT,

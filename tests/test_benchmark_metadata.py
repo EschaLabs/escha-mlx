@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 import subprocess
 
+from pathlib import Path
+
 from escha_mlx.benchmark_metadata import (
     annotate_report,
     benchmark_metadata,
     escha_mlx_git_revision,
+    model_display_name,
     model_hf_revision,
 )
 
@@ -71,3 +74,36 @@ def test_report_annotation_keeps_one_metadata_set(tmp_path):
         **metadata,
         "results": [{"metric": 1}],
     }
+
+
+def test_model_display_name_never_publishes_a_path():
+    """Benchmark reports are committed, so what identifies the checkpoint in one
+    must not identify the machine that ran it.
+
+    A Hub cache path is the common case and carries a home directory; the repo
+    id recovered from it is both anonymous and more useful. The revision is
+    already recorded separately, so nothing is lost.
+    """
+    hub = ("/Users/somebody/.cache/huggingface/hub/"
+           "models--EschaLabs--Qwen3.8-27B-Escha-W2/snapshots/" + REVISION)
+    assert model_display_name(hub) == "EschaLabs/Qwen3.8-27B-Escha-W2"
+    # the model dir itself, without a snapshot component
+    assert model_display_name(
+        "/Users/somebody/.cache/huggingface/hub/models--EschaLabs--Qwen3.8-27B-Escha-W2"
+    ) == "EschaLabs/Qwen3.8-27B-Escha-W2"
+
+    # A plain directory keeps its own name, which is what the operator chose.
+    assert model_display_name("~/Desktop/escha-release-2026-07-16") == \
+        "escha-release-2026-07-16"
+    assert model_display_name("./escha-w2") == "escha-w2"
+
+    # A bare snapshot dir is named for its revision; the dir above it is the name.
+    assert model_display_name("/some/where/snapshots/" + REVISION) == "where"
+
+    # The one component that must never survive, however we arrive at it.
+    home = Path.home()
+    assert model_display_name(home / "snapshots" / REVISION) == "local-checkpoint"
+
+    for probe in (hub, str(home / "snapshots" / REVISION)):
+        assert home.name not in model_display_name(probe)
+        assert "/Users/" not in model_display_name(probe)
