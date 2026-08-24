@@ -63,7 +63,7 @@
     needs no grouping machinery (rows are consecutive, one stream, only the last group
     partly padding), so it carries neither `rows_idx` nor `group_expert`. Bit-identical
     to the per-row kernel at every R. `ESCHA_MLX_DENSE_BLOCK_R` pins R; the default
-    is now measured on hardware (see the M4 bring-up entry below).
+    is now measured on hardware (see the M4 bring-up entry above).
   - **Per-linear bias**: the additive correction the end-to-end stage leaves behind is
     applied in f32 after the output transform.
   - **Load-time metadata cross-check**: `escha_config`'s K and shapes are checked against
@@ -127,10 +127,12 @@
     thinking is on by default and `--max-tokens 128` truncates inside it, sampling
     defaults in `generation_config.json` are not applied, and 243 `lm_head` rows have
     live scales but no tokenizer entry.
-  - **Not yet run on Metal.** The dense path was developed on Linux with `mlx[cpu]`,
-    where the Metal kernels do not execute. The reference, the module, the loader and
-    the real-checkpoint structure are all gated and green; the dense kernel sources
-    themselves meet the Metal compiler for the first time at RUNBOOK step 1e.
+  - **Written without Metal, correct on first contact with it.** The dense path was
+    developed on Linux with `mlx[cpu]`, where the Metal kernels do not execute, so
+    everything above was gated against the reference, the module, the loader and the
+    real-checkpoint structure rather than against a running kernel. The sources met
+    the Metal compiler for the first time at RUNBOOK step 1e and needed no fix — see
+    the M4 bring-up entry at the top of this section.
 - **Fused expert output Hadamard transform** (companion to 0.1.0's input-side
   fusion): transform + output-scale gather + f16 cast in one Metal kernel,
   bit-exact with the native chain. M5 Pro: +5.6% decode at B=1, +5.8% prefill
