@@ -471,7 +471,11 @@ def test_simdgroup_matrix_gemm_is_deterministic_and_close():
     from escha_mlx import msl
 
     rng = np.random.default_rng(909)
-    for ic, oc, K in ((BIG_IC, BIG_OC, 2), (256, 384, 3)):
+    # Two genuinely different shapes, not the same one twice: the second is
+    # wider than one output block (OC/128 = 5, so `ocb` addressing is
+    # exercised) and twice as deep in kt, which is where a reassociated sum
+    # drifts furthest from the sequential one.
+    for ic, oc, K in ((BIG_IC, BIG_OC, 2), (512, 640, 3)):
         code = mx.array(msl.code_to_u32(
             rng.integers(-32768, 32768, size=(ic // 16, oc // 16, 16 * K), dtype=np.int16)))
         for m in (16, 17, 33):
@@ -489,10 +493,43 @@ def test_simdgroup_matrix_gemm_is_deterministic_and_close():
                 f"K={K} m={m} not reproducible run to run"
 
 
-@needs_metal
+@needs_mlx
+def test_gemv_prefetch_depth_is_validated_once(monkeypatch):
+    """The prefetch depth is resolved once and range-checked there.
+
+    `moe_gemv` consults it on every coded linear of every forward, so a value
+    that parses but cannot work (0 would make `TK % pf` a ZeroDivisionError)
+    has to be rejected where it is read, not where it is used.
+    """
+    from escha_mlx import msl
+
+    msl.gemv_pf.cache_clear()
+    try:
+        monkeypatch.setenv("ESCHA_MLX_GEMV_PF", "0")
+        with pytest.raises(ValueError):
+            msl.gemv_pf()
+        msl.gemv_pf.cache_clear()
+
+        monkeypatch.setenv("ESCHA_MLX_GEMV_PF", "4")
+        assert msl.gemv_pf() == 4
+        msl.gemv_pf.cache_clear()
+
+        monkeypatch.delenv("ESCHA_MLX_GEMV_PF")
+        assert msl.gemv_pf() == 1        # the shipped default
+    finally:
+        msl.gemv_pf.cache_clear()        # never leak a pin into another test
+
+
+@needs_mlx
 def test_simdgroup_matrix_gemm_is_off_by_default(monkeypatch):
     """Every default path in this runtime is bit-identical to the goldens; the
-    matrix kernel is not, so it must stay behind its flag."""
+    matrix kernel is not, so it must stay behind its flag.
+
+    Deliberately NOT @needs_metal: this reads an environment variable and never
+    reaches a kernel, and the invariant it guards -- that the one
+    non-bit-identical path is opt-in -- is exactly the kind of regression a
+    CPU-only CI runner should be able to catch.
+    """
     from escha_mlx import msl
 
     monkeypatch.delenv("ESCHA_MLX_DENSE_MAT", raising=False)

@@ -301,9 +301,20 @@ class EschaLinear(nn.Module):
             # decode every projection once PER TOKEN -- the per-row kernel has
             # no batch amortization by construction. Bit-identical either way.
             r = msl.dense_block_r(xh.shape[0], self._block_r_pin)
-            if r >= 16 and msl.use_dense_mat():
+            # Read live, unlike _fused_had and _block_r_pin above. Those two
+            # decide how the MODULE is built, so latching them keeps a forward
+            # self-consistent; this one only picks between two kernels that are
+            # both already compiled, so a live read costs one dict lookup and
+            # buys the in-process A/B/A that bench/prefill_profile.py
+            # --sweep-dense-mat runs (the same way msl reads splitk/shuffle per
+            # call). Flipping it BETWEEN timed blocks is the intended use;
+            # flipping it mid-generation would mix paths, which is on the caller.
+            if r == msl.DENSE_MAT_R and msl.use_dense_mat():
                 # Deterministic but NOT bit-identical (reassociated f32 sum);
                 # default off, ESCHA_MLX_DENSE_MAT=1. See msl.use_dense_mat.
+                # Gated on ==, not >=: the kernel is built for exactly this R,
+                # so a pinned R keeps the scalar kernel at the R that was asked
+                # for rather than silently getting a different blocking.
                 return msl.dense_gemm_mat(xh, w.code, w.K, w.IC, w.OC)
             if r > 1:
                 return msl.dense_gemm_rows(xh, w.code, w.K, w.IC, w.OC, r)

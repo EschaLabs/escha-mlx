@@ -240,3 +240,77 @@ def test_truncated_real_load(monkeypatch):
     assert abs(float(mx.mean(norm.astype(mx.float32))) - 1.944138) < 1e-4
     inp = layers[0].input_layernorm.weight
     assert abs(float(mx.mean(inp.astype(mx.float32))) - (1.0 - 0.0334)) < 1e-2
+
+
+@needs_slow
+@needs_dense_ckpt
+def test_simdgroup_matrix_path_does_not_change_what_the_model_says(monkeypatch):
+    """The non-bit-identical kernel, judged where it actually matters.
+
+    tests/test_dense_linear.py bounds the deviation on one linear. That is not
+    the question a user has: prefill seeds both the KV cache and the GDN
+    recurrent state for every token that follows, so a per-linear epsilon is
+    only interesting if it can move a token. Here the whole 27B runs a real
+    prompt both ways in ONE process (the flag is read per call, so no reload)
+    and the comparison is made on the logits the sampler would see.
+
+    Asserted: the greedy token and the top-5 ranking are unchanged, and the
+    logit perturbation is small against the SPREAD of the logits (an absolute
+    epsilon means nothing without the scale it sits on).
+
+    Deliberately NOT asserted, because measurement says they are not true:
+
+      * that the deep tail keeps its order. Top-50 ordering does move -- those
+        tokens sit fractions of an ULP apart and their order is not meaningful.
+      * that the delta is small against the TOP-1 MARGIN. On this prompt the
+        margin is 0.0156 -- one fp16 ULP at that magnitude, i.e. a near tie --
+        while the largest delta anywhere in the vocabulary is ~0.17. A
+        margin-relative bound would fail here for a healthy model and would be
+        measuring how close the top two tokens happen to be, not the kernel.
+
+    The honest statement of the risk: on a near tie the reassociated sum CAN
+    reorder the top two. It does not here, and a 96-token greedy continuation
+    was identical in both paths, but this is a tolerance-gated path and not a
+    bit-identical one -- which is exactly why it ships default-off.
+    """
+    import mlx.core as mx
+
+    from escha_mlx import msl
+    from escha_mlx.loader import load
+
+    model, tok = load(DENSE_CKPT)
+    # Long enough that prefill takes the R=16 blocked path this kernel replaces
+    # (the policy needs >= DENSE_MAT_R rows; a short prompt would test nothing).
+    prompt = ("Explain, in one paragraph, why a quantized weight format can turn a "
+              "memory-bound matrix multiplication into a compute-bound one. ") * 6
+    ids = mx.array([tok.encode(prompt)])
+    assert ids.shape[1] >= msl.DENSE_MAT_R
+
+    def last_logits() -> mx.array:
+        out = model(ids)[0, -1].astype(mx.float32)
+        mx.eval(out)
+        return out
+
+    monkeypatch.setenv("ESCHA_MLX_DENSE_MAT", "0")
+    assert not msl.use_dense_mat()
+    ref = last_logits()
+
+    monkeypatch.setenv("ESCHA_MLX_DENSE_MAT", "1")
+    assert msl.use_dense_mat()
+    got = last_logits()
+
+    order_ref = [int(i) for i in mx.argsort(-ref)[:5].tolist()]
+    order_got = [int(i) for i in mx.argsort(-got)[:5].tolist()]
+    assert order_ref[0] == order_got[0], "greedy token moved"
+    assert order_ref == order_got, f"top-5 reordered: {order_ref} vs {order_got}"
+
+    # Scale the perturbation against the logits' own spread. Measured on the
+    # shipped checkpoint: mean |delta| 0.46% of sigma, max 0.65% of the range;
+    # the bounds below leave ~4x headroom so this fails on a real regression,
+    # not on machine-to-machine noise.
+    d = mx.abs(ref - got)
+    sigma = float(mx.sqrt(mx.var(ref)))
+    rng = float(ref.max() - ref.min())
+    mean_rel, max_rel = float(d.mean()) / sigma, float(d.max()) / rng
+    assert mean_rel < 0.02, f"mean logit delta {mean_rel:.3%} of sigma"
+    assert max_rel < 0.03, f"max logit delta {max_rel:.3%} of logit range"
