@@ -12,9 +12,17 @@ Ablations, all measured INSIDE the real model on a real chunk:
   full            the chunk forward as it runs today
   last-logit      lm_head applied to the final position only, not all S
   no-experts      routed-expert path stubbed (data-dependent, so MLX cannot
-                  dead-code-eliminate the upstream graph -- doc §5)
-  no-moe          the whole MoE block stubbed
+                  dead-code-eliminate the upstream graph -- doc §5).
+                  MoE only: a dense model has no routed experts, and this
+                  reports n/a rather than a timing equal to base, which would
+                  read as "the experts are free" instead of "there are none".
+  no-moe/no-mlp   the whole MLP block stubbed (MoE block, or the dense MLP)
   no-lm_head      lm_head stubbed entirely (upper bound on the head's cost)
+
+Both architectures are supported. The expert-shaped ablations and --sweep-r's
+per-block knob are MoE-only; on a dense model --sweep-r pins the latched
+rows-per-group on every coded linear instead, and --sweep-dense-mat A/B/As the
+simdgroup-matrix GEMM (which is dense-only).
 
 Every configuration is warmed per shape before timing: Metal specialises kernels
 per shape and the first call otherwise lands in the measurement (an earlier
@@ -24,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 import types
@@ -37,6 +46,24 @@ from escha_mlx.benchmark_metadata import annotate_report, benchmark_metadata
 
 WARMUP = 3
 ITERS = 6
+
+
+def set_dense_block_r(model, r) -> int:
+    """Pin rows-per-group on every dense coded linear. Returns how many.
+
+    The env knob is read ONCE per module at construction, so setting it after
+    the model is loaded does nothing -- a sweep that only exported the variable
+    would silently measure the same R every time. Reaching into the latched
+    attribute is the honest way to sweep in one process.
+    """
+    from escha_mlx import dense as dense_mod
+
+    n = 0
+    for mod in model.modules():
+        if isinstance(mod, dense_mod.EschaLinear):
+            mod._block_r_pin = r
+            n += 1
+    return n
 
 
 def time_chunk(fn, ids, iters=ITERS, warm=WARMUP):
@@ -67,11 +94,15 @@ def main() -> None:
                     help="comma list of ESCHA_MLX_KT_BLOCK values to sweep")
     ap.add_argument("--sweep-r", default=None,
                     help="comma list of R values to sweep instead of ablating")
+    ap.add_argument("--sweep-dense-mat", action="store_true",
+                    help="A/B/A the simdgroup-matrix dense GEMM (dense models only)")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
     metadata = benchmark_metadata(args.model)
 
+    from escha_mlx import msl
     from escha_mlx.loader import load
+    from escha_mlx.models import qwen3_5_moe as moe_mod
     from mlx_lm.models.cache import make_prompt_cache
 
     print(f"loading {args.model} ...")
@@ -79,6 +110,11 @@ def main() -> None:
     lm = model.language_model
     layers = lm.model.layers
     V = lm.args.vocab_size
+    # Same test roofline.py's byte ledger uses: a dense model's mlp is a plain
+    # MLP block, and every expert-shaped ablation below has to be skipped for
+    # it rather than crashing on an attribute that only the MoE block has.
+    is_moe = any(isinstance(l.mlp, moe_mod.EschaSparseMoeBlock) for l in layers)
+    print(f"architecture: {'MoE' if is_moe else 'dense'}")
 
     rows = []
     for S in [int(c) for c in args.chunks.split(",")]:
@@ -90,7 +126,6 @@ def main() -> None:
             return model(x, cache=make_prompt_cache(model))
 
         if args.sweep_prefetch:
-            import os
             base = None
             for tag in ("0", "1", "0"):     # A/B/A
                 os.environ["ESCHA_MLX_PREFETCH"] = tag
@@ -106,7 +141,6 @@ def main() -> None:
             continue
 
         if args.sweep_sortx:
-            import os
             base = None
             for tag in ("1", "0", "1"):     # A/B/A: drift shows as A-vs-A gap
                 os.environ["ESCHA_MLX_SORTX"] = tag
@@ -122,7 +156,6 @@ def main() -> None:
             continue
 
         if args.sweep_kb:
-            import os
             base_kb = None
             for kb in [int(x) for x in args.sweep_kb.split(",")]:
                 os.environ["ESCHA_MLX_KT_BLOCK"] = str(kb)
@@ -137,15 +170,27 @@ def main() -> None:
             continue
 
         if args.sweep_r:
-            # Rows/expert at prefill is m/E = 8S/256 = S/32, so a group of R
-            # rows is only ~S/32 full: R above that is pure padding, and the
-            # padded rows cost real MACs.
-            m = 8 * S
-            print(f"  m={m} rows over 256 experts ~= {m/256:.1f} rows/expert")
             base_r = None
+            if is_moe:
+                # Rows/expert at prefill is m/E = 8S/256 = S/32, so a group of R
+                # rows is only ~S/32 full: R above that is pure padding, and the
+                # padded rows cost real MACs.
+                m = 8 * S
+                print(f"  m={m} rows over 256 experts ~= {m/256:.1f} rows/expert")
+            else:
+                # A dense linear has ONE stream, so every row of the chunk shares
+                # it and only the last group is ever partly padding -- which is
+                # why the dense policy can take a much larger R than the MoE one.
+                print(f"  m={S} rows over 1 stream (dense: no padding tax)")
             for r in [int(x) for x in args.sweep_r.split(",")]:
-                for l in layers:
-                    l.mlp._block_env = r
+                if is_moe:
+                    for l in layers:
+                        l.mlp._block_env = r
+                else:
+                    if not set_dense_block_r(model, r):
+                        raise SystemExit(
+                            "no EschaLinear modules found: the R sweep would "
+                            "have printed a table of identical configurations")
                 t = time_chunk(full, ids)
                 if base_r is None:
                     base_r, d = t, ""
@@ -153,8 +198,29 @@ def main() -> None:
                     d = f"{100*(base_r-t)/base_r:+6.1f}%"
                 print(f"  R={r:3d}  {t*1000:8.1f} ms  {S/t:8.1f} tok/s {d:>8s}")
                 rows.append({"S": S, "R": r, "ms": t * 1000, "tok_s": S / t})
-            for l in layers:
-                l.mlp._block_env = None
+            if is_moe:
+                for l in layers:
+                    l.mlp._block_env = None
+            else:
+                set_dense_block_r(model, msl.dense_block_r_pin())
+            continue
+
+        if args.sweep_dense_mat:
+            if is_moe:
+                print("  --sweep-dense-mat is a dense-only lever; skipping")
+                continue
+            base_dm = None
+            for tag in ("0", "1", "0"):     # A/B/A: drift shows as A-vs-A gap
+                os.environ["ESCHA_MLX_DENSE_MAT"] = tag
+                t = time_chunk(full, ids)
+                lbl = "simdgroup matrix" if tag == "1" else "scalar row-blocked"
+                if base_dm is None:
+                    base_dm, d = t, ""
+                else:
+                    d = f"{100*(base_dm-t)/base_dm:+6.1f}%"
+                print(f"  {lbl:18s} {t*1000:8.1f} ms  {S/t:8.1f} tok/s {d:>8s}")
+                rows.append({"S": S, "dense_mat": tag, "ms": t*1000, "tok_s": S/t})
+            os.environ.pop("ESCHA_MLX_DENSE_MAT", None)
             continue
 
         def last_logit(x):
@@ -166,23 +232,30 @@ def main() -> None:
         t_last = time_chunk(last_logit, ids)
 
         # --- stub routed experts -------------------------------------------
-        saved = {}
-        for i, l in enumerate(layers):
-            saved[i] = l.mlp._expert_path
-            l.mlp._expert_path = types.MethodType(
-                lambda self, xf, i_, s_: xf * 0.5, l.mlp)
-        t_noexp = time_chunk(full, ids)
-        for i, l in enumerate(layers):
-            l.mlp._expert_path = saved[i]
+        # Dense models have no routed-expert path to stub; the MLP-block
+        # ablation below is the whole of their MLP cost. Reported as None
+        # rather than as an equal-to-base timing, which would read as "the
+        # experts are free" instead of "there are none".
+        if is_moe:
+            saved = {}
+            for i, l in enumerate(layers):
+                saved[i] = l.mlp._expert_path
+                l.mlp._expert_path = types.MethodType(
+                    lambda self, xf, i_, s_: xf * 0.5, l.mlp)
+            t_noexp = time_chunk(full, ids)
+            for i, l in enumerate(layers):
+                l.mlp._expert_path = saved[i]
+        else:
+            t_noexp = None
 
-        # --- stub the whole MoE block ---------------------------------------
+        # --- stub the whole MLP block ---------------------------------------
         orig = [l.mlp for l in layers]
 
-        class _MoEStub:
+        class _MLPStub:
             def __call__(self, x):
                 return x * 0.5           # data-dependent: no DCE
         for l in layers:
-            l.mlp = _MoEStub()
+            l.mlp = _MLPStub()
         t_nomoe = time_chunk(full, ids)
         for l, m_ in zip(layers, orig):
             l.mlp = m_
@@ -204,14 +277,19 @@ def main() -> None:
         print(f"  full              {base*1000:8.1f} ms   {tps(base):8.1f} tok/s")
         print(f"  last-logit only   {t_last*1000:8.1f} ms   {tps(t_last):8.1f} tok/s"
               f"   -> wasted head {100*(base-t_last)/base:5.1f}%")
-        print(f"  minus experts     {t_noexp*1000:8.1f} ms   experts cost "
-              f"{(base-t_noexp)*1000:7.1f} ms  ({100*(base-t_noexp)/base:4.1f}%)")
-        print(f"  minus whole MoE   {t_nomoe*1000:8.1f} ms   MoE cost      "
+        if t_noexp is not None:
+            print(f"  minus experts     {t_noexp*1000:8.1f} ms   experts cost "
+                  f"{(base-t_noexp)*1000:7.1f} ms  ({100*(base-t_noexp)/base:4.1f}%)")
+        else:
+            print("  minus experts          n/a   dense model: no routed experts")
+        mlp_lbl = "whole MoE" if is_moe else "whole MLP"
+        print(f"  minus {mlp_lbl:10s}{t_nomoe*1000:8.1f} ms   {mlp_lbl} cost "
               f"{(base-t_nomoe)*1000:7.1f} ms  ({100*(base-t_nomoe)/base:4.1f}%)")
         print(f"  minus lm_head     {t_nohead*1000:8.1f} ms   head cost     "
               f"{(base-t_nohead)*1000:7.1f} ms  ({100*(base-t_nohead)/base:4.1f}%)")
         rows.append({"S": S, "full_ms": base * 1000, "last_logit_ms": t_last * 1000,
-                     "no_experts_ms": t_noexp * 1000, "no_moe_ms": t_nomoe * 1000,
+                     "no_experts_ms": None if t_noexp is None else t_noexp * 1000,
+                     "no_moe_ms": t_nomoe * 1000,
                      "no_head_ms": t_nohead * 1000,
                      "full_tok_s": tps(base), "last_logit_tok_s": tps(t_last)})
 

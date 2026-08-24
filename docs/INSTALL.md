@@ -214,27 +214,48 @@ these is gated bit-identical or documented where it is not.
 | `ESCHA_MLX_MOE=ops` | NumPy expert path. Very slow; a correctness oracle, not for serving. |
 | `ESCHA_MLX_BIAS=1` | apply the per-linear correction a dense export ships. **Off by default, and this is a real fork in the model, not a tuning knob** — see below. |
 | `ESCHA_MLX_LINEAR=ops` | NumPy path for the coded linears of a **dense** model (the MoE flag's counterpart). Very slow, and it materializes each fp16 weight; a correctness oracle, not for serving. |
-| `ESCHA_MLX_DENSE_BLOCK_R=N` | pin rows-per-group for the dense row-blocked GEMM (1 = always the per-row kernel). Default is size-dependent and, unlike the rest of this table, **has not been measured on Metal** — see below. Bit-identical at every R. |
+| `ESCHA_MLX_DENSE_BLOCK_R=N` | pin rows-per-group for the dense row-blocked GEMM (1 = always the per-row kernel). Default is size-dependent, now measured — see below. Bit-identical at every R. |
+| `ESCHA_MLX_DENSE_MAT=1` | run the dense prefill GEMM on the simdgroup matrix units. **The only path in this runtime that is not bit-identical to the goldens** — see below. |
 
-Four further flags (`ESCHA_MLX_SPLITK`, `ESCHA_MLX_FETCH`, `ESCHA_MLX_SORTX`,
-`ESCHA_MLX_PREFETCH`) select alternate kernel strategies that measured neutral or
-worse on a 10-core M4. They are kept because the trade-offs are
-hardware-dependent and may favour wider GPUs (M-series Max/Ultra). All are gated
-bit-identical.
+Five further flags (`ESCHA_MLX_SPLITK`, `ESCHA_MLX_FETCH`, `ESCHA_MLX_SORTX`,
+`ESCHA_MLX_PREFETCH`, `ESCHA_MLX_GEMV_PF`) select alternate kernel strategies
+that measured neutral or worse on a 10-core M4. They are kept because the
+trade-offs are hardware-dependent and may favour wider GPUs (M-series
+Max/Ultra). All are gated bit-identical.
 
-**`ESCHA_MLX_DENSE_BLOCK_R` is the one unmeasured default in this table.** The
-dense path was developed on Linux, where the Metal kernels do not run, so the
-policy comes from the structure of the kernel rather than from a sweep. Unlike
-the MoE case, every row of a dense linear shares the one coded stream, so a
-group is never mostly padding and the decoded-stream reads fall by very nearly
-R — the default is therefore `R = min(rows, 8)` snapped down to a power of two:
-never more rows-per-group than there are rows (so it never pads), and greater
-than 1 from two rows upward, because at concurrency 2 or 3 an `R = 1` would
-read the entire coded stream once per row. The ceiling of 8 is where the
-argument runs out (registers and staging), not where a measurement put it.
-Sweeping this is the first thing worth doing on a dense model on real hardware.
-Correctness does not depend on it: every R is gated bit-identical to the
-per-row kernel.
+**`ESCHA_MLX_DENSE_BLOCK_R` has now been measured.** The dense path was
+developed on Linux, where the Metal kernels do not run, so the policy
+originally came from the structure of the kernel rather than from a sweep. On
+an M4 base with the 27B dense model (ISL 512, in-model medians) it sweeps:
+
+| R | 4 | 8 | 16 | 20 | 24 | 32 |
+|---|---|---|---|---|---|---|
+| prefill tok/s | 25.8 | 33.3 | **36.6** | 22.1 | 32.6 | 24.0 |
+
+so the ceiling moved from 8 to **16**, with a hard falloff at 32 (the `acc0[R]`
++ `acc1[R]` fp32 accumulators per lane hit a register/occupancy cliff) and
+non-power-of-two values always losing to their power-of-two neighbour. The rest
+of the policy is unchanged and still structural: `R = min(rows, 16)` snapped
+down to a power of two never pads, and is greater than 1 from two rows upward,
+because at concurrency 2 or 3 an `R = 1` would read the entire coded stream
+once per row. Correctness does not depend on it: every R is gated bit-identical
+to the per-row kernel. Re-sweep with
+`bench/prefill_profile.py --sweep-r 4,8,16,32`.
+
+**`ESCHA_MLX_DENSE_MAT` is the one path here that is not bit-identical**, and
+it is off by default for that reason alone — not because it is inaccurate. It
+computes the same products (on this hardware the matrix units multiply two
+halves into an f32 accumulator *exactly*: a half×half product needs 22 mantissa
+bits and f32 carries 24) but sums them in a different order, so it is
+deterministic and reproducible while differing from the scalar kernel in the
+last bits. Measured on the 27B dense model: **+16–17% prefill** (38.9 → 45.5
+tok/s at ISL 512), decode unchanged — at batch 1 there is one row, the size
+policy returns `R = 1`, and this kernel is never reached. Logit-level effect on
+the shipped checkpoint: mean deviation 0.46% of the logits' own sigma, greedy
+token and top-5 unchanged, deep-tail ordering not preserved. On a near tie it
+*can* reorder the top two, which is what "tolerance-gated rather than
+bit-identical" means in practice. A/B it with
+`bench/prefill_profile.py --sweep-dense-mat`.
 
 ## Troubleshooting
 

@@ -828,15 +828,36 @@ def _moe_gemv_kernel(K: int, lut: bool, direct: bool = False, shuffle: bool = Fa
     )
 
 
+@lru_cache(maxsize=1)
 def gemv_pf() -> int:
     """kt-tiles whose code words are fetched ahead in the direct GEMV.
+
+    Resolved ONCE, not per call: this one needs an int parse and a range check,
+    and `moe_gemv` runs it on every coded linear of every forward (~400 times
+    per token in the 27B). Caching keeps the parse off the hot path and makes a
+    malformed value fail on the first forward rather than raising from inside
+    the generation loop -- the same reasoning `dense_block_r_pin` gives. The
+    consequence is that flipping it mid-process does nothing; nothing sweeps
+    it, and a test that varies it must call `gemv_pf.cache_clear()`.
 
     ESCHA_MLX_GEMV_PF, default 1 (today's single-tile loop).  Values > 1 keep
     2*pf code loads in flight per lane; bit-identical at every depth (only load
     scheduling changes -- see _moe_gemv_direct_source).  Applied per linear
     only when TK divides evenly; ignored by the staged/shuffle variants.
+
+    Measured a wash on M4 base (in-model, medians, A/B/A: pf=1 6.76 tok/s,
+    pf=2 6.57, pf=4 6.58, pf=8 6.61 -- all within the drift band and none
+    ahead).  Kept because the premise -- more loads in flight on a
+    latency-bound kernel -- is hardware-dependent, and this is the cheapest
+    lever to re-test on a wider GPU.
     """
-    return int(os.environ.get("ESCHA_MLX_GEMV_PF", "1"))
+    env = os.environ.get("ESCHA_MLX_GEMV_PF")
+    if not env:
+        return 1
+    pf = int(env)
+    if pf < 1:
+        raise ValueError(f"ESCHA_MLX_GEMV_PF must be >= 1, got {pf}")
+    return pf
 
 
 def use_direct() -> bool:
@@ -1109,8 +1130,11 @@ def moe_gemv(xh: mx.array, code_u32: mx.array, row_expert: mx.array | None,
         # Fixed-order reduction (NOT an atomic): deterministic across runs.
         return part.sum(axis=0)
 
+    # pf only exists in the direct source, and its prefetch substitution
+    # replaces the same W(i) the shuffle substitution would have; the two are
+    # mutually exclusive by construction, so shuffle wins and pf falls back.
     pf = gemv_pf()
-    if pf < 1 or tk % pf or use_shuffle() or not use_direct():
+    if tk % pf or use_shuffle() or not use_direct():
         pf = 1
     kern = _moe_gemv_kernel(K, lut, use_direct(), use_shuffle(), dense, pf)
     (mid,) = kern(
@@ -1326,20 +1350,54 @@ def _dense_gemm_mat_kernel(K: int, lut: bool):
     )
 
 
+#: Rows per group the simdgroup-matrix GEMM is built for.  Not a policy knob:
+#: the kernel's fragment shape IS 16 rows (two 8x8 A fragments), so this is a
+#: property of the source, not a tunable.  ``EschaLinear`` compares the R the
+#: size policy chose against this, so pinning a different R falls back to the
+#: scalar kernel at that R instead of silently getting 16-row blocking.
+DENSE_MAT_R = 16
+
+
 def use_dense_mat() -> bool:
     """simdgroup-matrix dense GEMM. DEFAULT OFF -- deterministic, NOT bit-identical.
 
     Enabled with ESCHA_MLX_DENSE_MAT=1.  Off by default for the same reason
     split-K is: every other kernel in this runtime is bit-identical to the
     goldens, and a path that reassociates the sum cannot be A/B'd against them
-    with np.array_equal.  See _dense_gemm_mat_source for the measured deviation.
+    with np.array_equal.  See _dense_gemm_mat_source for why the reassociation
+    is the ONLY difference (the MMA product is exact on M4).
+
+    Measured on M4 base, 27B dense, in-model A/B/A/B on a quiet machine:
+
+        prefill ISL 512    38.9 -> 45.5 tok/s  (+17.0%)
+        prefill ISL 2048   38.0 -> 44.1 tok/s  (+16.0%)
+        decode  bs1         7.05 -> 7.01 tok/s (noise -- see below)
+
+    Decode is untouched by construction: at bs1 the row count is 1, the size
+    policy returns R=1, and this kernel is never reached.  It is a prefill/TTFT
+    lever only.  Reproduce with
+    ``bench/prefill_profile.py --sweep-dense-mat``.
+
+    The obvious next step does NOT pay here.  Swapping the float8x8 accumulator
+    for half8x8 -- the variant that wins on GPUs whose matrix units run
+    fp16-accumulate at roughly twice the fp32-accumulate rate -- measured 1.23x
+    against 1.20x on the GEMM (a 3% gain) for a mean relative error of
+    9.2e-3..1.7e-2 instead of 1.3e-6, four orders of magnitude worse and worst
+    on the longest reduction (mlp.down, IC=17408), exactly the K-dependence an
+    fp16 running sum predicts.  This GPU has no fp16-accumulate rate bonus, so
+    that trade is not worth re-testing here; it is worth re-testing on hardware
+    that does.
     """
     return os.environ.get("ESCHA_MLX_DENSE_MAT", "0") != "0"
 
 
 def dense_gemm_mat(xh: mx.array, code_u32: mx.array, K: int, IC: int,
                    OC: int) -> mx.array:
-    """Row-blocked dense GEMM at a fixed R=16 via simdgroup matrix ops."""
+    """Row-blocked dense GEMM at a fixed R=DENSE_MAT_R via simdgroup matrices.
+
+    Deterministic but NOT bit-identical to ``dense_gemm_rows`` -- the f32 sum is
+    reassociated.  Callers must gate on ``use_dense_mat()``.
+    """
     m = xh.shape[0]
     lut = use_lut()
     kern = _dense_gemm_mat_kernel(K, lut)

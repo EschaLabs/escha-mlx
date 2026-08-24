@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+- **M4 bring-up of the dense path** — first execution of the dense Metal kernels on
+  hardware. They were bit-exact on arrival: the P0 dense gate (G0.2b), the
+  real-checkpoint tests and the correctness battery all passed without a kernel fix.
+  Measured on an M4 base (10-core GPU, 24 GB) with the 27B dense model:
+  - **`DENSE_R_MAX` 8 → 16**, the one default the dense port shipped unmeasured. Swept
+    in-model: R=4 25.8, R=8 33.3, **R=16 36.6**, R=32 24.0 prefill tok/s — a register/
+    occupancy cliff at 32, and non-power-of-two R always losing to its neighbour. The
+    row-blocking bit-identity gate now covers a partial tail at R=16.
+  - **half2 load merges** in the GEMV and the row-blocked GEMM: the eight per-lane
+    activation reads of a tile cover four distinct halves at even offsets, so they merge
+    into two vector loads (8R → 2R threadgroup accesses in the GEMM). The FMAs consume
+    the same values in the same order — bit-identical.
+  - Net: decode 6.77 → 7.16 tok/s, prefill 33.3 → 40.0 tok/s at ISL 512.
+  - **Why decode stops there**: at batch 1 the trellis GEMV is bound by scalar
+    instruction issue, not bandwidth — the decode costs ~4 ops per weight over 24.3 B
+    weights per token. K=3 streams 1.5× the bytes of K=2 per identical tile-decode and
+    reaches 76% of the bandwidth roofline where K=2 caps near 52%; ablating the decode
+    to a reinterpret gains only 17%. So the operative ceiling is ~8 tok/s, not the 11.4
+    the byte ledger implies, and 7.16 is ~87% of it. Recorded in `bench/results/`.
+- **Simdgroup-matrix dense GEMM** (`ESCHA_MLX_DENSE_MAT=1`, **default off**) — the first
+  and only path here that is not bit-identical to the goldens. It is not a precision
+  downgrade: on this hardware the matrix units multiply two halves into an f32
+  accumulator exactly (22 mantissa bits into 24), so the sum is merely reassociated —
+  deterministic and reproducible, the same class as the existing split-K path. **+16–17%
+  prefill** (38.9 → 45.5 tok/s at ISL 512); decode is untouched, since batch 1 has one
+  row and never forms a matrix tile. Logit effect on the shipped checkpoint: mean 0.46%
+  of the logits' sigma, greedy token and top-5 unchanged, deep tail reordered — gated by
+  an opt-in real-checkpoint test. The half-accumulator variant that pays off on GPUs with
+  a 2× fp16-accumulate rate was measured and rejected: 3% faster for four orders of
+  magnitude more error.
+- **`bench/prefill_profile.py` supports dense models.** It assumed a routed-expert MLP
+  and crashed on the architecture this release adds; expert-shaped ablations are now
+  skipped (and reported as n/a rather than as a timing equal to base), `--sweep-r` pins
+  the latched rows-per-group on every coded linear, and `--sweep-dense-mat` A/B/As the
+  matrix GEMM in one process.
+
 - **Dense architecture support (`qwen3_5`)** — serves
   [`EschaLabs/Qwen3.8-27B-Escha-W2`](https://huggingface.co/EschaLabs/Qwen3.8-27B-Escha-W2),
   a 27B dense hybrid (GDN + attention) whose 400 projections are all trellis-coded at a
@@ -27,8 +63,7 @@
     needs no grouping machinery (rows are consecutive, one stream, only the last group
     partly padding), so it carries neither `rows_idx` nor `group_expert`. Bit-identical
     to the per-row kernel at every R. `ESCHA_MLX_DENSE_BLOCK_R` pins R; the default
-    thresholds are structural, **not measured on Metal** — the first thing to sweep on
-    hardware (flagged as such in docs/INSTALL.md).
+    is now measured on hardware (see the M4 bring-up entry below).
   - **Per-linear bias**: the additive correction the end-to-end stage leaves behind is
     applied in f32 after the output transform.
   - **Load-time metadata cross-check**: `escha_config`'s K and shapes are checked against
