@@ -52,17 +52,16 @@ pytest tests/test_dense_linear.py -v          # incl. the Metal parity gates
 ESCHA_MLX_SLOW_TESTS=1 ESCHA_DENSE_MODEL=<dir> pytest tests/test_dense_checkpoint.py -v
 ```
 
-> **The dense Metal kernels have not been executed on hardware yet.** The dense
-> path was developed on Linux with `mlx[cpu]`, where the Metal kernels do not
-> run — everything else (the NumPy reference, the module against real shipped
-> tensors, the loader against the real checkpoint, mixed-rate routing) is gated
-> and green, but **step 1e is the first time the dense kernel sources meet the
-> Metal compiler.** That is the same position the MoE runtime was in at its own
-> bring-up, and it came out bit-exact on first contact; still, treat 1e as a
-> genuine gate rather than a formality, and report a compile diagnostic or a
-> value mismatch as a bug. `ESCHA_MLX_LINEAR=ops` runs the whole dense model
-> through the NumPy oracle if you need to separate a kernel fault from a
-> model fault.
+> **The dense Metal kernels came out bit-exact on their first hardware run.**
+> The dense path was written on Linux with `mlx[cpu]`, where the Metal kernels
+> do not execute, so step 1e was the first time those sources met the Metal
+> compiler. On an M4 base they passed G0.2b, `test_dense_linear.py` and
+> `test_dense_checkpoint.py` with no kernel fix — the same result the MoE
+> runtime got from the same position. Treat 1e as a genuine gate anyway: it has
+> only been run on M4 base so far, and a compile diagnostic or a value mismatch
+> on another chip is a bug worth reporting. `ESCHA_MLX_LINEAR=ops` runs the
+> whole dense model through the NumPy oracle if you need to separate a kernel
+> fault from a model fault.
 
 **If a hash-decode gate fails but the LUT variant passes:** the Metal compiler
 broke fp16 RNE on the hash path — `export ESCHA_MLX_LUT=1` for everything
@@ -136,7 +135,8 @@ capture and report.
 | `ESCHA_MLX_LUT=1` | LUT decode instead of the hash (bit-exact by construction) |
 | `ESCHA_MLX_MOE=ops` | numpy expert path (slow, correctness oracle) |
 | `ESCHA_MLX_LINEAR=ops` | numpy path for a dense model's coded linears (slow, correctness oracle) |
-| `ESCHA_MLX_DENSE_BLOCK_R=N` | pin rows-per-group for the dense row-blocked GEMM (1 = per-row kernel); default unmeasured on Metal |
+| `ESCHA_MLX_DENSE_BLOCK_R=N` | pin rows-per-group for the dense row-blocked GEMM (1 = per-row kernel). Default measured on M4 base (16); re-sweep on other chips with `bench/prefill_profile.py --sweep-r`. Bit-identical at every R |
+| `ESCHA_MLX_DENSE_MAT=1` | dense prefill GEMM on the simdgroup matrix units: +16–17% prefill, decode untouched. **The one path here that is not bit-identical** — deterministic, but the f32 sum is reassociated. Default off; see INSTALL's tuning reference |
 | `ESCHA_MLX_DENSE=fp16` | fp16 dense instead of Q8 repack (+1.9 GB) |
 | `ESCHA_MLX_Q8_GROUP=64` | revert to 64-wide Q8 groups (128 is the default) |
 | `sudo sysctl iogpu.wired_limit_mb=N` | raise the GPU working-set cap if the fit is tight (e.g. 21000 on 24 GB raises 19.07 → 22.02 GB; also set `ESCHA_MLX_WIRED_GB` — the sysctl alone wires nothing, see INSTALL's 23× cliff) |
