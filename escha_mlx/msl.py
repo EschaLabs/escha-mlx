@@ -534,12 +534,10 @@ def _moe_gemm_rows_source(K: int, use_lut: bool, R: int, KB: int = 1,
                 acc1[r] += (float)xv1.x * d6;
                 acc1[r] += (float)xv1.y * d7;
             }}"""]
-    # Sorted-x staging: rows of a group are CONSECUTIVE in xs, so the address is
-    # computed (src_row0 + rr) rather than loaded from rows_idx and chased.  The
-    # values staged are identical -- padding contributes 0 either way -- so the
-    # output is bit-identical.  The OUTPUT write keeps the rows_idx indirection:
-    # it happens once per group while staging happens TK times, so scattering on
-    # the write side is far cheaper than un-permuting the whole mid tensor.
+    # MoE row addressing, shared by both expert variants; the dense branch
+    # replaces it because a dense group's rows are an arithmetic range.
+    store_guard = "if ((lane & 3u) == 0u)"
+    row_of = "rows_idx[grp * %du + %s]" % (R, "{i}")
     if dense:
         # Row address is computed, not loaded: group grp owns rows grp*R..+R.
         # (uint)M: the template parameter is emitted as an int, and MSL's min()
@@ -561,15 +559,18 @@ def _moe_gemm_rows_source(K: int, use_lut: bool, R: int, KB: int = 1,
                       "                        + (kb + kk) * 16u + cc];"
                       % row_of.format(i="rr"))
     elif sortx:
-        store_guard = "if ((lane & 3u) == 0u)"
-        row_of = "rows_idx[grp * %du + %s]" % (R, "{i}")
+        # Sorted-x staging: rows of a group are CONSECUTIVE in xs, so the
+        # address is computed (src_row0 + rr) rather than loaded from rows_idx
+        # and chased.  The values staged are identical -- padding contributes 0
+        # either way -- so the output is bit-identical.  The OUTPUT write keeps
+        # the rows_idx indirection: it happens once per group while staging
+        # happens TK times, so scattering on the write side is far cheaper than
+        # un-permuting the whole mid tensor.
         stage_body = ("            uint sr = src_row0[grp] + rr;\n"
                       "            s_x[i] = (rr < n_valid[grp])\n"
                       "                ? xh[(ulong)sr * IC + (kb + kk) * 16u + cc]\n"
                       "                : (half)0.0h;")
     else:
-        store_guard = "if ((lane & 3u) == 0u)"
-        row_of = "rows_idx[grp * %du + %s]" % (R, "{i}")
         stage_body = ("            s_x[i] = xh[(ulong)rows_idx[grp * %du + rr] * IC\n"
                       "                        + (kb + kk) * 16u + cc];" % R)
     return f"""
@@ -817,10 +818,9 @@ def _moe_gemv_kernel(K: int, lut: bool, direct: bool = False, shuffle: bool = Fa
     tag = (("_direct" if direct else "")
            + ("_shf" if direct and shuffle and pf == 1 else "")
            + (f"_pf{pf}" if direct and pf > 1 else ""))
+    stem = "escha_gemv_dense" if dense else "escha_moe_gemv"
     return mx.fast.metal_kernel(
-        name=f"escha_gemv{_variant(dense)}_k{K}{tag}{'_lut' if lut else ''}"
-             if dense else
-             f"escha_moe_gemv_k{K}{tag}{'_lut' if lut else ''}",
+        name=f"{stem}_k{K}{tag}{'_lut' if lut else ''}",
         input_names=inputs,
         output_names=["mid"],
         header=_HEADER,
@@ -1160,7 +1160,12 @@ def dense_scaled_had_out(mid: mx.array, rout: mx.array, rs: float) -> mx.array:
 
 def dense_gemv(xh: mx.array, code_u32: mx.array, K: int, IC: int, OC: int,
                splits: int | None = None) -> mx.array:
-    """Fused dense GEMV: mid = xh @ decode(code). code_u32 [TK, TN, 8K] uint32."""
+    """Fused dense GEMV: mid = xh @ decode(code). code_u32 [TK, TN, 8K] uint32.
+
+    ``splits`` is carried for parity with ``moe_gemv`` and is not selected by
+    anything today: split-K measured negative on M4 (see ``split_k_for``), so
+    every caller takes the default.
+    """
     return moe_gemv(xh, code_u32, None, K, IC, OC, splits)
 
 

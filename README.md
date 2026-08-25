@@ -152,7 +152,8 @@ Full write-up, drift controls, and harness issues found:
 The M5 Pro results are a separate machine characterization, not a paired cross-chip
 A/B. Its B=1/8/16/128 entries are five-run medians from the 16-token,
 step-synchronized repeatability harness; B=128 alone uses a 19 GB wired limit.
-The current P0 gates pass and the complete suite reports **180 passed, 1 skipped**.
+The current P0 gates pass and the complete suite reports **259 passed, 9 skipped**
+(the skips are the opt-in real-checkpoint and slow gates).
 A same-process native-vs-output-fused A/B/A through B=32 is reported in
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md#current-output-hadamard-fusion-aba).
 
@@ -178,7 +179,7 @@ campaign — including every negative result, so you don't repeat them:
   the fused test requires its final FP16 output to be bit exact with that native
   butterfly under the default TF32 setting. The independent NumPy/reference check
   remains as a tolerance test. Global `MLX_ENABLE_TF32=0` is no longer needed for
-  this gate; the complete suite now reports **180 passed, 1 skipped** with
+  this gate; the complete suite now reports **259 passed, 9 skipped** with
   default TF32 and with `MLX_ENABLE_TF32=0`. Historical counts and the diagnostic
   TF32 A/B are retained in
   [docs/PERFORMANCE.md](docs/PERFORMANCE.md#m5-pro-resolved-issue-dense-matmul-test-oracle-and-tf32).

@@ -278,16 +278,16 @@ def fold_scales(rin: np.ndarray, rout: np.ndarray,
 
 
 def dense_linear(x: np.ndarray, code: np.ndarray, rin: np.ndarray, rout: np.ndarray,
-                 K: int, bias: np.ndarray | None = None,
-                 w_bare: np.ndarray | None = None) -> np.ndarray:
+                 K: int, bias: np.ndarray | None = None) -> np.ndarray:
     """Full dense escha linear: x [M, IC] -> [M, OC] fp16.
 
     Same codec and rounding contract as ``expert_linear`` — one weight stream
     instead of an E-stacked one — plus the additive fp16 output correction the
     end-to-end fine-tune leaves behind.  ``rin``/``rout`` are expected to be
-    the folded vectors from ``fold_scales``.
+    the folded vectors from ``fold_scales``.  Call ``expert_linear`` directly if
+    you need its pre-decoded-weight escape hatch.
     """
-    y = expert_linear(x, code, rin, rout, K, w_bare=w_bare)
+    y = expert_linear(x, code, rin, rout, K)
     if bias is None:
         return y
     return (y.astype(np.float32) + bias.astype(np.float32)).astype(np.float16)

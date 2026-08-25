@@ -21,8 +21,9 @@
     reaches 76% of the bandwidth roofline where K=2 caps near 52%; ablating the decode
     to a reinterpret gains only 17%. So the operative ceiling is ~8 tok/s, not the 11.4
     the byte ledger implies, and 7.16 is ~87% of it. Recorded in `bench/results/`.
-- **Simdgroup-matrix dense GEMM** (`ESCHA_MLX_DENSE_MAT=1`, **default off**) — the first
-  and only path here that is not bit-identical to the goldens. It is not a precision
+- **Simdgroup-matrix dense GEMM** (`ESCHA_MLX_DENSE_MAT=1`, **default off**) — the
+  second opt-in path here that is not bit-identical to the goldens, split-K being the
+  other. It is not a precision
   downgrade: on this hardware the matrix units multiply two halves into an f32
   accumulator exactly (22 mantissa bits into 24), so the sum is merely reassociated —
   deterministic and reproducible, the same class as the existing split-K path. **+16–17%
@@ -107,8 +108,8 @@
   - **Rows-per-group policy replaced.** The first version was a size ladder inherited
     from the MoE's thresholds, which returned R=1 below 4 rows — so a server at
     concurrency 2 or 3 read the whole coded stream once per row, the exact cost the
-    row-blocked kernel exists to remove. Now `R = min(rows, 8)` snapped to a power of
-    two: never pads, R>1 from two rows, four compiled variants.
+    row-blocked kernel exists to remove. Now `R = min(rows, R_MAX)` snapped to a power
+    of two: never pads, R>1 from two rows, one compiled variant per value.
   - **The per-linear correction is OFF by default** (`ESCHA_MLX_BIAS=1` applies it).
     A dense export ships a `bias` beside every coded linear; on Qwen3.8-27B all 400 are
     non-zero and applying one moves that linear's output by 6.7-8.3%. The path

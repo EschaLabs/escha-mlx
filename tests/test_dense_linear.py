@@ -454,7 +454,7 @@ def test_row_blocked_gemm_does_not_touch_rows_outside_the_batch():
 
 @needs_metal
 def test_simdgroup_matrix_gemm_is_deterministic_and_close():
-    """The one non-bit-identical kernel in the runtime, held to the two
+    """A non-bit-identical kernel (split-K is the other), held to the two
     properties it is allowed to have instead.
 
     It may reassociate the f32 sum, so it is NOT compared with array_equal.  It

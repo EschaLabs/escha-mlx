@@ -66,6 +66,27 @@ def set_dense_block_r(model, r) -> int:
     return n
 
 
+def env_sweep(env, values, key, label_for, full, ids, S, rows) -> None:
+    """One in-process sweep of an env-selected kernel strategy.
+
+    Every value is measured against the FIRST one, so an A/B/A tuple reports
+    the drift bound in its own last row: the A-vs-A gap is what a real delta
+    has to beat. The variable is unset afterwards, since these run inside a
+    loop over chunk sizes and a leaked pin would silently apply to the rest.
+    """
+    base = None
+    for v in values:
+        os.environ[env] = str(v)
+        t = time_chunk(full, ids)
+        if base is None:
+            base, delta = t, ""
+        else:
+            delta = f"{100*(base-t)/base:+6.1f}%"
+        print(f"  {label_for(v):18s} {t*1000:8.1f} ms  {S/t:8.1f} tok/s {delta:>8s}")
+        rows.append({"S": S, key: v, "ms": t * 1000, "tok_s": S / t})
+    os.environ.pop(env, None)
+
+
 def time_chunk(fn, ids, iters=ITERS, warm=WARMUP):
     """Time a single-chunk forward. Fresh cache each call so every iteration
     does the same work (a persisting cache would grow the attention span)."""
@@ -126,47 +147,21 @@ def main() -> None:
             return model(x, cache=make_prompt_cache(model))
 
         if args.sweep_prefetch:
-            base = None
-            for tag in ("0", "1", "0"):     # A/B/A
-                os.environ["ESCHA_MLX_PREFETCH"] = tag
-                t = time_chunk(full, ids)
-                lbl = "code prefetch" if tag == "1" else "per-kt fetch"
-                if base is None:
-                    base, d = t, ""
-                else:
-                    d = f"{100*(base-t)/base:+6.1f}%"
-                print(f"  {lbl:16s} {t*1000:8.1f} ms  {S/t:8.1f} tok/s {d:>8s}")
-                rows.append({"S": S, "prefetch": tag, "ms": t*1000, "tok_s": S/t})
-            os.environ.pop("ESCHA_MLX_PREFETCH", None)
+            env_sweep("ESCHA_MLX_PREFETCH", ("0", "1", "0"), "prefetch",
+                      lambda v: "code prefetch" if v == "1" else "per-kt fetch",
+                      full, ids, S, rows)
             continue
 
         if args.sweep_sortx:
-            base = None
-            for tag in ("1", "0", "1"):     # A/B/A: drift shows as A-vs-A gap
-                os.environ["ESCHA_MLX_SORTX"] = tag
-                t = time_chunk(full, ids)
-                lbl = "sorted-x" if tag == "1" else "rows_idx gather"
-                if base is None:
-                    base, d = t, ""
-                else:
-                    d = f"{100*(base-t)/base:+6.1f}%"
-                print(f"  {lbl:16s} {t*1000:8.1f} ms  {S/t:8.1f} tok/s {d:>8s}")
-                rows.append({"S": S, "sortx": tag, "ms": t*1000, "tok_s": S/t})
-            os.environ.pop("ESCHA_MLX_SORTX", None)
+            env_sweep("ESCHA_MLX_SORTX", ("1", "0", "1"), "sortx",
+                      lambda v: "sorted-x" if v == "1" else "rows_idx gather",
+                      full, ids, S, rows)
             continue
 
         if args.sweep_kb:
-            base_kb = None
-            for kb in [int(x) for x in args.sweep_kb.split(",")]:
-                os.environ["ESCHA_MLX_KT_BLOCK"] = str(kb)
-                t = time_chunk(full, ids)
-                if base_kb is None:
-                    base_kb, d = t, ""
-                else:
-                    d = f"{100*(base_kb-t)/base_kb:+6.1f}%"
-                print(f"  KT_BLOCK={kb:3d}  {t*1000:8.1f} ms  {S/t:8.1f} tok/s {d:>8s}")
-                rows.append({"S": S, "kt_block": kb, "ms": t*1000, "tok_s": S/t})
-            os.environ.pop("ESCHA_MLX_KT_BLOCK", None)
+            env_sweep("ESCHA_MLX_KT_BLOCK",
+                      [int(x) for x in args.sweep_kb.split(",")], "kt_block",
+                      lambda v: f"KT_BLOCK={v}", full, ids, S, rows)
             continue
 
         if args.sweep_r:
@@ -209,18 +204,9 @@ def main() -> None:
             if is_moe:
                 print("  --sweep-dense-mat is a dense-only lever; skipping")
                 continue
-            base_dm = None
-            for tag in ("0", "1", "0"):     # A/B/A: drift shows as A-vs-A gap
-                os.environ["ESCHA_MLX_DENSE_MAT"] = tag
-                t = time_chunk(full, ids)
-                lbl = "simdgroup matrix" if tag == "1" else "scalar row-blocked"
-                if base_dm is None:
-                    base_dm, d = t, ""
-                else:
-                    d = f"{100*(base_dm-t)/base_dm:+6.1f}%"
-                print(f"  {lbl:18s} {t*1000:8.1f} ms  {S/t:8.1f} tok/s {d:>8s}")
-                rows.append({"S": S, "dense_mat": tag, "ms": t*1000, "tok_s": S/t})
-            os.environ.pop("ESCHA_MLX_DENSE_MAT", None)
+            env_sweep("ESCHA_MLX_DENSE_MAT", ("0", "1", "0"), "dense_mat",
+                      lambda v: "simdgroup matrix" if v == "1" else "scalar row-blocked",
+                      full, ids, S, rows)
             continue
 
         def last_logit(x):

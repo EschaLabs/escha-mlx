@@ -1,8 +1,9 @@
 """Split-K GEMV: deterministic, and within f32 rounding of the sequential kernel.
 
-Split-K is the ONE place in this runtime that is deliberately not bit-identical
-to its reference: partitioning the kt chain reassociates an f32 sum, and f32
-addition is not associative. What must still hold, and is gated here:
+Split-K is one of two paths in this runtime that are deliberately not
+bit-identical to their reference (the other is the simdgroup-matrix dense GEMM,
+`ESCHA_MLX_DENSE_MAT`): partitioning the kt chain reassociates an f32 sum, and
+f32 addition is not associative. What must still hold, and is gated here:
 
   1. run-to-run BIT-REPRODUCIBILITY (the partition is fixed by S, each split
      accumulates in a fixed kt order, and the cross-split reduction is a

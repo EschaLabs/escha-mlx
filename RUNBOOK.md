@@ -136,7 +136,7 @@ capture and report.
 | `ESCHA_MLX_MOE=ops` | numpy expert path (slow, correctness oracle) |
 | `ESCHA_MLX_LINEAR=ops` | numpy path for a dense model's coded linears (slow, correctness oracle) |
 | `ESCHA_MLX_DENSE_BLOCK_R=N` | pin rows-per-group for the dense row-blocked GEMM (1 = per-row kernel). Default measured on M4 base (16); re-sweep on other chips with `bench/prefill_profile.py --sweep-r`. Bit-identical at every R |
-| `ESCHA_MLX_DENSE_MAT=1` | dense prefill GEMM on the simdgroup matrix units: +16–17% prefill, decode untouched. **The one path here that is not bit-identical** — deterministic, but the f32 sum is reassociated. Default off; see INSTALL's tuning reference |
-| `ESCHA_MLX_DENSE=fp16` | fp16 dense instead of Q8 repack (+1.9 GB) |
+| `ESCHA_MLX_DENSE_MAT=1` | dense prefill GEMM on the simdgroup matrix units: +16–17% prefill, decode untouched. **Not bit-identical** (split-K is the only other such path) — deterministic, but the f32 sum is reassociated. Default off; see INSTALL's tuning reference |
+| `ESCHA_MLX_DENSE=fp16` | fp16 for the non-expert tensors instead of the Q8 repack (+1.9 GB) — not a dense-architecture flag |
 | `ESCHA_MLX_Q8_GROUP=64` | revert to 64-wide Q8 groups (128 is the default) |
 | `sudo sysctl iogpu.wired_limit_mb=N` | raise the GPU working-set cap if the fit is tight (e.g. 21000 on 24 GB raises 19.07 → 22.02 GB; also set `ESCHA_MLX_WIRED_GB` — the sysctl alone wires nothing, see INSTALL's 23× cliff) |
