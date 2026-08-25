@@ -14,21 +14,21 @@
     activation reads of a tile cover four distinct halves at even offsets, so they merge
     into two vector loads (8R → 2R threadgroup accesses in the GEMM). The FMAs consume
     the same values in the same order — bit-identical.
-  - Net: decode 6.77 → 7.16 tok/s, prefill 33.3 → 40.0 tok/s at ISL 512.
+  - Net: decode 6.77 → 7.18 tok/s, prefill 33.3 → 39.8 tok/s at ISL 512.
   - **Why decode stops there**: at batch 1 the trellis GEMV is bound by scalar
     instruction issue, not bandwidth — the decode costs ~4 ops per weight over 24.3 B
     weights per token. K=3 streams 1.5× the bytes of K=2 per identical tile-decode and
     reaches 76% of the bandwidth roofline where K=2 caps near 52%; ablating the decode
     to a reinterpret gains only 17%. So the operative ceiling is ~8 tok/s, not the 11.4
-    the byte ledger implies, and 7.16 is ~87% of it. Recorded in `bench/results/`.
+    the byte ledger implies, and 7.18 is ~87% of it. Recorded in
+    `bench/results/m4-base-24gb/dense27b_*.json`.
 - **Simdgroup-matrix dense GEMM** (`ESCHA_MLX_DENSE_MAT=1`, **default off**) — the
   second opt-in path here that is not bit-identical to the goldens, split-K being the
-  other. It is not a precision
-  downgrade: on this hardware the matrix units multiply two halves into an f32
-  accumulator exactly (22 mantissa bits into 24), so the sum is merely reassociated —
-  deterministic and reproducible, the same class as the existing split-K path. **+16–17%
-  prefill** (38.9 → 45.5 tok/s at ISL 512); decode is untouched, since batch 1 has one
-  row and never forms a matrix tile. Logit effect on the shipped checkpoint: mean 0.46%
+  other. It is not a precision downgrade: on this hardware the matrix units multiply
+  two halves into an f32 accumulator exactly (22 mantissa bits into 24), so the sum is
+  merely reassociated — deterministic and reproducible, the same class as the existing
+  split-K path. **+16–17% prefill** (in-process A/B/A, `--sweep-dense-mat`); decode is
+  untouched, since batch 1 has one row and never forms a matrix tile. Logit effect on the shipped checkpoint: mean 0.46%
   of the logits' sigma, greedy token and top-5 unchanged, deep tail reordered — gated by
   an opt-in real-checkpoint test. The half-accumulator variant that pays off on GPUs with
   a 2× fp16-accumulate rate was measured and rejected: 3% faster for four orders of
