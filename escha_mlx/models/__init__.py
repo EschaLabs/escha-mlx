@@ -13,13 +13,17 @@ and exports:
             Build the mlx-lm skeleton (available as `.model`) before any
             tensor is read.
         consume(name: str, w: np.ndarray) -> None
-            One streamed tensor, raw HF name. Group coded trios / Q8 pairs,
-            install as soon as a group completes, stash the fp16 remainder.
+            One streamed tensor, raw HF name. Group coded tensors / Q8 pairs
+            and install as soon as the export's ordering allows: Q8 pairs and
+            MoE expert trios arrive contiguously, but a dense export groups by
+            *leaf* name, so its coded linears can only be converted on arrival
+            (dense.pack_code) and assembled in finalize, or peak memory
+            doubles. Stash the fp16 remainder.
         finalize() -> list[mx.array]
-            Install whatever needed the full stream (MoE blocks), run the
-            skeleton's sanitize over the fp16 remainder, apply post-load
-            quirks (cache patches, head wrappers). Returns the off-tree
-            arrays the generic loader must mx.eval.
+            Install whatever needed the full stream (MoE blocks, dense
+            linears), run the skeleton's sanitize over the fp16 remainder,
+            apply post-load quirks (cache patches, head wrappers). Returns the
+            off-tree arrays the generic loader must mx.eval.
 
 The generic side (streaming, Q8 repack, wired limit, tokenizer/eos handling)
 lives in escha_mlx.loader and is shared by every plugin. To add an

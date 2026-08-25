@@ -5,6 +5,8 @@ Run on the target Mac:
 
   G0.1  decode bit-exactness (hash + LUT) vs the committed goldens
   G0.2  fused GEMV: value check vs reference + DRAM-side GB/s microbench
+  G0.2b dense (single-stream) GEMV + row-blocked GEMM: values, expert parity,
+        row-blocking bit-identity across partial tail groups
   G0.3  Q8 repack round-trip
   G0.4  memory envelope report
 
@@ -123,12 +125,10 @@ def g02_gemv():
 def g02b_dense():
     """Dense (single-stream) kernels: values, expert-parity, row-blocking.
 
-    The dense kernels are a compile-time variant of the expert kernels above,
-    so this gate is deliberately NON-DEGENERATE: the parity check puts the real
-    stream at expert index 1 behind a garbage expert 0, at a rectangular
-    multi-block shape.  Run against E=1 with row_expert=0 the two kernels
-    compute identical addresses by construction and the comparison would prove
-    nothing at all.
+    The parity arm is deliberately non-degenerate — real stream at expert index
+    1 behind a garbage expert 0, rectangular multi-block shape. See
+    tests/test_dense_linear.py::test_dense_kernels_match_expert_kernels for why
+    an E=1 comparison would prove nothing.
     """
     import mlx.core as mx
     from escha_mlx import msl

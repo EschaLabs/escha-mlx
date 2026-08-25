@@ -125,9 +125,7 @@ def test_coded_modules_are_exactly_the_skeleton_linears(dense_ckpt):
     small = json.loads(json.dumps(config))
     tc = small["text_config"]
     tc["num_hidden_layers"] = len(tc["layer_types"])
-    model = None
     try:
-        import mlx.core as mx  # noqa: F401
         tc["vocab_size"], tc["hidden_size"], tc["intermediate_size"] = 256, 128, 128
         tc["num_attention_heads"], tc["num_key_value_heads"] = 2, 1
         tc["head_dim"] = 64
@@ -181,7 +179,6 @@ def test_truncated_real_load(monkeypatch):
     import copy
     import glob
     import mlx.core as mx
-    import numpy as np
     from safetensors import safe_open
     from escha_mlx import models
     from escha_mlx.dense import EschaLinear

@@ -32,9 +32,11 @@ rate, and the kernels are already specialised per K.
 Per-linear forward (see escha_mlx.ref for the rounding contract):
     xh  = f16( H128(x * rin) * RS )
     mid = xh @ decode(code)                       (f32, fused Metal kernel)
-    y   = f16( H128(mid) * RS * rout ) + bias
+    y   = f16( H128(mid) * RS * rout ) [+ bias]
 where rin/rout are the export's transform vectors with the end-to-end scales
-s_in/s_out folded in (escha_mlx.ref.fold_scales).
+s_in/s_out folded in (escha_mlx.ref.fold_scales). The bracketed correction is
+OFF by default -- see escha_mlx.dense.apply_bias, which this loader also logs
+about at load time.
 """
 from __future__ import annotations
 
@@ -68,7 +70,6 @@ class CheckpointLoader:
         self.group_size = group_size
         text_args = self.model.language_model.args
         self.n_layers = text_args.num_hidden_layers
-        self.hidden_size = text_args.hidden_size
         self.layers = self.model.language_model.model.layers
 
         # Streaming single pass. A dense export groups its tensors by LEAF name,

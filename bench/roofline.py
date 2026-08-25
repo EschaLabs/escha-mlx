@@ -183,11 +183,11 @@ def byte_ledger(model, top_k: int) -> dict:
     for layer in layers:
         blk = layer.mlp
         if not isinstance(blk, moe_mod.EschaSparseMoeBlock):
-            # A dense MLP is read in full every token and is the majority of
-            # the model's bytes. It used to be invisible here: layer.mlp was
-            # only ever read inside the MoE branch below.
+            # A dense MLP is read in full every token and is the majority of a
+            # dense model's bytes; only the MoE arm below used to read
+            # layer.mlp at all, so it counted for nothing.
             mlp += mod_bytes(blk)
-        if isinstance(blk, moe_mod.EschaSparseMoeBlock):
+        else:
             gu, dn = blk._gu, blk._dn
             # ONE expert's stream, both projections, times top_k active experts
             per_expert = (gu.code.nbytes + dn.code.nbytes) / gu.E

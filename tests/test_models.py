@@ -287,6 +287,18 @@ def _write_tiny_dense_checkpoint(path, rng, optional=True):
         json.dumps({"quant_method": "escha", "bits": 2.0}))
 
 
+def _reload_tensors(path):
+    """Every tensor of a written checkpoint, as a mutable dict.
+
+    The rejection tests below work by writing a good export and then breaking
+    exactly one thing about it, so they all need the same read-modify-rewrite.
+    """
+    from safetensors import safe_open
+
+    with safe_open(str(path / "model.safetensors"), framework="numpy") as f:
+        return {k: f.get_tensor(k) for k in f.keys()}
+
+
 @needs_mlx
 def test_dense_synthetic_checkpoint_end_to_end(tmp_path, monkeypatch):
     import mlx.core as mx
@@ -351,13 +363,8 @@ def test_dense_checkpoint_rejects_incomplete_linear(tmp_path):
     from safetensors.numpy import save_file
     from escha_mlx.loader import load_model
 
-    rng = np.random.default_rng(1)
-    _write_tiny_dense_checkpoint(tmp_path, rng)
-    from safetensors import safe_open
-    t = {}
-    with safe_open(str(tmp_path / "model.safetensors"), framework="numpy") as f:
-        for k in f.keys():
-            t[k] = f.get_tensor(k)
+    _write_tiny_dense_checkpoint(tmp_path, np.random.default_rng(1))
+    t = _reload_tensors(tmp_path)
     del t["model.language_model.layers.0.mlp.gate_proj.escha_rout"]
     save_file(t, str(tmp_path / "model.safetensors"))
     with pytest.raises(ValueError, match="incomplete escha linear"):
@@ -394,15 +401,11 @@ def test_dense_checkpoint_without_optional_leaves(tmp_path, monkeypatch):
 def test_dense_checkpoint_rejects_unknown_escha_leaf(tmp_path):
     """An escha_* tensor this version does not know is a format mismatch, and
     must say so — not die inside model.update with a parameter-name error."""
-    from safetensors import safe_open
     from safetensors.numpy import save_file
     from escha_mlx.loader import load_model
 
     _write_tiny_dense_checkpoint(tmp_path, np.random.default_rng(4))
-    t = {}
-    with safe_open(str(tmp_path / "model.safetensors"), framework="numpy") as f:
-        for k in f.keys():
-            t[k] = f.get_tensor(k)
+    t = _reload_tensors(tmp_path)
     t["model.language_model.layers.0.mlp.gate_proj.escha_rotation_theta"] = \
         np.zeros((4, 4), dtype=np.int8)
     save_file(t, str(tmp_path / "model.safetensors"))

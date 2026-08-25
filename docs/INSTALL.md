@@ -209,13 +209,13 @@ these is gated bit-identical or documented where it is not.
 | `ESCHA_MLX_BLOCK_R=N` | pin rows-per-expert-group. Default is size-dependent. |
 | `ESCHA_MLX_KT_BLOCK=N` | code tiles staged per barrier pair. Default 4. |
 | `ESCHA_MLX_GEMV=staged` | revert to the barrier/threadgroup-staged per-row GEMV (default is the barrier-free direct kernel). Bit-identical. |
-| `ESCHA_MLX_DENSE=fp16` | fp16 dense weights instead of the Q8 repack. +~1.9 GB resident; bit-identical weight values. |
+| `ESCHA_MLX_DENSE=fp16` | fp16 weights for the **non-expert** tensors (embed/head) instead of the Q8 repack. +~1.9 GB resident; bit-identical weight values. Unrelated to the `ESCHA_MLX_DENSE_*` dense-architecture flags below. |
 | `ESCHA_MLX_LUT=1` | table-based codec decode instead of the multiply-hash. Bit-exact by construction; use if a future Metal compiler ever breaks fp16 round-to-nearest-even in the hash path. |
 | `ESCHA_MLX_MOE=ops` | NumPy expert path. Very slow; a correctness oracle, not for serving. |
-| `ESCHA_MLX_BIAS=1` | apply the per-linear correction a dense export ships. **Off by default, and this is a real fork in the model, not a tuning knob** — see below. |
+| `ESCHA_MLX_BIAS=1` | apply the per-linear correction a dense export ships. **Off by default, and this is a real fork in the model, not a tuning knob** — see the section above. |
 | `ESCHA_MLX_LINEAR=ops` | NumPy path for the coded linears of a **dense** model (the MoE flag's counterpart). Very slow, and it materializes each fp16 weight; a correctness oracle, not for serving. |
 | `ESCHA_MLX_DENSE_BLOCK_R=N` | pin rows-per-group for the dense row-blocked GEMM (1 = always the per-row kernel). Default is size-dependent, now measured — see below. Bit-identical at every R. |
-| `ESCHA_MLX_DENSE_MAT=1` | run the dense prefill GEMM on the simdgroup matrix units. **The only path in this runtime that is not bit-identical to the goldens** — see below. |
+| `ESCHA_MLX_DENSE_MAT=1` | run the dense prefill GEMM on the simdgroup matrix units. **Not bit-identical to the goldens** — deterministic, but the sum is reassociated; split-K is the only other such path. See below. |
 
 Five further flags (`ESCHA_MLX_SPLITK`, `ESCHA_MLX_FETCH`, `ESCHA_MLX_SORTX`,
 `ESCHA_MLX_PREFETCH`, `ESCHA_MLX_GEMV_PF`) select alternate kernel strategies
@@ -242,7 +242,8 @@ once per row. Correctness does not depend on it: every R is gated bit-identical
 to the per-row kernel. Re-sweep with
 `bench/prefill_profile.py --sweep-r 4,8,16,32`.
 
-**`ESCHA_MLX_DENSE_MAT` is the one path here that is not bit-identical**, and
+**`ESCHA_MLX_DENSE_MAT` is not bit-identical to the goldens** — split-K is the
+only other path here that is not — and
 it is off by default for that reason alone — not because it is inaccurate. It
 computes the same products (on this hardware the matrix units multiply two
 halves into an f32 accumulator *exactly*: a half×half product needs 22 mantissa
