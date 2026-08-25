@@ -528,6 +528,61 @@ Raw JSON: [current ABCD baseline](../bench/results/m5-pro-24gb/baseline_abcd_cur
 
 ---
 
+## Apple M4 base 24 GB — Qwen3.8-27B dense (W2)
+
+The first hardware run of the dense architecture. Same machine as the M4 tables
+above; `mlx` 0.32.0, `mlx-lm` 0.31.3, repository defaults, 19.07 GB working-set
+cap, runtime revision `e659f225f4711acd099b55ed033f95afe8447cbb`. The dense Metal kernels were
+bit-exact on first contact with the Metal compiler — G0.2b, `test_dense_linear.py`
+and `test_dense_checkpoint.py` all passed with no kernel fix.
+
+| ISL | prefill tok/s | decode tok/s | ms/token | peak |
+|---|---|---|---|---|
+| 128 | 39.8 | 7.17 | 139.5 | 11.04 GB |
+| 512 | 39.8 | 7.18 | 139.2 | 11.50 GB |
+| 2048 | 37.7 | 6.90 | 144.9 | 11.54 GB |
+
+Batched decode at ISL 128, replicated prompts (rows identical to each other and
+to B=1 in every case):
+
+| batch | aggregate tok/s | per-seq tok/s | ms/step | peak |
+|---|---|---|---|---|
+| 1 | 6.95 | 6.95 | 144.0 | 11.04 GB |
+| 4 | 18.96 | 4.74 | 211.0 | 11.98 GB |
+| 16 | 30.79 | 1.92 | 519.6 | 14.86 GB |
+
+### Decode is bound by instruction issue, not bandwidth
+
+The byte ledger reads 8.938 GB per token (5.7 GB of it the dense
+MLP, 1.4 GB the int8 head), and the measured streaming roofline on this
+machine is 103 GB/s — so a purely bandwidth-bound decode would sit near
+11.6 tok/s. It does not, and the gap is not scheduling:
+
+* K=3 streams 1.5x the bytes of K=2 per identical tile-decode and reaches 76% of
+  the roofline where K=2 caps near 52% — the same tile rate, different byte rate.
+* Ablating the trellis decode to a reinterpret gains only 17%.
+* B=8 streams 8x the tiles in 2.2x the time, so the repeats are served from cache.
+
+The decode costs roughly four instruction slots per weight over 24.3 G coded
+weights, which puts the operative ceiling near 8 tok/s. Measured 7.18 is
+about 87% of that, and 63% of the bandwidth number the ledger implies. Chasing
+the bandwidth figure on this chip is chasing a wall that is not there.
+
+### Prefill
+
+`DENSE_R_MAX` moved 8 to 16 on the strength of an in-model sweep (R=4 25.8,
+R=8 33.3, R=16 36.6, R=32 24.0 prefill tok/s — a register/occupancy cliff at 32),
+and the half2 activation-load merges are bit-identical. `ESCHA_MLX_DENSE_MAT=1`
+buys a further +16-17% by running the prefill GEMM on the simdgroup matrix units;
+it is the one non-bit-identical path besides split-K and ships off by default.
+
+Raw: [baseline ABCD](../bench/results/m4-base-24gb/dense27b_baseline.json),
+[roofline and byte ledger](../bench/results/m4-base-24gb/dense27b_roofline.json),
+and the pre-optimization
+[bring-up run](../bench/results/m4-base-24gb/dense27b_baseline_bringup.json).
+
+---
+
 ## Quality
 
 Quantization quality is a property of the checkpoint, not this runtime, and is

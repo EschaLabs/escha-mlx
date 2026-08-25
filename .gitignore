@@ -8,3 +8,6 @@ dist/
 build/
 .DS_Store
 *.metallib
+
+# local assistant instructions, not part of the published runtime
+CLAUDE.md
