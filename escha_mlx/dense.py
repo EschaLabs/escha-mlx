@@ -191,10 +191,17 @@ class EschaWeight:
                 f"escha code implies K={self.K}; this runtime implements "
                 f"K in {sorted(SUPPORTED_K)}")
         self.IC, self.OC = tk * 16, tn * 16
-        if rin.shape[-1] != self.IC or rout.shape[-1] != self.OC:
+        # Exact 1-D shapes, not just the trailing length: an E-stacked [E, IC]
+        # vector has the right last dimension but is the MoE layout. The fused
+        # transforms index rin/rout flat as `blk*128 + tid`, so a 2-D one would
+        # silently apply row 0 to every channel, and the ops path would
+        # broadcast it differently again -- the same trap s_in/s_out are
+        # checked for below.
+        if np.shape(rin) != (self.IC,) or np.shape(rout) != (self.OC,):
             raise ValueError(
-                f"transform vectors {rin.shape[-1]}/{rout.shape[-1]} do not match "
-                f"the code stream's {self.IC}x{self.OC}")
+                f"transform vectors {np.shape(rin)}/{np.shape(rout)} do not match "
+                f"the code stream's {self.IC}x{self.OC}; both must be 1-D "
+                f"({self.IC},)/({self.OC},)")
         # The kernels assume this and do not check it: the transforms run one
         # 128-block per threadgroup and the GEMV grid covers 128 output channels
         # per threadgroup, so a dimension that is a multiple of 16 (tile-aligned)
