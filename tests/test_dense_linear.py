@@ -673,3 +673,21 @@ def test_bias_is_off_by_default_and_toggleable(dense_linear_golden, monkeypatch)
     # and it is not a rounding-level difference: this is a fork in the model
     rel = np.abs(delta).mean() / np.abs(np.array(on(x).astype(mx.float32))).mean()
     assert rel > 0.01, f"correction is only {rel:.1%} — re-check the goldens"
+
+
+@needs_mlx
+@pytest.mark.parametrize("vec", ["rin", "rout"])
+def test_stacked_transform_vector_is_rejected(dense_linear_golden, vec):
+    """An E-stacked [E, n] vector has the right trailing length and is the wrong
+    layout: the fused transforms index rin/rout flat, so it would silently apply
+    row 0 to every channel instead of failing."""
+    from escha_mlx import dense
+
+    g = dense_linear_golden
+    rin, rout = g["rin"], g["rout"]
+    if vec == "rin":
+        rin = np.stack([rin, rin])
+    else:
+        rout = np.stack([rout, rout])
+    with pytest.raises(ValueError, match="do not match"):
+        dense.EschaWeight(g["code"], rin, rout)

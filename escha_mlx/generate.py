@@ -9,13 +9,37 @@ import logging
 import time
 
 
+def template_kwargs(thinking: bool | None, effort: str | None) -> dict:
+    """Chat-template arguments, passing through only what was actually asked for.
+
+    Both knobs are tri-state on purpose. A template's *unspecified* behaviour is
+    the checkpoint's own default and is not always "off": Qwen3.8 renders an
+    omitted ``enable_thinking`` identically to ``True``, so sending False
+    whenever ``--thinking`` was not typed would silently serve a different mode
+    than the model card describes -- and would take ``reasoning_effort`` with
+    it, since that template only emits the effort line while thinking is on.
+    Omitting a key leaves the decision with the template; passing one overrides
+    it.
+    """
+    kwargs: dict = {}
+    if thinking is not None:
+        kwargs["enable_thinking"] = thinking
+    if effort:
+        kwargs["reasoning_effort"] = effort
+    return kwargs
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="escha-mlx generation smoke")
     ap.add_argument("--model", required=True, help="path to the escha checkpoint dir")
     ap.add_argument("--prompt", default="What is 17 multiplied by 23?")
     ap.add_argument("--max-tokens", type=int, default=128)
     ap.add_argument("--raw", action="store_true", help="no chat template")
-    ap.add_argument("--thinking", action="store_true", help="enable thinking mode")
+    ap.add_argument("--thinking", action=argparse.BooleanOptionalAction, default=None,
+                    help="force thinking mode on (--thinking) or off "
+                         "(--no-thinking). Omitted by default, which leaves the "
+                         "checkpoint's own template default in force — on for "
+                         "Qwen3.8.")
     ap.add_argument("--reasoning-effort",
                     help="reasoning effort for models whose chat template takes one "
                          "(Qwen3.8: low | medium | xhigh, default xhigh). Passed "
@@ -40,12 +64,10 @@ def main() -> None:
     if args.raw:
         prompt = args.prompt
     else:
-        extra = ({"reasoning_effort": args.reasoning_effort}
-                 if args.reasoning_effort else {})
         prompt = tokenizer.apply_chat_template(
             [{"role": "user", "content": args.prompt}],
             add_generation_prompt=True, tokenize=False,
-            enable_thinking=args.thinking, **extra)
+            **template_kwargs(args.thinking, args.reasoning_effort))
 
     sampler = make_sampler(temp=args.temp)
     last = None

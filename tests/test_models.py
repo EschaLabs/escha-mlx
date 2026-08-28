@@ -411,3 +411,23 @@ def test_dense_checkpoint_rejects_unknown_escha_leaf(tmp_path):
     save_file(t, str(tmp_path / "model.safetensors"))
     with pytest.raises(ValueError, match="unknown escha tensor"):
         load_model(tmp_path)
+
+
+def test_template_kwargs_defers_to_the_checkpoint():
+    """Omitting a knob must leave it out of the template call entirely.
+
+    A template's unspecified behaviour is the checkpoint's default and is not
+    always "off" — Qwen3.8 renders an omitted `enable_thinking` exactly like
+    True — so sending False whenever `--thinking` was not typed would serve a
+    different mode than the model card describes, and would suppress
+    `reasoning_effort` with it.
+    """
+    from escha_mlx.generate import template_kwargs
+
+    assert template_kwargs(None, None) == {}
+    assert template_kwargs(True, None) == {"enable_thinking": True}
+    assert template_kwargs(False, None) == {"enable_thinking": False}
+    # effort travels on its own, so it reaches a template still using its default
+    assert template_kwargs(None, "low") == {"reasoning_effort": "low"}
+    assert template_kwargs(True, "xhigh") == {"enable_thinking": True,
+                                              "reasoning_effort": "xhigh"}

@@ -59,18 +59,22 @@ ESCHA_MLX_SLOW_TESTS=1 ESCHA_DENSE_MODEL=<dir> pytest tests/test_dense_checkpoin
 > `test_dense_checkpoint.py` with no kernel fix — the same result the MoE
 > runtime got from the same position. Treat 1e as a genuine gate anyway: it has
 > only been run on M4 base so far, and a compile diagnostic or a value mismatch
-> on another chip is a bug worth reporting. `ESCHA_MLX_LINEAR=ops` runs the
-> whole dense model through the NumPy oracle if you need to separate a kernel
-> fault from a model fault.
+> on another chip is a bug worth reporting. `ESCHA_MLX_LINEAR=ops` runs coded
+> linears through the NumPy oracle if you need to separate a kernel fault from
+> a model fault — but it materialises each decoded weight in **f32** and keeps
+> it, so use it on a truncated load or one layer at a time; the full 24.3 G
+> coded body would cache roughly 97 GB.
 
 **If a hash-decode gate fails but the LUT variant passes:** the Metal compiler
 broke fp16 RNE on the hash path — `export ESCHA_MLX_LUT=1` for everything
 below and report mlx/macOS versions.
 
 **If kernels fail to COMPILE (Metal compiler error, not a value mismatch):**
-capture the full compiler diagnostic; `ESCHA_MLX_MOE=ops` (MoE) or
-`ESCHA_MLX_LINEAR=ops` (dense) still lets step 2 run as a correctness oracle
-(slow, ~20 s/token).
+capture the full compiler diagnostic. On the MoE model `ESCHA_MLX_MOE=ops`
+still lets step 2 run as a correctness oracle (slow, ~20 s/token). The dense
+counterpart `ESCHA_MLX_LINEAR=ops` does **not** scale to a whole model — it
+caches every decoded weight in f32 (~97 GB for the 27B) — so use it per layer
+or on a truncated load, not to serve.
 
 **If the Q8 repack gate fails:** `export ESCHA_MLX_DENSE=fp16`
 (+~1.9 GB resident; still fits at short ctx) and report.
@@ -89,9 +93,11 @@ python -m escha_mlx.generate --model $ESCHA_MODEL --raw \
 # want: " Paris" + coherent continuation (Linux CPU reference produced
 # " Paris, a city"). Garbage => STOP, re-run step 1 gates.
 
-python -m escha_mlx.generate --model $ESCHA_MODEL \
+python -m escha_mlx.generate --model $ESCHA_MODEL --no-thinking \
     --prompt "What is 17*23? Answer directly." --max-tokens 64
-# want: 391
+# want: 391. --no-thinking is required for a short direct answer: the CLI
+# leaves the checkpoint's own template default in force, and these templates
+# default to thinking ON, which would spend all 64 tokens reasoning.
 
 python -m escha_mlx.generate --model $ESCHA_MODEL \
     --prompt "Write a haiku about Tokyo." --max-tokens 400 --thinking
@@ -134,7 +140,7 @@ capture and report.
 |---|---|
 | `ESCHA_MLX_LUT=1` | LUT decode instead of the hash (bit-exact by construction) |
 | `ESCHA_MLX_MOE=ops` | numpy expert path (slow, correctness oracle) |
-| `ESCHA_MLX_LINEAR=ops` | numpy path for a dense model's coded linears (slow, correctness oracle) |
+| `ESCHA_MLX_LINEAR=ops` | numpy path for a dense model's coded linears (slow, correctness oracle). Caches each decoded weight in f32 — ~97 GB for the full 27B, so per-layer or truncated loads only |
 | `ESCHA_MLX_DENSE_BLOCK_R=N` | pin rows-per-group for the dense row-blocked GEMM (1 = per-row kernel). Default measured on M4 base (16); re-sweep on other chips with `bench/prefill_profile.py --sweep-r`. Bit-identical at every R |
 | `ESCHA_MLX_DENSE_MAT=1` | dense prefill GEMM on the simdgroup matrix units: +16–17% prefill, decode untouched. **Not bit-identical** (split-K is the only other such path) — deterministic, but the f32 sum is reassociated. Default off; see INSTALL's tuning reference |
 | `ESCHA_MLX_DENSE=fp16` | fp16 for the non-expert tensors instead of the Q8 repack (+1.9 GB) — not a dense-architecture flag |
