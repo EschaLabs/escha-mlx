@@ -22,32 +22,36 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from escha_mlx import envs
+
 from .conftest import needs_metal, needs_mlx
 
 pytestmark = needs_mlx
 
 
-def test_state_dtype_env_parsing():
-    import os
+def test_state_dtype_default_and_declarations(monkeypatch):
     import mlx.core as mx
     from escha_mlx import gdn_cache
 
-    saved = os.environ.get("ESCHA_MLX_GDN_STATE")
-    try:
-        os.environ.pop("ESCHA_MLX_GDN_STATE", None)
-        assert gdn_cache.state_dtype() == mx.float16       # measured default
-        for v, want in [("fp16", mx.float16), ("float16", mx.float16),
-                        ("bf16", mx.bfloat16), ("fp32", mx.float32),
-                        ("FP16", mx.float16)]:
-            os.environ["ESCHA_MLX_GDN_STATE"] = v
-            assert gdn_cache.state_dtype() == want, v
-        os.environ["ESCHA_MLX_GDN_STATE"] = "int8"
-        with pytest.raises(ValueError):
-            gdn_cache.state_dtype()
-    finally:
-        os.environ.pop("ESCHA_MLX_GDN_STATE", None)
-        if saved is not None:
-            os.environ["ESCHA_MLX_GDN_STATE"] = saved
+    monkeypatch.delenv("ESCHA_MLX_GDN_STATE", raising=False)
+    assert gdn_cache.state_dtype() == mx.float16       # measured default
+    assert set(envs.GDN_STATE_CHOICES) == set(gdn_cache._DTYPES)
+
+
+@pytest.mark.parametrize("value", envs.GDN_STATE_CHOICES)
+def test_state_dtype_declared_choices(monkeypatch, value):
+    from escha_mlx import gdn_cache
+
+    monkeypatch.setenv("ESCHA_MLX_GDN_STATE", value)
+    assert gdn_cache.state_dtype() == gdn_cache._DTYPES[value]
+
+
+def test_state_dtype_rejects_undeclared_choice(monkeypatch):
+    from escha_mlx import gdn_cache
+
+    monkeypatch.setenv("ESCHA_MLX_GDN_STATE", "f16")
+    with pytest.raises(ValueError, match="ESCHA_MLX_GDN_STATE"):
+        gdn_cache.state_dtype()
 
 
 @pytest.mark.parametrize("dt_name", ["fp16", "bf16"])

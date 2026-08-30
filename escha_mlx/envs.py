@@ -26,9 +26,14 @@ from typing import Any, Callable, Generic, Iterable, TypeVar, cast
 T = TypeVar("T")
 
 DEFAULT_Q8_GROUP = 128
+GDN_STATE_CHOICES = (
+    "fp16", "float16",
+    "bf16", "bfloat16",
+    "fp32", "float32",
+)
 
 
-class EnvLayer(str, Enum):
+class EnvLayer(Enum):
     """Ownership layer for an environment variable."""
 
     BUILD = "build"
@@ -66,7 +71,7 @@ class EnvVar(Generic[T]):
         such as selecting the Metal MoE backend only when Metal is available.
         """
         raw = os.environ.get(self.name)
-        if raw is None:
+        if raw is None or not raw.strip():
             value = self.default if isinstance(default, _Unset) else default
             return None if isinstance(value, _Unset) else cast(T, value)
         try:
@@ -144,16 +149,10 @@ ESCHA_MLX_WIRED_GB = EnvVar(
 ESCHA_MLX_GDN_STATE = EnvVar(
     "ESCHA_MLX_GDN_STATE",
     EnvLayer.RUNTIME,
-    _choice(
-        "fp16", "float16", "f16",
-        "bf16", "bfloat16",
-        "fp32", "float32", "f32",
-    ),
+    _choice(*GDN_STATE_CHOICES),
     "Storage dtype for the recurrent GDN state.",
     default="fp16",
-    value_help=(
-        "one of f16, fp16, float16, bf16, bfloat16, f32, fp32, or float32"
-    ),
+    value_help=f"one of {', '.join(GDN_STATE_CHOICES)}",
 )
 
 ESCHA_MLX_LAST_LOGIT = EnvVar(
@@ -385,9 +384,16 @@ def variables_in(layer: EnvLayer) -> tuple[EnvVar[Any], ...]:
     return tuple(variable for variable in _DECLARATIONS if variable.layer is layer)
 
 
-def validate_environment(layers: Iterable[EnvLayer] | None = None) -> None:
+def validate_environment(
+    layers: EnvLayer | Iterable[EnvLayer] | None = None,
+) -> None:
     """Validate all currently set escha variables in the requested layers."""
-    selected = set(EnvLayer if layers is None else layers)
+    if layers is None:
+        selected = set(EnvLayer)
+    elif isinstance(layers, EnvLayer):
+        selected = {layers}
+    else:
+        selected = set(layers)
     for variable in _DECLARATIONS:
         if variable.layer in selected and variable.is_set():
             variable.get()
