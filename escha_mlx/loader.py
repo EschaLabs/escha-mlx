@@ -147,6 +147,10 @@ def use_last_logit() -> bool:
 
 def load_model(path: str | Path):
     """Build the model. Returns the mlx-lm Model instance (module-swapped)."""
+    # Fail on malformed process configuration before allocating weights or a
+    # server can report ready and defer the error to its first request.
+    envs.validate_environment()
+
     from . import models   # function-level: plugins import this module
 
     # Before any allocation, so the weights themselves land wired.

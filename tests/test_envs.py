@@ -105,6 +105,15 @@ def test_values_are_read_dynamically(monkeypatch):
     assert envs.ESCHA_MLX_FUSED_HAD.get() is True
 
 
+def test_blank_values_are_treated_as_unset(monkeypatch):
+    monkeypatch.setenv("ESCHA_MLX_BLOCK_R", "")
+    monkeypatch.setenv("ESCHA_MLX_LUT", "  \t")
+
+    assert envs.ESCHA_MLX_BLOCK_R.get() is None
+    assert envs.ESCHA_MLX_LUT.get() is False
+    envs.validate_environment()
+
+
 @pytest.mark.parametrize("variable,raw,want", [
     (envs.ESCHA_MLX_GDN_STATE, "FP32", "fp32"),
     (envs.ESCHA_MLX_GDN_STATE, "BF16", "bf16"),
@@ -149,9 +158,20 @@ def test_invalid_values_name_the_variable(monkeypatch, variable, raw):
 def test_validate_environment_can_be_scoped(monkeypatch):
     _clear_escha_environment(monkeypatch)
     monkeypatch.setenv("ESCHA_MLX_GDN_STATE", "invalid")
-    envs.validate_environment([envs.EnvLayer.KERNEL])
+    envs.validate_environment(envs.EnvLayer.KERNEL)
     with pytest.raises(ValueError, match="ESCHA_MLX_GDN_STATE"):
-        envs.validate_environment([envs.EnvLayer.RUNTIME])
+        envs.validate_environment(envs.EnvLayer.RUNTIME)
+
+
+def test_load_model_validates_environment_before_reading_checkpoint(
+    monkeypatch, tmp_path,
+):
+    from escha_mlx import loader
+
+    _clear_escha_environment(monkeypatch)
+    monkeypatch.setenv("ESCHA_MLX_LUT", "invalid")
+    with pytest.raises(ValueError, match="ESCHA_MLX_LUT"):
+        loader.load_model(tmp_path / "missing")
 
 
 def test_package_reads_environment_only_through_registry():
