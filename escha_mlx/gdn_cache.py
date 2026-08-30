@@ -281,6 +281,18 @@ class GDNStateCache(ArraysCache):
         """Resolved on access; only the name is stored (see _NAME_OF)."""
         return _DTYPES[self._gdn_dtype_name]
 
+    def is_trimmable(self):
+        # Pinned, not inherited. A recurrent state is position-dependent: it
+        # can be resumed only at exactly the token boundary it was stored at,
+        # never rewound. Today this returns False anyway via _BaseCache, but
+        # the server's prompt-cache reuse gate (can_trim_prompt_cache) trusts
+        # this answer to decide whether a LONGER cached sequence may be
+        # trimmed back and reused for a shorter prompt -- if a future mlx-lm
+        # taught ArraysCache to "trim", that gate would silently hand a
+        # position-shifted GDN state to every supersequence request. Refusing
+        # here can only force a full prefill, which is byte-equal to cold.
+        return False
+
     def __setitem__(self, idx, value):
         if idx == _STATE_SLOT and value is not None and value.dtype != self.gdn_dtype:
             value = value.astype(self.gdn_dtype)
