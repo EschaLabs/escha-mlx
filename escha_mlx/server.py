@@ -132,6 +132,46 @@ def _install_exact_hit_guard() -> None:
     lru.fetch_nearest_cache = fetch_nearest_cache
 
 
+def _install_slot_realign_guard() -> None:
+    """Keep per-request samplers/logits_processors aligned with uids.
+
+    mlx_lm 0.31.3's ``GenerationBatch.filter`` reindexes ``samplers`` and
+    ``logits_processors`` only when ``any(...)`` is truthy. A batch whose
+    requests all lack processors carries ``[[], [], ...]`` — all falsy — so
+    on request completion the list keeps its STALE length while ``uids``
+    shrinks; the next ``extend()`` then appends the incoming request's
+    processors positionally, and from that point every per-request processor
+    (and, for temp>0, sampler) reads the wrong slot. Reachable today with
+    upstream's own per-request ``logit_bias`` / ``repetition_penalty``: a
+    plain request finishing ahead of one that carries them leaves theirs
+    attached to the wrong sequence. (The sibling
+    ``PromptProcessingBatch.filter`` has the correct else-branch
+    normalization; this brings ``GenerationBatch`` to parity.) Realigning
+    after the fact is safe precisely because the guard only ever fires when
+    every entry is falsy — there is no information in the stale list to
+    lose.
+    """
+    # NB: `from mlx_lm import generate` yields the re-exported FUNCTION that
+    # shadows the submodule of the same name; the module path form below
+    # resolves the module.
+    from mlx_lm.generate import GenerationBatch as gb
+
+    if getattr(gb.filter, "_escha_slot_realign", False):
+        return
+    orig = gb.filter
+
+    def filter(self, keep):
+        orig(self, keep)
+        n = len(self.uids)
+        if len(self.samplers) != n:
+            self.samplers = [None] * n
+        if len(self.logits_processors) != n:
+            self.logits_processors = [[] for _ in range(n)]
+
+    filter._escha_slot_realign = True
+    gb.filter = filter
+
+
 def main() -> None:
     from mlx_lm import server as _server
 
@@ -149,6 +189,7 @@ def main() -> None:
     _server.load = _load
     _install_ignore_eos(_server)
     _install_exact_hit_guard()
+    _install_slot_realign_guard()
     sys.argv[0] = "escha_mlx.server"
     _server.main()
 
