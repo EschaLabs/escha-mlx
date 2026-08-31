@@ -1,0 +1,9 @@
+Mon Aug 31 18:02:52 CST 2026
+ProductName:		macOS
+ProductVersion:		26.5.2
+BuildVersion:		25F84
+RAM bytes: 25769803776
+repository revision: b373dc353e8190965d0ec47b1d77cd6ae3336da5
+mlx: 0.32.0
+mlx-lm: 0.31.3
+device: {'device_name': 'Apple M5 Pro', 'max_recommended_working_set_size': 19069665280, 'memory_size': 25769803776, 'architecture': 'applegpu_g17s', 'max_buffer_length': 14302248960, 'resource_limit': 499000}
