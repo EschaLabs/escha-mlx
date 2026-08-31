@@ -1,0 +1,216 @@
+{
+  "escha_mlx_git_revision": "b373dc353e8190965d0ec47b1d77cd6ae3336da5",
+  "model_hf_revision": "f0eadefa2f9679f7c04a115214c1cd883979a529",
+  "results": [
+    {
+      "batch": 1,
+      "variant": "base (shipped defaults)",
+      "tok_s": 14.85,
+      "peak_gb": 10.42,
+      "spread_pct": 0.4,
+      "all": [
+        14.82,
+        14.83,
+        14.85,
+        14.86,
+        14.88
+      ]
+    },
+    {
+      "batch": 1,
+      "variant": "splitk auto",
+      "tok_s": 14.58,
+      "peak_gb": 10.43,
+      "spread_pct": 1.0,
+      "all": [
+        14.47,
+        14.52,
+        14.58,
+        14.59,
+        14.61
+      ]
+    },
+    {
+      "batch": 1,
+      "variant": "shuffle fetch",
+      "tok_s": 10.23,
+      "peak_gb": 10.42,
+      "spread_pct": 0.2,
+      "all": [
+        10.21,
+        10.23,
+        10.23,
+        10.23,
+        10.24
+      ]
+    },
+    {
+      "batch": 1,
+      "variant": "splitk auto + shuffle",
+      "tok_s": 12.18,
+      "peak_gb": 10.43,
+      "spread_pct": 0.1,
+      "all": [
+        12.17,
+        12.18,
+        12.18,
+        12.18,
+        12.18
+      ]
+    },
+    {
+      "batch": 1,
+      "variant": "base (shipped defaults) [drift control]",
+      "tok_s": 14.94,
+      "peak_gb": 10.42,
+      "spread_pct": 0.1,
+      "all": [
+        14.92,
+        14.93,
+        14.94,
+        14.94,
+        14.94
+      ]
+    },
+    {
+      "batch": 4,
+      "variant": "base (shipped defaults)",
+      "tok_s": 35.07,
+      "peak_gb": 10.79,
+      "spread_pct": 0.1,
+      "all": [
+        35.06,
+        35.06,
+        35.07,
+        35.08,
+        35.09
+      ]
+    },
+    {
+      "batch": 4,
+      "variant": "splitk auto",
+      "tok_s": 35.07,
+      "peak_gb": 10.79,
+      "spread_pct": 0.1,
+      "all": [
+        35.05,
+        35.05,
+        35.07,
+        35.07,
+        35.07
+      ]
+    },
+    {
+      "batch": 4,
+      "variant": "shuffle fetch",
+      "tok_s": 35.05,
+      "peak_gb": 10.79,
+      "spread_pct": 0.3,
+      "all": [
+        34.96,
+        34.98,
+        35.05,
+        35.06,
+        35.09
+      ]
+    },
+    {
+      "batch": 4,
+      "variant": "splitk auto + shuffle",
+      "tok_s": 35.03,
+      "peak_gb": 10.79,
+      "spread_pct": 0.1,
+      "all": [
+        35.0,
+        35.02,
+        35.03,
+        35.04,
+        35.04
+      ]
+    },
+    {
+      "batch": 4,
+      "variant": "base (shipped defaults) [drift control]",
+      "tok_s": 35.05,
+      "peak_gb": 10.79,
+      "spread_pct": 0.1,
+      "all": [
+        35.03,
+        35.04,
+        35.05,
+        35.05,
+        35.05
+      ]
+    },
+    {
+      "batch": 16,
+      "variant": "base (shipped defaults)",
+      "tok_s": 60.82,
+      "peak_gb": 12.19,
+      "spread_pct": 6.5,
+      "all": [
+        57.38,
+        60.82,
+        60.82,
+        60.94,
+        61.1
+      ]
+    },
+    {
+      "batch": 16,
+      "variant": "splitk auto",
+      "tok_s": 61.05,
+      "peak_gb": 12.19,
+      "spread_pct": 0.2,
+      "all": [
+        60.99,
+        61.05,
+        61.05,
+        61.07,
+        61.14
+      ]
+    },
+    {
+      "batch": 16,
+      "variant": "shuffle fetch",
+      "tok_s": 60.98,
+      "peak_gb": 12.19,
+      "spread_pct": 0.0,
+      "all": [
+        60.96,
+        60.97,
+        60.98,
+        60.99,
+        60.99
+      ]
+    },
+    {
+      "batch": 16,
+      "variant": "splitk auto + shuffle",
+      "tok_s": 60.98,
+      "peak_gb": 12.19,
+      "spread_pct": 0.1,
+      "all": [
+        60.95,
+        60.97,
+        60.98,
+        60.99,
+        61.0
+      ]
+    },
+    {
+      "batch": 16,
+      "variant": "base (shipped defaults) [drift control]",
+      "tok_s": 60.94,
+      "peak_gb": 12.19,
+      "spread_pct": 0.1,
+      "all": [
+        60.93,
+        60.94,
+        60.94,
+        60.94,
+        60.98
+      ]
+    }
+  ]
+}

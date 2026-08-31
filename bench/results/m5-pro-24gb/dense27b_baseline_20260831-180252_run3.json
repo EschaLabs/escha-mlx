@@ -1,0 +1,99 @@
+{
+  "escha_mlx_git_revision": "b373dc353e8190965d0ec47b1d77cd6ae3336da5",
+  "model_hf_revision": "f0eadefa2f9679f7c04a115214c1cd883979a529",
+  "mlx": "0.32.0",
+  "model": "Qwen3.8-27B-Escha-W2",
+  "A_correctness": {
+    "paris_raw": {
+      "text": "Paris.\nThe capital of Germany is Berlin.\nThe capital of Italy is",
+      "gen_tps": 18.48,
+      "prompt_tps": 20.26,
+      "peak_gb": 10.43
+    },
+    "mult_chat": {
+      "text": "391",
+      "gen_tps": 23.1,
+      "prompt_tps": 44.04,
+      "peak_gb": 10.57
+    },
+    "haiku_think": {
+      "text": "We need to respond to user: \"Write a haiku about Tokyo.\" Need produce haiku likely 5-7-5 syllables. Need final only haiku maybe. Need ensure syllables. Let's craft: \"Neon lights glow\" (Neon 2? ne-on =2, lights=1, glow=1 total4? Need 5. \"Neon lights glow\" = Neon (2) lights (1) glow (1)=4. Add \"bright\"? \"Neon lights glow bright\" = 2+1+1+1=5. Line1 5.\nLine2 7: \"trains hum through the night\" trains(1) hum(1) through(1) the(1) night(1)=5. Need 7. \"trains hum softly through night\" trains1 hum1 softly2 through1 night1=6. \"trains hum softly in night\" 1+1+2",
+      "gen_tps": 17.38,
+      "prompt_tps": 63.96,
+      "peak_gb": 10.83
+    }
+  },
+  "B_bs1": {
+    "128": {
+      "prefill_s": 1.588,
+      "prefill_tps": 80.6,
+      "decode_tps": 14.56,
+      "ms_per_token": 68.67,
+      "peak_gb": 11.28
+    },
+    "512": {
+      "prefill_s": 6.247,
+      "prefill_tps": 82.0,
+      "decode_tps": 14.58,
+      "ms_per_token": 68.61,
+      "peak_gb": 11.63
+    },
+    "2048": {
+      "prefill_s": 25.046,
+      "prefill_tps": 81.8,
+      "decode_tps": 14.44,
+      "ms_per_token": 69.26,
+      "peak_gb": 11.73
+    }
+  },
+  "C_batch": {
+    "1": {
+      "prefill_s": 1.586,
+      "prefill_tps": 80.7,
+      "aggregate_decode_tps": 14.67,
+      "per_seq_decode_tps": 14.67,
+      "ms_per_step": 68.18,
+      "rows_identical": true,
+      "matches_b1": true,
+      "peak_gb": 11.28
+    },
+    "4": {
+      "prefill_s": 6.235,
+      "prefill_tps": 82.1,
+      "aggregate_decode_tps": 34.76,
+      "per_seq_decode_tps": 8.69,
+      "ms_per_step": 115.06,
+      "rows_identical": true,
+      "matches_b1": true,
+      "peak_gb": 12.24
+    },
+    "16": {
+      "prefill_s": 24.704,
+      "prefill_tps": 82.9,
+      "aggregate_decode_tps": 60.63,
+      "per_seq_decode_tps": 3.79,
+      "ms_per_step": 263.9,
+      "rows_identical": true,
+      "matches_b1": true,
+      "peak_gb": 15.14
+    }
+  },
+  "D_cache": {
+    "isl": 512,
+    "total_mb": 112.0,
+    "kinds": {
+      "GDNStateCache": {
+        "layers": 48,
+        "mb": 78.45,
+        "bytes_per_token": 153216.0,
+        "trimmable": false
+      },
+      "KVCache": {
+        "layers": 16,
+        "mb": 33.55,
+        "bytes_per_token": 65536.0,
+        "trimmable": true
+      }
+    }
+  }
+}

@@ -528,6 +528,118 @@ Raw JSON: [current ABCD baseline](../bench/results/m5-pro-24gb/baseline_abcd_cur
 
 ---
 
+## Apple M5 Pro 24 GB — Qwen3.8-27B dense (W2)
+
+The same M5 Pro machine documented above, now running the dense model. The publish
+runner completed the full suite (including the slow real-checkpoint dense gates) and
+`bench/p0_gates.py` before starting performance measurement; both passed. It then ran
+continuously, without cooldown pauses, from 18:02 to 18:38 CST on 2026-08-31. Opening
+and closing rooflines bound whole-session drift.
+
+| | |
+|---|---|
+| Machine | MacBook Pro (Mac17,9), **Apple M5 Pro**, 16-core GPU, 24 GB unified memory |
+| macOS / MLX | 26.5.2 (25F84) / `mlx` 0.32.0, `mlx-lm` 0.31.3 |
+| Metal | `applegpu_g17s`; recommended working set 19.07 GB |
+| Model | local `Qwen3.8-27B-Escha-W2` revision `f0eadefa2f9679f7c04a115214c1cd883979a529` |
+| Runtime revision | `b373dc353e8190965d0ec47b1d77cd6ae3336da5` |
+| Runtime settings | repository defaults; prefill chunk 256; no memory or wired-limit override |
+
+The three correctness anchors produced the same text in every baseline process. All
+replicated rows were identical and matched B=1 at B=1/4/16. After an ISL-512 prefill,
+the caches total 112.00 MB: 78.45 MB across 48 `GDNStateCache` layers and 33.55 MB
+across 16 trimmable `KVCache` layers.
+
+### Three-process ABCD baseline
+
+Each row below is the median of three fresh-process runs; the range is shown for
+decode, where the emitted runs differed. Prefill and peak memory were identical at
+the precision emitted by the harness.
+
+| ISL | prefill tok/s | decode median tok/s | decode min–max | peak memory |
+|---:|---:|---:|---:|---:|
+| 128 | 80.6 | **14.56** | 14.54–14.56 | 11.28 GB |
+| 512 | **82.0** | 14.55 | 14.53–14.58 | 11.63 GB |
+| 2048 | 81.8 | 14.37 | 14.34–14.44 | 11.73 GB |
+
+| batch | prefill tok/s | aggregate decode median | min–max | per-sequence tok/s | peak memory | correctness |
+|---:|---:|---:|---:|---:|---:|---|
+| 1 | 80.7 | 14.67 | 14.63–14.68 | 14.67 | 11.28 GB | OK |
+| 4 | 82.1 | 34.75 | 34.74–34.76 | 8.69 | 12.24 GB | OK |
+| 16 | **82.9** | **60.68** | 60.63–60.68 | 3.79 | 15.14 GB | OK |
+
+Against the committed M4-base rows, single-stream prefill is 2.03–2.17× and decode
+is 2.03–2.08× as fast; aggregate decode is 2.11×/1.83×/1.97× at B=1/4/16. This is
+an operational cross-machine comparison, not a causal hardware A/B: both the runtime
+and model revisions differ from the historical M4 session.
+
+### Decode repeatability and strategy controls
+
+`sweep_kernel_variants.py` used a 16-token prefill, eight warmups, 24 synchronized
+timed steps and five repeats per arm. Shipped defaults were measured first and last.
+
+| batch | default A1 | default A2 | drift | A1 spread | A2 spread |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 14.85 | 14.94 | +0.61% | 0.4% | 0.1% |
+| 4 | 35.07 | 35.05 | −0.06% | 0.1% | 0.1% |
+| 16 | 60.82 | 60.94 | +0.20% | 6.5% | 0.1% |
+
+The B=16 A1 spread is one low 57.38 tok/s sample; its other four observations and the
+closing arm cluster at 60.82–61.10. At B=1, split-K is 2.1% slower, shuffle fetch is
+31.3% slower, and their combination is 18.2% slower than the mean default. At B=4/16
+all candidate deltas are within 0.3% and do not clear drift. The shipped decode defaults
+therefore remain the supported choice on this chip.
+
+### Dense prefill strategies
+
+Every configuration had three warmups and six timed forwards. R=16 was repeated at
+the end of each chunk-size block.
+
+| chunk | R=4 | R=8 | R=16 A1 / A2 | R=32 | R=16 drift |
+|---:|---:|---:|---:|---:|---:|
+| 128 | 61.68 | 72.79 | **80.17 / 80.24** | 45.71 | +0.09% |
+| 256 | 62.36 | 74.35 | **81.92 / 81.95** | 46.81 | +0.03% |
+
+R=16 remains the clear default: R=8 is 9.3% slower and R=32 is about 43% slower at
+both shapes. The non-bit-identical simdgroup-matrix path was measured separately as
+default/matrix/default in the same loaded process:
+
+| chunk | scalar A1 | matrix | scalar A2 | matrix vs mean(scalar) | scalar drift |
+|---:|---:|---:|---:|---:|---:|
+| 128 | 80.13 | **101.63** | 80.09 | **+26.9%** | −0.06% |
+| 256 | 81.93 | **103.64** | 79.64 | **+28.3%** | −2.79% |
+
+The matrix gain is much larger than its drift, but `ESCHA_MLX_DENSE_MAT=1` remains an
+explicit opt-in because it reassociates the f32 reduction and is not bit-identical to
+the shipped scalar row-blocked path.
+
+### Roofline and whole-session drift
+
+| metric | opening | closing | drift |
+|---|---:|---:|---:|
+| peak streaming read | 284.8 GB/s | 284.0 GB/s | −0.28% |
+| decode step, B=1 | 14.93 tok/s | 14.87 tok/s | −0.40% |
+| decode step, B=8 | 47.62 tok/s | 47.52 tok/s | −0.21% |
+| decode step, B=16 | 61.18 tok/s | 60.97 tok/s | −0.34% |
+
+The model ledger is 8.938 GB/token. Mean measured bandwidth gives a nominal 31.82
+tok/s B=1 memory roofline, while the measured step is about 14.90 tok/s (47% of that
+ceiling). M5 Pro supplies 2.75× the M4 base's measured bandwidth but only 2.06× its B=1
+step throughput, strengthening the M4 result that this dense decode is constrained by
+instruction issue rather than DRAM bandwidth.
+
+Raw evidence: [machine and software](../bench/results/m5-pro-24gb/dense27b_machine_20260831-180252.txt),
+[baseline run 1](../bench/results/m5-pro-24gb/dense27b_baseline_20260831-180252_run1.json),
+[run 2](../bench/results/m5-pro-24gb/dense27b_baseline_20260831-180252_run2.json),
+[run 3](../bench/results/m5-pro-24gb/dense27b_baseline_20260831-180252_run3.json),
+[decode strategies](../bench/results/m5-pro-24gb/dense27b_decode_levers_20260831-180252.json),
+[R sweep](../bench/results/m5-pro-24gb/dense27b_prefill_r_20260831-180252.json),
+[dense matrix A/B/A](../bench/results/m5-pro-24gb/dense27b_dense_mat_20260831-180252.json),
+[opening roofline](../bench/results/m5-pro-24gb/dense27b_roofline_20260831-180252_open.json), and
+[closing roofline](../bench/results/m5-pro-24gb/dense27b_roofline_20260831-180252_close.json).
+
+---
+
 ## Apple M4 base 24 GB — Qwen3.8-27B dense (W2)
 
 The first hardware run of the dense architecture. Same machine as the M4 tables
