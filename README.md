@@ -110,8 +110,12 @@ collapses 23× near the cap. Memory settings and the full tuning-knob reference:
 Measurements on the machines below, all using MLX 0.32.0 and mlx-lm 0.31.3.
 The M4 is the entry-level 10-core-GPU model (24 GB, macOS 26.5.2); the M4 Pro is a
 20-core-GPU, 48 GB machine (macOS 15.7.3); the M5 Pro has a 16-core
-GPU (24 GB, macOS 26.5.2). Every M5 Pro result in this summary table used runtime
-revision `bf86c10d4d91e5d4aaa7d4046983723e139f47cc`, model revision
+GPU (24 GB, macOS 26.5.2).
+
+### Qwen3.6-35B-A3B MoE
+
+Every M5 Pro result in this summary table used runtime revision
+`bf86c10d4d91e5d4aaa7d4046983723e139f47cc`, model revision
 `1b7237f0886a10b4bd92cd7653090cd7381ae199`, AC power and High Power mode.
 
 | workload | M4 base, escha W2 | M4 base, stock MLX 4-bit | M4 Pro 48 GB, escha W2 | M5 Pro, escha W2 |
@@ -163,6 +167,36 @@ within noise — the opposite split from the M5 Pro — while the allocation-fre
 first state cuts first-forward peak memory 2.08 GB at batch 64 (18.20 → 16.12 GB
 against a 19.07 GB cap) with bit-identical logits and state:
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md#apple-m4-base-24-gb--output-hadamard-fusion-and-gdn-first-state).
+
+### Qwen3.8-27B dense
+
+The M5 Pro publish run used runtime revision
+`b373dc353e8190965d0ec47b1d77cd6ae3336da5` and model revision
+`f0eadefa2f9679f7c04a115214c1cd883979a529`, with repository defaults, a
+256-token prefill chunk and no memory or wired-limit override. The full suite,
+including the slow real-checkpoint dense gates, and `bench/p0_gates.py` passed
+before measurement. Each M5 baseline row is the median of three fresh processes;
+the M4 rows are the previously committed hardware run and are not a paired
+cross-chip A/B.
+
+| workload | M4 base, escha W2 | M5 Pro, escha W2 |
+|---|---:|---:|
+| prefill, ISL 128 | 39.8 tok/s | 80.6 tok/s |
+| prefill, ISL 512 | 39.8 tok/s | 82.0 tok/s |
+| prefill, ISL 2048 | 37.7 tok/s | 81.8 tok/s |
+| decode, single stream, ISL 512 | 7.18 tok/s | 14.55 tok/s |
+| aggregate @ batch 4 | 18.96 tok/s | 34.75 tok/s |
+| aggregate @ batch 16 | 30.79 tok/s | 60.68 tok/s |
+
+The shipped, bit-exact scalar prefill path reaches ~82 tok/s on the M5 Pro. The
+opt-in simdgroup-matrix path reaches 103.64 tok/s at chunk 256 (+28.3% against
+the same-process scalar mean), but remains off by default because it reassociates
+the f32 reduction and is not bit-identical. Dense single-stream decode reaches
+about 47% of its nominal memory roofline on this chip; together with the M4
+diagnostics, that points to instruction issue rather than DRAM bandwidth as the
+operative limit. Method, repeatability ranges, strategy controls, cache accounting
+and raw artifacts are in the
+[full M5 Pro 27B section](docs/PERFORMANCE.md#apple-m5-pro-24-gb--qwen38-27b-dense-w2).
 
 Full tables (ISL/OSL serving grid, prefill scaling, drift controls):
 [docs/PERFORMANCE.md](docs/PERFORMANCE.md). The complete bring-up and optimization
