@@ -74,6 +74,104 @@ def _install_ignore_eos(server_mod) -> None:
     handler.validate_model_parameters = validate_model_parameters
 
 
+def _install_exact_hit_guard() -> None:
+    """Never let the prompt cache return an empty remainder.
+
+    mlx_lm 0.31.3's ``LRUPromptCache.fetch_nearest_cache`` answers an EXACT
+    key hit with ``(deepcopy(cache), [])``.  Both serving paths assume at
+    least one prompt token remains: the batched path pops every prompt
+    segment and then indexes ``seq[-1]`` on the empty list
+    (``BatchGenerator.insert_segments``) -- an IndexError that kills the
+    generation thread, after which every request queues forever -- and the
+    sequential path would hand ``stream_generate`` an empty prompt.  The key
+    is ``prompt + generated`` of a finished request, so a /v1/completions
+    continuation of a previous response hits it in ordinary traffic.
+
+    The guard re-establishes the invariant at the source instead of patching
+    each consumer:
+
+    * trimmable cache (pure-KV models served through this wrapper): trim one
+      token off the copy and re-feed the last prompt token.  This is also the
+      byte-equal choice -- feeding the last token against the full-length
+      cache would advance its state a second time and shift the first
+      generated token's position.
+    * non-trimmable cache (both escha models: GDNStateCache holds recurrent
+      state that only resumes at its exact stored boundary): decline the
+      exact entry and re-resolve the query minus its final token.  That
+      returns a stored key equal to ``tokens[:-1]`` (reused as-is, final
+      token re-fed), a shorter stored prefix, or a cold start -- the
+      full-length entry itself is correctly skipped by the trim gate.  Every
+      arm feeds ``>= 1`` real token and resumes state only at a boundary it
+      was stored at.
+    """
+    from mlx_lm.models import cache as cache_mod
+
+    lru = cache_mod.LRUPromptCache
+    if getattr(lru.fetch_nearest_cache, "_escha_exact_hit_guard", False):
+        return
+    orig = lru.fetch_nearest_cache
+
+    def fetch_nearest_cache(self, model, tokens):
+        cache, rest = orig(self, model, tokens)
+        if cache is None or rest:
+            return cache, rest
+        if len(tokens) < 2:
+            return None, list(tokens)
+        if cache_mod.can_trim_prompt_cache(cache):
+            cache_mod.trim_prompt_cache(cache, 1)
+            return cache, list(tokens[-1:])
+        cache, rest = orig(self, model, tokens[:-1])
+        if cache is None:
+            return None, list(tokens)
+        # `rest` is relative to tokens[:-1]; [] here means tokens[:-1] is
+        # itself a stored key, reusable as-is because the remainder below
+        # feeds the final token against it.
+        return cache, list(rest) + list(tokens[-1:])
+
+    fetch_nearest_cache._escha_exact_hit_guard = True
+    lru.fetch_nearest_cache = fetch_nearest_cache
+
+
+def _install_slot_realign_guard() -> None:
+    """Keep per-request samplers/logits_processors aligned with uids.
+
+    mlx_lm 0.31.3's ``GenerationBatch.filter`` reindexes ``samplers`` and
+    ``logits_processors`` only when ``any(...)`` is truthy. A batch whose
+    requests all lack processors carries ``[[], [], ...]`` — all falsy — so
+    on request completion the list keeps its STALE length while ``uids``
+    shrinks; the next ``extend()`` then appends the incoming request's
+    processors positionally, and from that point every per-request processor
+    (and, for temp>0, sampler) reads the wrong slot. Reachable today with
+    upstream's own per-request ``logit_bias`` / ``repetition_penalty``: a
+    plain request finishing ahead of one that carries them leaves theirs
+    attached to the wrong sequence. (The sibling
+    ``PromptProcessingBatch.filter`` has the correct else-branch
+    normalization; this brings ``GenerationBatch`` to parity.) Realigning
+    after the fact is safe precisely because the guard only ever fires when
+    every entry is falsy — there is no information in the stale list to
+    lose.
+    """
+    # NB: `from mlx_lm import generate` yields the re-exported FUNCTION that
+    # shadows the submodule of the same name; the module path form below
+    # resolves the module.
+    from mlx_lm.generate import GenerationBatch as gb
+
+    if getattr(gb.filter, "_escha_slot_realign", False):
+        return
+    orig = gb.filter
+
+    def filter(self, keep):
+        orig(self, keep)
+        n = len(self.uids)
+        if len(self.samplers) != n:
+            self.samplers = [None] * n
+        if len(self.logits_processors) != n:
+            self.logits_processors = [[] for _ in range(n)]
+
+    filter._escha_slot_realign = True
+    gb.filter = filter
+
+
 def main() -> None:
     from mlx_lm import server as _server
 
@@ -90,6 +188,8 @@ def main() -> None:
 
     _server.load = _load
     _install_ignore_eos(_server)
+    _install_exact_hit_guard()
+    _install_slot_realign_guard()
     sys.argv[0] = "escha_mlx.server"
     _server.main()
 
