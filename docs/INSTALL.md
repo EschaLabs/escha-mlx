@@ -121,6 +121,14 @@ escha-mlx-server --model ./escha-w2 --port 8080 \
 materialises a much larger activation transient and pushes peak memory past the
 cap on long prompts.
 
+When `--mtp` is enabled, escha-mlx defaults both prompt and decode concurrency
+to 2 and applies a 512 MB prompt-cache byte budget. Tree verification is faster
+than ordinary AR at B=1/2 but slower from B=4 onward, and B=8 verification peaks
+near the 24 GB machine's Metal working-set limit; retaining mlx-lm's default ten
+Qwen3.8 cache entries adds about 0.9 GB and can cross that limit. Explicit
+`--decode-concurrency`, `--prompt-concurrency`, and `--prompt-cache-bytes`
+values override these MTP defaults.
+
 ---
 
 ## Generating from a reasoning model
@@ -230,6 +238,7 @@ bit-identical or documents where it is not.
 | kernel | `ESCHA_MLX_SORTX=1` | Pre-sort inputs into expert order. Measured neutral or slower on a 10-core M4. |
 | kernel | `ESCHA_MLX_PREFETCH=1` | Prefetch code tiles into registers. Measured neutral or slower on a 10-core M4. |
 | kernel | `ESCHA_MLX_DENSE=fp16` | Use fp16 dense weights instead of the Q8 repack. +~1.9 GB resident; bit-identical weight values. |
+| kernel | `ESCHA_MLX_Q8_HEAD=0` | Disable the default small-row Metal vocabulary head and use MLX QMM. The specialized path covers 1–8 flattened rows; larger batches already fall back automatically. |
 | kernel | `ESCHA_MLX_LUT=1` | Use table-based codec decode instead of multiply-hash. Bit-exact fallback for future Metal compiler changes. |
 | kernel | `ESCHA_MLX_MOE=ops` | Use the NumPy expert path. Very slow; a correctness oracle, not for serving. |
 | kernel | `ESCHA_MLX_LINEAR=ops` | Use the NumPy path for coded linears of a **dense** model. Very slow, and materializes decoded weights in f32; use only as a correctness oracle for a truncated load or single layer. |

@@ -10,6 +10,9 @@ Two kernel families only — everything else in this package is pure MLX ops:
     channels of one row (8 simdgroups; simdgroup s handles output tile
     ocb*8+s).  Rows are single-token/single-expert ("row_expert" indexed),
     which keeps everything device-resident (no host sync in the MoE path).
+    Dense row-blocked variants share a decode across rows; the small-row
+    variant used by MTP verification reads up to eight consecutive rows
+    without barriers.
 
 Numeric contract (must match escha_mlx.ref bit-for-bit at the decode level):
   decode(x) = fp16_lo(r) + fp16_hi(r), r = ((x*0xCBAC1FED) & 0x8FFF8FFF) ^ 0x3B603B60
@@ -21,6 +24,7 @@ construction, built by ref.cba_lut on the host).
 from __future__ import annotations
 
 from functools import lru_cache
+import re
 
 import mlx.core as mx
 import numpy as np
@@ -431,6 +435,242 @@ def _moe_gemv_source(K: int, use_lut: bool, dense: bool = False) -> str:
 """
 
 
+def _dense_gemm_rows_direct_source(K: int, use_lut: bool, R: int) -> str:
+    """Small-row dense GEMM without input staging or barriers.
+
+    A dense group owns consecutive rows, so each simdgroup can address those
+    rows directly while decoding its weight tile once for all ``R`` rows.  For
+    the small M used by speculative verification, redundant input reads stay in
+    cache and cost less than staging ``R`` rows plus two barriers per tile
+    block.  Each row keeps the exact kt/j accumulation order of dense GEMV.
+    """
+    wpt = 8 * K
+    extract = _substitute_fetch(_EXTRACT_K2 if K == 2 else _EXTRACT_K3)
+    decs = "\n".join(
+        f"        float d{j} = (float){_dec(f's{j}', use_lut)};"
+        for j in range(8)
+    )
+    return f"""
+    uint ocb = thread_position_in_grid.x >> 8;
+    uint grp = thread_position_in_grid.y;
+    uint lane = thread_index_in_simdgroup;
+    uint sg = simdgroup_index_in_threadgroup;
+    if (grp * {R}u >= (uint)M) return;
+
+    float acc0[{R}], acc1[{R}];
+#pragma clang loop unroll(full)
+    for (uint r = 0; r < {R}u; ++r) {{ acc0[r] = 0.0f; acc1[r] = 0.0f; }}
+
+    uint l0 = lane & ~4u;
+    uint c_off = (lane >> 2) & 1u;
+    uint xrow = (lane & 3u) * 2u;
+
+    for (uint kt = 0; kt < TK; ++kt) {{
+        device const uint* wp = code
+            + ((ulong)kt * TN + ocb * 8u + sg) * {wpt}u;
+{extract}
+{decs}
+#pragma clang loop unroll(full)
+        for (uint r = 0; r < {R}u; ++r) {{
+            uint row = min(grp * {R}u + r, (uint)M - 1u);
+            device const half2* xp = (device const half2*)(
+                xh + (ulong)row * IC + kt * 16u + xrow);
+            half2 xv0 = xp[0];
+            half2 xv1 = xp[4];
+            acc0[r] += (float)xv0.x * d0;
+            acc0[r] += (float)xv0.y * d1;
+            acc0[r] += (float)xv1.x * d2;
+            acc0[r] += (float)xv1.y * d3;
+            acc1[r] += (float)xv0.x * d4;
+            acc1[r] += (float)xv0.y * d5;
+            acc1[r] += (float)xv1.x * d6;
+            acc1[r] += (float)xv1.y * d7;
+        }}
+    }}
+
+#pragma clang loop unroll(full)
+    for (uint r = 0; r < {R}u; ++r) {{
+        float a0 = acc0[r], a1 = acc1[r];
+        a0 += simd_shuffle_xor(a0, 1u);
+        a0 += simd_shuffle_xor(a0, 2u);
+        a1 += simd_shuffle_xor(a1, 1u);
+        a1 += simd_shuffle_xor(a1, 2u);
+        if ((lane & 3u) == 0u && grp * {R}u + r < (uint)M) {{
+            uint col = 2u * (l0 >> 3) + c_off;
+            ulong ob = (ulong)(grp * {R}u + r) * OC
+                     + ocb * 128u + sg * 16u;
+            mid[ob + col] = a0;
+            mid[ob + col + 8u] = a1;
+        }}
+    }}
+"""
+
+
+def _dense_gemm_rows_direct_out_source(
+    K: int, use_lut: bool, R: int, rs: float
+) -> str:
+    """Small-row GEMM with output Hadamard/rout in its epilogue."""
+    wpt = 8 * K
+    extract = _substitute_fetch(_EXTRACT_K2 if K == 2 else _EXTRACT_K3)
+    decs = "\n".join(
+        f"        float d{j} = (float){_dec(f's{j}', use_lut)};"
+        for j in range(8)
+    )
+    return f"""
+    uint tid = thread_position_in_threadgroup.x;
+    uint ocb = thread_position_in_grid.x >> 8;
+    uint grp = thread_position_in_grid.y;
+    uint lane = thread_index_in_simdgroup;
+    uint sg = simdgroup_index_in_threadgroup;
+    if (grp * {R}u >= (uint)M) return;
+
+    float acc0[{R}], acc1[{R}];
+    threadgroup float s_mid[{R * 128}];
+#pragma clang loop unroll(full)
+    for (uint r = 0; r < {R}u; ++r) {{ acc0[r] = 0.0f; acc1[r] = 0.0f; }}
+    uint l0 = lane & ~4u;
+    uint c_off = (lane >> 2) & 1u;
+    uint xrow = (lane & 3u) * 2u;
+
+    for (uint kt = 0; kt < TK; ++kt) {{
+        device const uint* wp = code
+            + ((ulong)kt * TN + ocb * 8u + sg) * {wpt}u;
+{extract}
+{decs}
+#pragma clang loop unroll(full)
+        for (uint r = 0; r < {R}u; ++r) {{
+            uint row = min(grp * {R}u + r, (uint)M - 1u);
+            device const half2* xp = (device const half2*)(
+                xh + (ulong)row * IC + kt * 16u + xrow);
+            half2 xv0 = xp[0], xv1 = xp[4];
+            acc0[r] += (float)xv0.x * d0;
+            acc0[r] += (float)xv0.y * d1;
+            acc0[r] += (float)xv1.x * d2;
+            acc0[r] += (float)xv1.y * d3;
+            acc1[r] += (float)xv0.x * d4;
+            acc1[r] += (float)xv0.y * d5;
+            acc1[r] += (float)xv1.x * d6;
+            acc1[r] += (float)xv1.y * d7;
+        }}
+    }}
+
+#pragma clang loop unroll(full)
+    for (uint r = 0; r < {R}u; ++r) {{
+        float a0 = acc0[r], a1 = acc1[r];
+        a0 += simd_shuffle_xor(a0, 1u);
+        a0 += simd_shuffle_xor(a0, 2u);
+        a1 += simd_shuffle_xor(a1, 1u);
+        a1 += simd_shuffle_xor(a1, 2u);
+        if ((lane & 3u) == 0u) {{
+            uint col = 2u * (l0 >> 3) + c_off;
+            uint sb = r * 128u + sg * 16u;
+            s_mid[sb + col] = a0;
+            s_mid[sb + col + 8u] = a1;
+        }}
+    }}
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // The GEMM group owns exactly one 128-channel output block, so its 256
+    // threads can reuse the completed accumulator tile for the WHT. Only the
+    // first 128 threads update values; all threads participate in barriers.
+#pragma clang loop unroll(full)
+    for (uint r = 0; r < {R}u; ++r) {{
+#pragma clang loop unroll(full)
+        for (uint stage = 0; stage < 7u; ++stage) {{
+            uint mask = 1u << stage;
+            float mine = 0.0f, other = 0.0f;
+            if (tid < 128u) {{
+                mine = s_mid[r * 128u + tid];
+                other = s_mid[r * 128u + (tid ^ mask)];
+            }}
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+            if (tid < 128u)
+                s_mid[r * 128u + tid] = (tid & mask) ? (other - mine) : (mine + other);
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }}
+        if (tid < 128u && grp * {R}u + r < (uint)M) {{
+            ulong off = (ulong)(grp * {R}u + r) * OC + ocb * 128u + tid;
+            float scaled = s_mid[r * 128u + tid] * {rs!r}f;
+            out[off] = (half)(scaled * rout[ocb * 128u + tid]);
+        }}
+    }}
+"""
+
+
+def _dense_gemm_pair_out_source(
+    K0: int, K1: int, use_lut: bool, R: int, rs: float
+) -> str:
+    def shard(k, suffix, offset):
+        body = _dense_gemm_rows_direct_out_source(k, use_lut, R, rs)
+        body = body.replace(
+            "uint ocb = thread_position_in_grid.x >> 8;",
+            f"uint ocb = block - (uint){offset};",
+        )
+        for old, new in (
+            ("code", f"code{suffix}"),
+            ("xh", f"xh{suffix}"),
+            ("rout", f"rout{suffix}"),
+            ("out", f"out{suffix}"),
+            ("TN", f"TN{suffix}"),
+            ("OC", f"OC{suffix}"),
+        ):
+            body = re.sub(rf"\b{old}\b", new, body)
+        return body
+
+    first = shard(K0, 0, 0)
+    second = shard(K1, 1, "TN0 / 8")
+    return f"""
+    uint block = thread_position_in_grid.x >> 8;
+    if (block < (uint)(TN0 / 8)) {{
+{first}
+    }} else {{
+{second}
+    }}
+"""
+
+
+def _dense_gemm_pair_source(
+    K0: int, K1: int, use_lut: bool, R: int, KB: int, direct: bool
+) -> str:
+    """Turn one row-blocked body into a two-projection dispatch.
+
+    Gate/up and K/V have the same input row geometry but distinct transforms
+    and coded streams.  A uniform branch per threadgroup selects the shard;
+    there is no lane divergence and the scalar accumulation order is unchanged.
+    """
+    def shard_body(k, suffix, block_offset):
+        if direct:
+            body = _dense_gemm_rows_direct_source(k, use_lut, R)
+        else:
+            body = _moe_gemm_rows_source(
+                k, use_lut, R, KB, False, use_prefetch(), True
+            )
+        body = body.replace(
+            "uint ocb = thread_position_in_grid.x >> 8;",
+            f"uint ocb = block - (uint){block_offset};",
+        )
+        for old, new in (
+            ("code", f"code{suffix}"),
+            ("xh", f"xh{suffix}"),
+            ("mid", f"mid{suffix}"),
+            ("TN", f"TN{suffix}"),
+            ("OC", f"OC{suffix}"),
+        ):
+            body = re.sub(rf"\b{old}\b", new, body)
+        return body
+
+    first = shard_body(K0, 0, 0)
+    second = shard_body(K1, 1, "TN0 / 8")
+    return f"""
+    uint block = thread_position_in_grid.x >> 8;
+    if (block < (uint)(TN0 / 8)) {{
+{first}
+    }} else {{
+{second}
+    }}
+"""
+
+
 def _gemm_group_prologue(R: int, dense: bool) -> str:
     """Group-validity prologue for the row-blocked GEMM.
 
@@ -709,6 +949,34 @@ def _scaled_had_out_source(rs: float, dense: bool = False) -> str:
 """
 
 
+def _dense_scaled_had_pair_source(rs: float, output: bool) -> str:
+    """Two independent dense Hadamard projections in one dispatch."""
+    make = _scaled_had_out_source if output else _scaled_had_source
+    source = make(rs, True)
+    dim = "OC" if output else "IC"
+    block_line = "uint blk = thread_position_in_grid.x >> 7;"
+
+    def shard(suffix, offset):
+        body = source.replace(block_line, f"uint blk = block - (uint){offset};")
+        names = (("mid", f"mid{suffix}"), ("rout", f"rout{suffix}")) if output else (
+            ("rows", "rows"), ("rin", f"rin{suffix}")
+        )
+        for old, new in (*names, ("out", f"out{suffix}"), (dim, f"{dim}{suffix}")):
+            body = re.sub(rf"\b{old}\b", new, body)
+        return body
+
+    first = shard(0, 0)
+    second = shard(1, f"{dim}0 / 128")
+    return f"""
+    uint block = thread_position_in_grid.x >> 7;
+    if (block < (uint)({dim}0 / 128)) {{
+{first}
+    }} else {{
+{second}
+    }}
+"""
+
+
 # The kernel NAME is part of MLX's compiled-kernel identity, so every source
 # variant must contribute to it.  A dense kernel compiled under the MoE name
 # would be served from the cache to the MoE path (and vice versa) with no
@@ -734,6 +1002,22 @@ def _scaled_had_out_kernel(rs: float, dense: bool = False):
         input_names=["mid", "rout"] + ([] if dense else ["row_expert"]),
         output_names=["out"],
         source=_scaled_had_out_source(rs, dense),
+    )
+
+
+@lru_cache(maxsize=None)
+def _dense_scaled_had_pair_kernel(rs: float, output: bool):
+    if output:
+        inputs = ["mid0", "mid1", "rout0", "rout1"]
+        stem = "escha_scaled_had_out_pair"
+    else:
+        inputs = ["rows", "rin0", "rin1"]
+        stem = "escha_scaled_had_pair"
+    return mx.fast.metal_kernel(
+        name=stem,
+        input_names=inputs,
+        output_names=["out0", "out1"],
+        source=_dense_scaled_had_pair_source(rs, output),
     )
 
 
@@ -1026,6 +1310,59 @@ def _moe_gemm_rows_kernel(K: int, lut: bool, R: int, KB: int = 1,
     )
 
 
+@lru_cache(maxsize=None)
+def _dense_gemm_rows_direct_kernel(K: int, lut: bool, R: int):
+    return mx.fast.metal_kernel(
+        name=f"escha_gemm_dense_direct_k{K}_r{R}"
+        f"{'_lut' if lut else ''}",
+        input_names=["xh", "code"] + (["lut"] if lut else []),
+        output_names=["mid"],
+        header=_HEADER,
+        source=_dense_gemm_rows_direct_source(K, lut, R),
+    )
+
+
+@lru_cache(maxsize=None)
+def _dense_gemm_rows_direct_out_kernel(K: int, lut: bool, R: int, rs: float):
+    return mx.fast.metal_kernel(
+        name=f"escha_gemm_dense_direct_out_k{K}_r{R}"
+        f"{'_lut' if lut else ''}",
+        input_names=["xh", "code", "rout"] + (["lut"] if lut else []),
+        output_names=["out"],
+        header=_HEADER,
+        source=_dense_gemm_rows_direct_out_source(K, lut, R, rs),
+    )
+
+
+@lru_cache(maxsize=None)
+def _dense_gemm_pair_out_kernel(K0: int, K1: int, lut: bool, R: int, rs: float):
+    return mx.fast.metal_kernel(
+        name=f"escha_gemm_dense_pair_out_k{K0}{K1}_r{R}"
+        f"{'_lut' if lut else ''}",
+        input_names=[
+            "xh0", "xh1", "code0", "code1", "rout0", "rout1"
+        ] + (["lut"] if lut else []),
+        output_names=["out0", "out1"],
+        header=_HEADER,
+        source=_dense_gemm_pair_out_source(K0, K1, lut, R, rs),
+    )
+
+
+@lru_cache(maxsize=None)
+def _dense_gemm_pair_kernel(
+    K0: int, K1: int, lut: bool, R: int, KB: int, direct: bool
+):
+    return mx.fast.metal_kernel(
+        name=f"escha_gemm_dense_pair_k{K0}{K1}_r{R}_kb{KB}"
+        f"{'_direct' if direct else ''}{'_lut' if lut else ''}",
+        input_names=["xh0", "xh1", "code0", "code1"]
+        + (["lut"] if lut else []),
+        output_names=["mid0", "mid1"],
+        header=_HEADER,
+        source=_dense_gemm_pair_source(K0, K1, lut, R, KB, direct),
+    )
+
+
 def moe_gemm_rows(xh: mx.array, code_u32: mx.array, rows_idx: mx.array,
                   group_expert: mx.array, K: int, IC: int, OC: int,
                   R: int, n_rows: int, sort_idx=None) -> mx.array:
@@ -1149,6 +1486,45 @@ def dense_scaled_had(rows: mx.array, rin: mx.array, rs: float) -> mx.array:
 def dense_scaled_had_out(mid: mx.array, rout: mx.array, rs: float) -> mx.array:
     """f16( H128(mid) * RS * rout ) for a dense linear. rout [OC] f32."""
     return scaled_had_out(mid, rout, None, rs)
+
+
+def dense_scaled_had_pair(
+    rows: mx.array, rin0: mx.array, rin1: mx.array, rs: float
+) -> tuple[mx.array, mx.array]:
+    """Two dense input transforms in one sharded dispatch."""
+    m, ic = rows.shape
+    kernel = _dense_scaled_had_pair_kernel(float(rs), False)
+    return kernel(
+        inputs=[rows, rin0, rin1],
+        template=[("IC0", ic), ("IC1", ic)],
+        grid=(256 * (ic // 128), m, 1),
+        threadgroup=(128, 1, 1),
+        output_shapes=[(m, ic), (m, ic)],
+        output_dtypes=[mx.float16, mx.float16],
+    )
+
+
+def dense_scaled_had_out_pair(
+    mid0: mx.array,
+    mid1: mx.array,
+    rout0: mx.array,
+    rout1: mx.array,
+    rs: float,
+) -> tuple[mx.array, mx.array]:
+    """Two dense output transforms in one sharded dispatch."""
+    m, oc0 = mid0.shape
+    if mid1.shape[0] != m:
+        raise ValueError("output transform pair requires equal row counts")
+    oc1 = mid1.shape[1]
+    kernel = _dense_scaled_had_pair_kernel(float(rs), True)
+    return kernel(
+        inputs=[mid0, mid1, rout0, rout1],
+        template=[("OC0", oc0), ("OC1", oc1)],
+        grid=(128 * ((oc0 + oc1) // 128), m, 1),
+        threadgroup=(128, 1, 1),
+        output_shapes=[(m, oc0), (m, oc1)],
+        output_dtypes=[mx.float16, mx.float16],
+    )
 
 
 def dense_gemv(xh: mx.array, code_u32: mx.array, K: int, IC: int, OC: int,
@@ -1351,7 +1727,7 @@ DENSE_MAT_R = 16
 
 
 def use_dense_mat() -> bool:
-    """simdgroup-matrix dense GEMM. DEFAULT OFF -- deterministic, NOT bit-identical.
+    """Experimental simdgroup-matrix dense GEMM. DEFAULT OFF.
 
     Enabled with ESCHA_MLX_DENSE_MAT=1.  Off by default for the same reason
     split-K is: every other kernel in this runtime is bit-identical to the
@@ -1363,11 +1739,11 @@ def use_dense_mat() -> bool:
 
         prefill ISL 512    38.9 -> 45.5 tok/s  (+17.0%)
         prefill ISL 2048   38.0 -> 44.1 tok/s  (+16.0%)
-        decode  bs1         7.05 -> 7.01 tok/s (noise -- see below)
+        decode  bs1         7.05 -> 7.01 tok/s (noise)
 
-    Decode is untouched by construction: at bs1 the row count is 1, the size
-    policy returns R=1, and this kernel is never reached.  It is a prefill/TTFT
-    lever only.  Reproduce with
+    Ordinary bs1 decode is untouched because its row count is one. This flag
+    applies only to the measured R=16 prefill path; the slower M=4/8 matrix
+    experiment is intentionally not part of the runtime. Reproduce with
     ``bench/prefill_profile.py --sweep-dense-mat``.
 
     The obvious next step does NOT pay here.  Swapping the float8x8 accumulator
@@ -1434,3 +1810,141 @@ def dense_gemm_rows(xh: mx.array, code_u32: mx.array, K: int, IC: int, OC: int,
         output_dtypes=[mx.float32],
     )
     return mid
+
+
+def dense_gemm_rows_direct(
+    xh: mx.array, code_u32: mx.array, K: int, IC: int, OC: int, R: int
+) -> mx.array:
+    """Barrier-free row-blocked dense GEMM for small ``R``."""
+    m = xh.shape[0]
+    if m < 1:
+        raise ValueError("dense_gemm_rows_direct needs at least one row")
+    if R < 2:
+        return dense_gemv(xh, code_u32, K, IC, OC)
+    lut = use_lut()
+    kern = _dense_gemm_rows_direct_kernel(K, lut, R)
+    inputs = [xh, code_u32.reshape(-1)] + ([_lut_array()] if lut else [])
+    (mid,) = kern(
+        inputs=inputs,
+        template=[
+            ("TK", IC // 16),
+            ("TN", OC // 16),
+            ("IC", IC),
+            ("OC", OC),
+            ("M", m),
+        ],
+        grid=(256 * (OC // 128), (m + R - 1) // R, 1),
+        threadgroup=(256, 1, 1),
+        output_shapes=[(m, OC)],
+        output_dtypes=[mx.float32],
+    )
+    return mid
+
+
+def dense_gemm_rows_direct_out(
+    xh: mx.array,
+    code: mx.array,
+    rout: mx.array,
+    K: int,
+    IC: int,
+    OC: int,
+    R: int,
+    rs: float,
+) -> mx.array:
+    """Barrier-free small-row GEMM with its output transform fused."""
+    m = xh.shape[0]
+    lut = use_lut()
+    kernel = _dense_gemm_rows_direct_out_kernel(K, lut, R, float(rs))
+    inputs = [xh, code.reshape(-1), rout] + ([_lut_array()] if lut else [])
+    (out,) = kernel(
+        inputs=inputs,
+        template=[
+            ("TK", IC // 16), ("TN", OC // 16), ("IC", IC), ("OC", OC),
+            ("M", m),
+        ],
+        grid=(256 * (OC // 128), (m + R - 1) // R, 1),
+        threadgroup=(256, 1, 1),
+        output_shapes=[(m, OC)],
+        output_dtypes=[mx.float16],
+    )
+    return out
+
+
+def dense_gemm_pair_out(
+    xh0: mx.array,
+    xh1: mx.array,
+    code0: mx.array,
+    code1: mx.array,
+    rout0: mx.array,
+    rout1: mx.array,
+    K0: int,
+    K1: int,
+    IC: int,
+    OC0: int,
+    OC1: int,
+    R: int,
+    rs: float,
+) -> tuple[mx.array, mx.array]:
+    """Mixed-K projection pair with both output transforms fused."""
+    m = xh0.shape[0]
+    lut = use_lut()
+    kernel = _dense_gemm_pair_out_kernel(K0, K1, lut, R, float(rs))
+    inputs = [
+        xh0, xh1, code0.reshape(-1), code1.reshape(-1), rout0, rout1
+    ] + ([_lut_array()] if lut else [])
+    return kernel(
+        inputs=inputs,
+        template=[
+            ("TK", IC // 16),
+            ("TN0", OC0 // 16), ("TN1", OC1 // 16),
+            ("IC", IC), ("OC0", OC0), ("OC1", OC1), ("M", m),
+        ],
+        grid=(256 * ((OC0 + OC1) // 128), (m + R - 1) // R, 1),
+        threadgroup=(256, 1, 1),
+        output_shapes=[(m, OC0), (m, OC1)],
+        output_dtypes=[mx.float16, mx.float16],
+    )
+
+
+def dense_gemm_pair(
+    xh0: mx.array,
+    xh1: mx.array,
+    code0: mx.array,
+    code1: mx.array,
+    K0: int,
+    K1: int,
+    IC: int,
+    OC0: int,
+    OC1: int,
+    R: int,
+) -> tuple[mx.array, mx.array]:
+    """Two coded projections in one uniform-sharded Metal dispatch."""
+    if xh0.shape != xh1.shape or xh0.shape[0] < 1:
+        raise ValueError("dense_gemm_pair requires matching non-empty input rows")
+    m = xh0.shape[0]
+    tk = IC // 16
+    direct = R <= 8
+    kb = 1 if direct else kt_block()
+    if tk % kb:
+        kb = 1
+    lut = use_lut()
+    kernel = _dense_gemm_pair_kernel(K0, K1, lut, R, kb, direct)
+    inputs = [xh0, xh1, code0.reshape(-1), code1.reshape(-1)]
+    if lut:
+        inputs.append(_lut_array())
+    return kernel(
+        inputs=inputs,
+        template=[
+            ("TK", tk),
+            ("TN0", OC0 // 16),
+            ("TN1", OC1 // 16),
+            ("IC", IC),
+            ("OC0", OC0),
+            ("OC1", OC1),
+            ("M", m),
+        ],
+        grid=(256 * ((OC0 + OC1) // 128), (m + R - 1) // R, 1),
+        threadgroup=(256, 1, 1),
+        output_shapes=[(m, OC0), (m, OC1)],
+        output_dtypes=[mx.float32, mx.float32],
+    )

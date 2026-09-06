@@ -24,7 +24,9 @@ classifiers = [
 ]
 dependencies = [
     "mlx>=0.32.0,<0.40",
-    "mlx-lm>=0.31.3",
+    # Native MTP subclasses the 0.31 batch scheduler; widen only with its
+    # compatibility tests in the same change.
+    "mlx-lm>=0.31.3,<0.32",
     "numpy>=2.0",
     "safetensors>=0.4",
 ]

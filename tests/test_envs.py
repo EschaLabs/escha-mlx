@@ -19,6 +19,7 @@ EXPECTED_LAYERS = {
     },
     envs.EnvLayer.KERNEL: {
         "ESCHA_MLX_DENSE",
+        "ESCHA_MLX_Q8_HEAD",
         "ESCHA_MLX_MOE",
         "ESCHA_MLX_FUSED_HAD",
         "ESCHA_MLX_LUT",
@@ -69,6 +70,7 @@ def test_defaults_and_call_site_default(monkeypatch):
     assert envs.ESCHA_MLX_Q8_GROUP.get() == quant.DEFAULT_GROUP
     assert envs.ESCHA_MLX_BIAS.get() is False
     assert envs.ESCHA_MLX_DENSE.get() == "q8"
+    assert envs.ESCHA_MLX_Q8_HEAD.get() is True
     assert envs.ESCHA_MLX_MOE.get() is None
     assert envs.ESCHA_MLX_MOE.get(default="ops") == "ops"
     assert envs.ESCHA_MLX_SPLITK.get() == 1

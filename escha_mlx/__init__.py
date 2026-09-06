@@ -14,3 +14,8 @@ from __future__ import annotations
 __version__ = "0.1.0"  # keep in sync with pyproject.toml [project] version
 
 from .loader import is_escha_checkpoint, load, load_model  # noqa: F401
+from .mtp import load_mtp, mtp_generate_step  # noqa: F401
+from .mtp_batch import (  # noqa: F401
+    MTPBatchGenerator,
+    batch_generate as mtp_batch_generate,
+)

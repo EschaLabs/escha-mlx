@@ -183,7 +183,7 @@ def test_truncated_real_load(monkeypatch):
     from escha_mlx import models
     from escha_mlx.dense import EschaLinear
     from escha_mlx.loader import LastPositionHead
-    from escha_mlx.quant import EschaQ8Embedding, EschaQ8Linear
+    from escha_mlx.quant import EschaQ8Embedding, EschaQ8Head
 
     monkeypatch.setenv("ESCHA_MLX_LINEAR", "ops")
     monkeypatch.setenv("ESCHA_MLX_BIAS", "1")   # exercise the correction path
@@ -229,7 +229,7 @@ def test_truncated_real_load(monkeypatch):
 
     assert isinstance(model.language_model.model.embed_tokens, EschaQ8Embedding)
     head = model.language_model.lm_head
-    assert isinstance(head, LastPositionHead) and isinstance(head.inner, EschaQ8Linear)
+    assert isinstance(head, LastPositionHead) and isinstance(head.inner, EschaQ8Head)
 
     # mlx-lm's (1+w) norm shift must have fired: HF stores these centred on 0.
     # Reduce in f32 — a 5120-wide f16 sum loses the tail entirely.

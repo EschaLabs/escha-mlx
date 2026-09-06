@@ -47,18 +47,23 @@ def main() -> None:
                          "keeps its own default; a template that does not use it "
                          "ignores it.")
     ap.add_argument("--temp", type=float, default=0.0, help="0 = greedy")
+    ap.add_argument(
+        "--mtp",
+        action="store_true",
+        help="load the checkpoint's pretrained MTP layer and use speculative decoding",
+    )
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
                         format="%(levelname)s %(name)s: %(message)s")
 
-    from mlx_lm.generate import stream_generate
+    from mlx_lm.generate import stream_generate as mlx_stream_generate
     from mlx_lm.sample_utils import make_sampler
 
     from .loader import load
 
     t0 = time.time()
-    model, tokenizer = load(args.model)
+    model, tokenizer = load(args.model, load_mtp=args.mtp)
     print(f"[escha-mlx] model loaded in {time.time() - t0:.1f}s")
 
     if args.raw:
@@ -70,9 +75,15 @@ def main() -> None:
             **template_kwargs(args.thinking, args.reasoning_effort))
 
     sampler = make_sampler(temp=args.temp)
+    if args.mtp:
+        from .mtp import stream_generate
+
+        generate = stream_generate
+    else:
+        generate = mlx_stream_generate
     last = None
-    for r in stream_generate(model, tokenizer, prompt,
-                             max_tokens=args.max_tokens, sampler=sampler):
+    for r in generate(model, tokenizer, prompt, max_tokens=args.max_tokens,
+                      sampler=sampler):
         print(r.text, end="", flush=True)
         last = r
     print()
