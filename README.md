@@ -12,10 +12,12 @@ custom Metal kernels that are **bit-exact against the codec's committed referenc
 
 - **35B-class MoE in 12.3 GB** — generates and serves on a stock 24 GB Mac
 - **OpenAI-compatible server** with continuous batching and prefix caching
-- **Provable correctness**: every kernel path gated `np.array_equal` against committed
-  goldens — not a tolerance. CI runs the suite on every PR (reference/repack gates on
-  Linux CPU; the Metal kernel gates run when the runner exposes Metal and self-skip
-  otherwise — the workflow's "Metal available?" step records which happened)
+- **Qwen3.8 pretrained MTP** with SGLang-shaped tree speculative decoding
+- **Explicit numerical contracts**: codec and coded-projection kernels are gated
+  `np.array_equal` against committed goldens; reassociated acceleration paths are
+  deterministic, tolerance-gated and retain a documented fallback or opt-out. CI
+  runs the suite on every PR (reference/repack gates on Linux CPU; Metal gates run
+  when the runner exposes Metal and self-skip otherwise)
 - **Honest benchmarks**: measured on hardware, drift-controlled, negative results included
 
 > **This is a reference implementation.** The kernels and defaults are correct on any
@@ -69,8 +71,10 @@ work, and the test gates below tell you for sure.
 
 The NumPy reference (`escha_mlx/ref.py`) is the semantic contract, and the golden vectors
 committed under `tests/data/` pin the codec's exact numerics — every fp16 rounding point
-included. Every Metal kernel path — staged GEMV, direct GEMV, row-blocked GEMM, fused
-transform, hash and LUT decode — is gated **bit-identical** to them and to each other:
+included. The codec and coded-projection Metal paths — staged GEMV, direct GEMV,
+row-blocked GEMM, fused transform, hash and LUT decode — are gated **bit-identical**
+to them and to each other. MTP tree/GDN and small-row vocabulary specializations have
+separate deterministic and tolerance gates:
 
 ```bash
 pytest tests/ -v              # full suite — tests self-skip by capability
@@ -89,8 +93,16 @@ generation, then serving.
 # one-shot generation
 escha-mlx-generate --model ~/models/escha-w2 --prompt "Explain unified memory in one paragraph."
 
+# Qwen3.8 native MTP; fixed tree topk=3, depth=3, M=4 verification
+escha-mlx-generate --model ~/models/Qwen3.8-27B-Escha-W2 \
+  --mtp --prompt "Explain speculative decoding."
+
 # OpenAI-compatible server (continuous batching + prefix caching)
 escha-mlx-server --model ~/models/escha-w2 --port 8080 --prefill-step-size 256
+
+# Qwen3.8 native MTP with continuous batching
+escha-mlx-server --model ~/models/Qwen3.8-27B-Escha-W2 --mtp \
+  --port 8080 --prefill-step-size 256
 ```
 
 ```bash
@@ -104,6 +116,70 @@ past the ~19 GB GPU working-set cap), and close memory-hungry apps for the first
 Above a ~18 GB working set, set `ESCHA_MLX_WIRED_GB` — unwired, throughput silently
 collapses 23× near the cap. Memory settings and the full tuning-knob reference:
 [docs/INSTALL.md](docs/INSTALL.md).
+
+MTP is opt-in and disabled by default. Pass `--mtp` to the CLI or server, or
+`load_mtp=True` to the Python loader, to load the checkpoint's MTP head and use
+speculative decoding. Omit the option (the Python default is `False`) to use
+ordinary autoregressive decoding without loading the MTP head.
+
+Native-MTP batching currently requires the standard growing KV cache;
+`MTPBatchGenerator` rejects `max_kv_size` and rotating caches at setup rather
+than failing after the cache fills. The MTP server defaults prompt and decode
+concurrency to 2: tree verification wins at B=1/2 but is slower than ordinary
+batched AR from B=4 onward, while its GDN trace memory scales with the active
+batch. It also caps the prompt-cache budget at 512 MB because B=8 verification
+and the default ten-entry LRU otherwise exceed the Metal working-set limit on a
+24 GB machine. Explicit `--decode-concurrency`, `--prompt-concurrency`, and
+`--prompt-cache-bytes` values override those conservative defaults. mlx-lm
+routes per-request seeded server
+generation through its sequential path, so those requests deliberately fall
+back to ordinary AR even when the server was started with `--mtp`.
+
+The MTP path follows the checkpoint's native alignment
+`(target_hidden_t, embedding(token_t+1)) -> token_t+2` and shares the target
+embedding and LM head. The Metal default is:
+`topk=3`, `depth=3`, three selected tree nodes and M=4 target verification.
+It builds a 21-candidate lattice, then selects the best ancestor-closed three
+nodes. Tree full attention
+uses an ancestor mask and depth-aware RoPE; GDN recurrent and convolution state
+branch from each node's parent. Gate/up and K/V coded projections use
+multi-shard Metal dispatches at M>1; traced GDN verification likewise shares
+one dispatch for its qkv/z projections, and builds all parent-relative
+depthwise-convolution windows in one Metal pass. Tree proposal scoring uses a
+two-stage Metal reduction that computes top-k logits and logsumexp together;
+unsupported shapes and devices fall back to the regular MLX operators.
+
+Proposal branches share the committed MTP KV prefix: only the two live
+three-node levels are appended temporarily and then trimmed, rather than
+materializing `batch * topk` copies of a long prefix. For fresh continuous-batch
+requests, the shifted MTP cache is built from hidden states produced by the
+original target prefill. A target-only prefix-cache hit falls back to one replay
+because that public cache format does not contain historical hidden states.
+
+The same fixed-tree path is used by the Python API, CLI, and continuous-batching
+server. Every request accepts and commits its own path:
+attention histories are right-aligned in the rectangular MLX batch cache,
+while GDN/conv state is selected from that request's final accepted node. A
+low-acceptance request no longer shortens the whole batch.
+
+### Qwen3.8 MTP performance
+
+Batch-1 end-to-end decode on a 24 GB, 16-core-GPU M5 Pro with
+`Qwen3.8-27B-Escha-W2`, macOS 26.6.2, MLX 0.32.0 and mlx-lm 0.31.3. This is a
+256-output-token greedy smoke test after warm-up.
+
+| decode path | latency / output token | output throughput | speedup |
+|---|---:|---:|---:|
+| autoregressive (MTP off) | 59.759 ms | 16.73 tok/s | 1.000x |
+| fixed-tree M4 (MTP on) | 43.880 ms | 22.79 tok/s | **1.362x** |
+
+The MTP run emitted 2.931 tokens per target verification round on average.
+Greedy outputs can diverge at near-tied logits, so this measurement is a
+performance regression test rather than a bit-identity assertion.
+
+Small-row coded-projection experiments which did not clear the whole-target
+retention gate are recorded in
+[docs/MTP_CODED_PROJECTION_EXPERIMENTS.md](docs/MTP_CODED_PROJECTION_EXPERIMENTS.md).
 
 ## Benchmarks
 
@@ -226,7 +302,10 @@ campaign — including every negative result, so you don't repeat them:
 | `escha_mlx/msl.py` | the Metal kernels (`mx.fast.metal_kernel`): decode, GEMV ×2, row-blocked GEMM, fused transform |
 | `escha_mlx/quant.py` / `moe.py` / `dense.py` / `loader.py` | int8→Q8 repack · expert toolkit · dense-linear toolkit · streaming loader — all architecture-agnostic |
 | `escha_mlx/models/` | one plugin per architecture (`qwen3_5_moe`, `qwen3_5`): skeleton, tensor map, router, quirks |
-| `escha_mlx/gdn_cache.py` | recurrent-state cache (fp16 state) + allocation-free first-state Metal kernel |
+| `escha_mlx/gdn_cache.py` | recurrent-state cache + allocation-free init and MTP state-trace Metal kernels |
+| `escha_mlx/mtp.py` | Qwen3.8 native MTP head, 15-tensor loader, speculative verify loop |
+| `escha_mlx/mtp_topk.py` | fused Metal top-k/logsumexp reduction for MTP tree proposals |
+| `escha_mlx/mtp_batch.py` | native-MTP continuous batching with per-request tree-path commit |
 | `escha_mlx/{generate,server}.py` | CLI / OpenAI-compatible server |
 | `tests/` + `tests/data/` | golden-gated suite + the committed reference vectors |
 | `bench/` | gates, roofline, serving grid, head-to-head; results per machine under `bench/results/` |

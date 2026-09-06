@@ -433,6 +433,37 @@ def test_row_blocked_gemm_matches_per_row_gemv(K, m, R):
 
 
 @needs_metal
+@pytest.mark.parametrize("K", [2, 3])
+@pytest.mark.parametrize("m,R", [(2, 2), (3, 2), (4, 4), (5, 4)])
+@pytest.mark.parametrize("use_lut", [False, True])
+def test_direct_row_blocked_gemm_matches_per_row_gemv(
+    K, m, R, use_lut, monkeypatch
+):
+    """The barrier-free small-row path preserves every per-row sum bit."""
+    import mlx.core as mx
+    from escha_mlx import msl
+
+    monkeypatch.setenv("ESCHA_MLX_LUT", str(int(use_lut)))
+    rng = np.random.default_rng(450 + K + m)
+    ic, oc = BIG_IC, BIG_OC
+    code = mx.array(
+        msl.code_to_u32(
+            rng.integers(
+                -32768,
+                32768,
+                size=(ic // 16, oc // 16, 16 * K),
+                dtype=np.int16,
+            )
+        )
+    )
+    xh = mx.array((rng.standard_normal((m, ic)) * 0.3).astype(np.float16))
+    want = msl.dense_gemv(xh, code, K, ic, oc)
+    got = msl.dense_gemm_rows_direct(xh, code, K, ic, oc, R)
+    assert got.shape == (m, oc)
+    assert np.array_equal(np.array(got), np.array(want))
+
+
+@needs_metal
 def test_row_blocked_gemm_does_not_touch_rows_outside_the_batch():
     """The dense GEMM has no padding sink row: the tail group's padding slots
     stage a real row and are dropped by a store guard. If that guard were wrong
@@ -491,6 +522,79 @@ def test_simdgroup_matrix_gemm_is_deterministic_and_close():
             mx.eval(again)
             assert bool((got.view(mx.uint32) == again.view(mx.uint32)).all()), \
                 f"K={K} m={m} not reproducible run to run"
+
+
+@needs_metal
+@pytest.mark.parametrize("K0,K1", [(2, 2), (2, 3), (3, 2)])
+@pytest.mark.parametrize("m,R", [(4, 4), (8, 8), (9, 8)])
+def test_two_projection_gemm_matches_separate_kernels(K0, K1, m, R):
+    """Projection fusion changes dispatch geometry, never row arithmetic."""
+    import mlx.core as mx
+    from escha_mlx import msl
+
+    rng = np.random.default_rng(980 + 10 * K0 + K1 + m)
+    ic, oc0, oc1 = BIG_IC, BIG_OC, 256
+    code0 = mx.array(msl.code_to_u32(rng.integers(
+        -32768, 32768, size=(ic // 16, oc0 // 16, 16 * K0), dtype=np.int16)))
+    code1 = mx.array(msl.code_to_u32(rng.integers(
+        -32768, 32768, size=(ic // 16, oc1 // 16, 16 * K1), dtype=np.int16)))
+    x0 = mx.array((rng.standard_normal((m, ic)) * 0.3).astype(np.float16))
+    x1 = mx.array((rng.standard_normal((m, ic)) * 0.3).astype(np.float16))
+    kernel = msl.dense_gemm_rows_direct if R <= 4 else msl.dense_gemm_rows
+    ref0 = kernel(x0, code0, K0, ic, oc0, R)
+    ref1 = kernel(x1, code1, K1, ic, oc1, R)
+    got0, got1 = msl.dense_gemm_pair(
+        x0, x1, code0, code1, K0, K1, ic, oc0, oc1, R
+    )
+    mx.eval(ref0, ref1, got0, got1)
+    assert np.array_equal(np.array(got0), np.array(ref0))
+    assert np.array_equal(np.array(got1), np.array(ref1))
+    rout0 = mx.array(rng.standard_normal(oc0).astype(np.float32))
+    rout1 = mx.array(rng.standard_normal(oc1).astype(np.float32))
+    want0 = msl.dense_scaled_had_out(ref0, rout0, _ref().RS)
+    want1 = msl.dense_scaled_had_out(ref1, rout1, _ref().RS)
+    fused0 = msl.dense_gemm_rows_direct_out(
+        x0, code0, rout0, K0, ic, oc0, R, _ref().RS
+    )
+    pair0, pair1 = msl.dense_gemm_pair_out(
+        x0, x1, code0, code1, rout0, rout1,
+        K0, K1, ic, oc0, oc1, R, _ref().RS,
+    )
+    mx.eval(want0, want1, fused0, pair0, pair1)
+    assert np.array_equal(np.array(fused0), np.array(want0))
+    assert np.array_equal(np.array(pair0), np.array(want0))
+    assert np.array_equal(np.array(pair1), np.array(want1))
+
+
+@needs_metal
+def test_two_projection_hadamards_match_separate_dispatches():
+    import mlx.core as mx
+    from escha_mlx import msl, ref
+
+    rng = np.random.default_rng(1021)
+    m, ic, oc0, oc1 = 8, 256, 384, 256
+    rows = mx.array(rng.standard_normal((m, ic)).astype(np.float16))
+    rin0 = mx.array(rng.standard_normal(ic).astype(np.float32))
+    rin1 = mx.array(rng.standard_normal(ic).astype(np.float32))
+    ref0 = msl.dense_scaled_had(rows, rin0, ref.RS)
+    ref1 = msl.dense_scaled_had(rows, rin1, ref.RS)
+    got0, got1 = msl.dense_scaled_had_pair(rows, rin0, rin1, ref.RS)
+    mx.eval(ref0, ref1, got0, got1)
+    assert np.array_equal(np.array(got0), np.array(ref0))
+    assert np.array_equal(np.array(got1), np.array(ref1))
+
+    mid0 = mx.array(rng.standard_normal((m, oc0)).astype(np.float32))
+    mid1 = mx.array(rng.standard_normal((m, oc1)).astype(np.float32))
+    rout0 = mx.array(rng.standard_normal(oc0).astype(np.float32))
+    rout1 = mx.array(rng.standard_normal(oc1).astype(np.float32))
+    ref0 = msl.dense_scaled_had_out(mid0, rout0, ref.RS)
+    ref1 = msl.dense_scaled_had_out(mid1, rout1, ref.RS)
+    got0, got1 = msl.dense_scaled_had_out_pair(
+        mid0, mid1, rout0, rout1, ref.RS
+    )
+    mx.eval(ref0, ref1, got0, got1)
+    assert np.array_equal(np.array(got0), np.array(ref0))
+    assert np.array_equal(np.array(got1), np.array(ref1))
 
 
 @needs_mlx

@@ -34,10 +34,17 @@ the 1 byte/weight payload, at group 128 it is 6.25%.  Across the 2.16 GB of Q8
 streams this model reads per token that is a ~120 MB/token saving for provably
 zero numerical change -- the largest free win in the byte ledger.  128 is
 MLX's maximum affine group size, hence the default.
+
+The vocabulary projection has a Metal specialization for one to eight flattened
+rows. One simdgroup reduces one output channel and reuses its Q8 weight row for
+all inputs, which is the target-verification shape used by native MTP. Larger
+batches and non-Metal backends keep MLX's general quantized matmul. The
+specialization is enabled by default; ESCHA_MLX_Q8_HEAD=0 selects the fallback.
 """
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -53,6 +60,9 @@ _VALIDATED: set[int] = set()
 _GROUPS = (128, 64, 32)
 
 DEFAULT_GROUP = envs.DEFAULT_Q8_GROUP
+
+_Q8_HEAD_MAX_ROWS = 8
+_METAL_HEADER = "#include <metal_stdlib>\nusing namespace metal;\n"
 
 
 def fit_group(k: int, requested: int = DEFAULT_GROUP) -> int:
@@ -133,6 +143,113 @@ class EschaQ8Linear(nn.Module):
         return y.astype(x.dtype)
 
 
+def _q8_head_source(rows: int) -> str:
+    """One simdgroup reduces one vocabulary row for ``rows`` inputs."""
+    accumulators = "\n".join(
+        f"    float acc{row} = 0.0f;" for row in range(rows)
+    )
+    products = "\n".join(
+        f"        acc{row} += dot(float4(*((device const half4*)(x + "
+        f"(ulong){row} * K) + packed)), weights);"
+        for row in range(rows)
+    )
+    reductions = "\n".join(
+        f"        acc{row} += simd_shuffle_down(acc{row}, delta);"
+        for row in range(rows)
+    )
+    stores = "\n".join(
+        f"        out[(ulong){row} * N + column] = (half)(acc{row} * scale);"
+        for row in range(rows)
+    )
+    return f"""
+    uint lane = thread_index_in_simdgroup;
+    uint column = thread_position_in_grid.x >> 5;
+    if (column >= (uint)N) return;
+{accumulators}
+    // pack_q8 repeats the export's per-output-channel scale in every affine
+    // group. Read its first copy and apply it once after the dot-product.
+    float scale = scales[(ulong)column * GROUPS];
+    device const uint* weight_row = weight + (ulong)column * PACKED_K;
+    for (uint packed = lane; packed < PACKED_K; packed += 32u) {{
+        uint q = weight_row[packed];
+        float4 weights = float4(
+            (float)(q & 255u) - 128.0f,
+            (float)((q >> 8) & 255u) - 128.0f,
+            (float)((q >> 16) & 255u) - 128.0f,
+            (float)((q >> 24) & 255u) - 128.0f
+        );
+{products}
+    }}
+    for (uint delta = 16u; delta > 0u; delta >>= 1) {{
+{reductions}
+    }}
+    if (lane == 0u) {{
+{stores}
+    }}
+"""
+
+
+@lru_cache(maxsize=None)
+def _q8_head_kernel(rows: int):
+    return mx.fast.metal_kernel(
+        name=f"escha_q8_head_r{rows}",
+        input_names=["x", "weight", "scales"],
+        output_names=["out"],
+        header=_METAL_HEADER,
+        source=_q8_head_source(rows),
+    )
+
+
+def q8_head(
+    x: mx.array,
+    weight: mx.array,
+    scales: mx.array,
+    group_size: int,
+) -> mx.array:
+    """Project 1..8 flattened rows through a repacked Q8 vocabulary matrix."""
+    k = x.shape[-1]
+    rows = 1
+    for dimension in x.shape[:-1]:
+        rows *= dimension
+    if not 1 <= rows <= _Q8_HEAD_MAX_ROWS:
+        raise ValueError(
+            f"q8_head supports 1..{_Q8_HEAD_MAX_ROWS} rows, got {rows}"
+        )
+    n = weight.shape[0]
+    kernel = _q8_head_kernel(rows)
+    (out,) = kernel(
+        inputs=[x.reshape(rows, k), weight.reshape(-1), scales.reshape(-1)],
+        template=[
+            ("K", k),
+            ("PACKED_K", k // 4),
+            ("N", n),
+            ("GROUPS", k // group_size),
+        ],
+        grid=(256 * ((n + 7) // 8), 1, 1),
+        threadgroup=(256, 1, 1),
+        output_shapes=[(rows, n)],
+        output_dtypes=[mx.float16],
+    )
+    return out.reshape(*x.shape[:-1], n)
+
+
+class EschaQ8Head(EschaQ8Linear):
+    """Q8 vocabulary head with a measured small-row Metal specialization."""
+
+    def __call__(self, x: mx.array) -> mx.array:
+        rows = 1
+        for dimension in x.shape[:-1]:
+            rows *= dimension
+        if (
+            envs.ESCHA_MLX_Q8_HEAD.get()
+            and mx.metal.is_available()
+            and x.dtype == mx.float16
+            and 1 <= rows <= _Q8_HEAD_MAX_ROWS
+        ):
+            return q8_head(x, self.weight, self.scales, self._group_size)
+        return super().__call__(x)
+
+
 class EschaQ8Embedding(nn.Module):
     def __init__(self, packed: np.ndarray, scales: np.ndarray, biases: np.ndarray,
                  group_size: int, dtype=mx.float16) -> None:
@@ -160,6 +277,22 @@ def make_linear(w8: np.ndarray, scale: np.ndarray,
     g = fit_group(k, group_size)
     validate_pack(g)
     return EschaQ8Linear(*pack_q8(w8, scale, g), g)
+
+
+def make_head(w8: np.ndarray, scale: np.ndarray,
+              group_size: int = DEFAULT_GROUP) -> nn.Module:
+    """Build a vocabulary projection with the small-row Metal fast path."""
+    n, k = w8.shape
+    if dense_mode() == "fp16":
+        lin = nn.Linear(k, n, bias=False)
+        lin.weight = mx.array(
+            (w8.astype(np.float32) * scale.astype(np.float32)[:, None])
+            .astype(np.float16)
+        )
+        return lin
+    g = fit_group(k, group_size)
+    validate_pack(g)
+    return EschaQ8Head(*pack_q8(w8, scale, g), g)
 
 
 def make_embedding(w8: np.ndarray, scale: np.ndarray,

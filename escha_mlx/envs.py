@@ -194,6 +194,15 @@ ESCHA_MLX_DENSE = EnvVar(
     value_help="one of q8 or fp16",
 )
 
+ESCHA_MLX_Q8_HEAD = EnvVar(
+    "ESCHA_MLX_Q8_HEAD",
+    EnvLayer.KERNEL,
+    _bool,
+    "Use the small-row Metal kernel for Q8 vocabulary projection.",
+    default=True,
+    value_help="a boolean (0/1, false/true, no/yes, or off/on)",
+)
+
 ESCHA_MLX_MOE = EnvVar(
     "ESCHA_MLX_MOE",
     EnvLayer.KERNEL,
@@ -352,6 +361,7 @@ _DECLARATIONS = (
     ESCHA_MLX_Q8_GROUP,
     ESCHA_MLX_BIAS,
     ESCHA_MLX_DENSE,
+    ESCHA_MLX_Q8_HEAD,
     ESCHA_MLX_MOE,
     ESCHA_MLX_FUSED_HAD,
     ESCHA_MLX_LUT,

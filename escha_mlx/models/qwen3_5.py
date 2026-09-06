@@ -43,6 +43,7 @@ from __future__ import annotations
 import logging
 
 import mlx.core as mx
+import mlx.nn as nn
 import numpy as np
 from mlx.utils import tree_unflatten
 
@@ -57,6 +58,144 @@ MODEL_TYPE = "qwen3_5"
 #: exclusive to this format (a plain module could carry one), so it is held
 #: separately and only claimed by a base that turns out to be coded.
 _CODED_LEAVES = frozenset(l for l in dense.LEAVES if l.startswith("escha_"))
+
+
+class _FusedMLP(nn.Module):
+    """Qwen3.5 MLP with one coded dispatch for gate/up."""
+
+    def __init__(self, inner):
+        super().__init__()
+        self.inner = inner
+
+    @property
+    def gate_proj(self):
+        return self.inner.gate_proj
+
+    @property
+    def up_proj(self):
+        return self.inner.up_proj
+
+    @property
+    def down_proj(self):
+        return self.inner.down_proj
+
+    def __call__(self, x):
+        from mlx_lm.models.activations import swiglu
+
+        gate, up = dense.project_pair(self.gate_proj, self.up_proj, x)
+        return self.down_proj(swiglu(gate, up))
+
+
+class _FusedAttention(nn.Module):
+    """Qwen3.5 attention with one coded dispatch for K/V."""
+
+    def __init__(self, inner):
+        super().__init__()
+        self.inner = inner
+
+    @property
+    def q_proj(self):
+        return self.inner.q_proj
+
+    @property
+    def k_proj(self):
+        return self.inner.k_proj
+
+    @property
+    def v_proj(self):
+        return self.inner.v_proj
+
+    @property
+    def o_proj(self):
+        return self.inner.o_proj
+
+    @property
+    def q_norm(self):
+        return self.inner.q_norm
+
+    @property
+    def k_norm(self):
+        return self.inner.k_norm
+
+    @property
+    def rope(self):
+        return self.inner.rope
+
+    @property
+    def num_attention_heads(self):
+        return self.inner.num_attention_heads
+
+    @property
+    def num_key_value_heads(self):
+        return self.inner.num_key_value_heads
+
+    @property
+    def scale(self):
+        return self.inner.scale
+
+    def __call__(self, x, mask=None, cache=None):
+        from mlx_lm.models.base import scaled_dot_product_attention
+
+        B, L, _ = x.shape
+        q_output = self.inner.q_proj(x)
+        queries, gate = mx.split(
+            q_output.reshape(B, L, self.inner.num_attention_heads, -1),
+            2,
+            axis=-1,
+        )
+        gate = gate.reshape(B, L, -1)
+        keys, values = dense.project_pair(
+            self.inner.k_proj, self.inner.v_proj, x
+        )
+        queries = self.inner.q_norm(queries).transpose(0, 2, 1, 3)
+        keys = self.inner.k_norm(
+            keys.reshape(B, L, self.inner.num_key_value_heads, -1)
+        ).transpose(0, 2, 1, 3)
+        values = values.reshape(
+            B, L, self.inner.num_key_value_heads, -1
+        ).transpose(0, 2, 1, 3)
+        if cache is not None:
+            queries = self.inner.rope(queries, offset=cache.offset)
+            keys = self.inner.rope(keys, offset=cache.offset)
+            keys, values = cache.update_and_fetch(keys, values)
+        else:
+            queries = self.inner.rope(queries)
+            keys = self.inner.rope(keys)
+        output = scaled_dot_product_attention(
+            queries,
+            keys,
+            values,
+            cache=cache,
+            scale=self.inner.scale,
+            mask=mask,
+        )
+        output = output.transpose(0, 2, 1, 3).reshape(B, L, -1)
+        return self.inner.o_proj(output * mx.sigmoid(gate))
+
+
+def install_projection_fusion(model) -> int:
+    """Install the Qwen-specific wrappers around compatible coded linears."""
+    installed = 0
+    for layer in model.language_model.model.layers:
+        mlp = layer.mlp
+        if (
+            not isinstance(mlp, _FusedMLP)
+            and isinstance(mlp.gate_proj, dense.EschaLinear)
+            and isinstance(mlp.up_proj, dense.EschaLinear)
+        ):
+            layer.mlp = _FusedMLP(mlp)
+            installed += 1
+        if not layer.is_linear:
+            attention = layer.self_attn
+            if (
+                not isinstance(attention, _FusedAttention)
+                and isinstance(attention.k_proj, dense.EschaLinear)
+                and isinstance(attention.v_proj, dense.EschaLinear)
+            ):
+                layer.self_attn = _FusedAttention(attention)
+                installed += 1
+    logger.info("escha_mlx: installed %d dense projection-fusion groups", installed)
+    return installed
 
 
 class CheckpointLoader:
@@ -91,7 +230,9 @@ class CheckpointLoader:
     def _install_q8(self, base_name: str, pair: dict[str, np.ndarray]) -> None:
         w8, scale = pair["weight_int8"], pair["weight_scale"]
         if base_name == "lm_head":
-            self.model.language_model.lm_head = quant.make_linear(w8, scale, self.group_size)
+            self.model.language_model.lm_head = quant.make_head(
+                w8, scale, self.group_size
+            )
         elif base_name == "embed_tokens":
             self.model.language_model.model.embed_tokens = quant.make_embedding(
                 w8, scale, self.group_size)

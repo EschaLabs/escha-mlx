@@ -34,7 +34,8 @@ hundreds. The per-row GEMV reads the whole coded stream per row — no batch
 amortization at all — so above a few rows the forward switches to the
 row-blocked kernel, which shares one decode across R rows and is bit-identical
 to the per-row path (``msl.dense_block_r`` picks R; ESCHA_MLX_DENSE_BLOCK_R
-pins it).
+pins it). For R<=8, including the tree MTP verifier, a dense-only variant
+reads the consecutive rows directly and removes the staging barriers.
 
 Paths:
   * fused (default on Metal)  — escha_mlx.msl kernels.
@@ -320,6 +321,14 @@ class EschaLinear(nn.Module):
                 # for rather than silently getting a different blocking.
                 return msl.dense_gemm_mat(xh, w.code, w.K, w.IC, w.OC)
             if r > 1:
+                # Small dense groups have arithmetic row addresses. Direct
+                # reads keep one code decode shared across the rows while
+                # avoiding the staged kernel's barrier chain; this is the hot
+                # M=4/8 speculative-verification shapes.
+                if r <= 8:
+                    return msl.dense_gemm_rows_direct(
+                        xh, w.code, w.K, w.IC, w.OC, r
+                    )
                 return msl.dense_gemm_rows(xh, w.code, w.K, w.IC, w.OC, r)
             return msl.dense_gemv(xh, w.code, w.K, w.IC, w.OC)
         # ops path: numpy decode + matmul (test/CPU only — slow, see module doc)
@@ -328,12 +337,104 @@ class EschaLinear(nn.Module):
     def __call__(self, x: mx.array) -> mx.array:
         shape = x.shape
         rows = x.reshape(-1, shape[-1])
-        y = self._output_rows(self._gemv(self._input_rows(rows)))
+        xh = self._input_rows(rows)
+        r = (
+            msl.dense_block_r(rows.shape[0], self._block_r_pin)
+            if self._mode == "fused"
+            else 1
+        )
+        if (
+            self._mode == "fused"
+            and self._fused_had
+            and rows.shape[0] > 1
+            and r <= 8
+        ):
+            y = msl.dense_gemm_rows_direct_out(
+                xh, self._w.code, self._w.rout, self.K,
+                self._w.IC, self._w.OC, r, RS,
+            )
+        else:
+            y = self._output_rows(self._gemv(xh))
         if self.bias is not None:
             # The forward contract rounds the transform output to f16 before the
             # correction is added; keep that rounding point and add in f32.
             y = (y.astype(mx.float32) + self.bias.astype(mx.float32)).astype(mx.float16)
         return y.reshape(*shape[:-1], self._w.OC).astype(x.dtype)
+
+
+def project_pair(first: EschaLinear, second: EschaLinear, x: mx.array):
+    """Evaluate two compatible coded projections with one GEMM dispatch.
+
+    The per-projection Hadamard scales remain distinct.  Only the coded GEMM
+    launch is shared, matching SGLang's multi-shard projection shape without
+    coupling the linear modules or changing their checkpoint representation.
+    M=1 keeps the tuned GEMV path; fusion is for verification/prefill batches.
+    """
+    shape = x.shape
+    rows = x.reshape(-1, shape[-1])
+    compatible = (
+        rows.shape[0] > 1
+        and first._mode == second._mode == "fused"
+        and first._w.IC == second._w.IC == rows.shape[-1]
+        and first._w.OC % 128 == second._w.OC % 128 == 0
+    )
+    if not compatible:
+        return first(x), second(x)
+
+    r0 = msl.dense_block_r(rows.shape[0], first._block_r_pin)
+    r1 = msl.dense_block_r(rows.shape[0], second._block_r_pin)
+    if r0 != r1:
+        return first(x), second(x)
+    if first._fused_had and second._fused_had and rows.dtype == mx.float16:
+        xh0, xh1 = msl.dense_scaled_had_pair(
+            rows, first._w.rin, second._w.rin, RS
+        )
+    else:
+        xh0, xh1 = first._input_rows(rows), second._input_rows(rows)
+    if first._fused_had and second._fused_had and r0 <= 8:
+        out0, out1 = msl.dense_gemm_pair_out(
+            xh0,
+            xh1,
+            first._w.code,
+            second._w.code,
+            first._w.rout,
+            second._w.rout,
+            first.K,
+            second.K,
+            first._w.IC,
+            first._w.OC,
+            second._w.OC,
+            r0,
+            RS,
+        )
+    else:
+        mid0, mid1 = msl.dense_gemm_pair(
+            xh0,
+            xh1,
+            first._w.code,
+            second._w.code,
+            first.K,
+            second.K,
+            first._w.IC,
+            first._w.OC,
+            second._w.OC,
+            r0,
+        )
+        if first._fused_had and second._fused_had:
+            out0, out1 = msl.dense_scaled_had_out_pair(
+                mid0, mid1, first._w.rout, second._w.rout, RS
+            )
+        else:
+            out0, out1 = first._output_rows(mid0), second._output_rows(mid1)
+
+    def finish(linear, value):
+        if linear.bias is not None:
+            value = (
+                value.astype(mx.float32) + linear.bias.astype(mx.float32)
+            ).astype(mx.float16)
+        return value.reshape(*shape[:-1], linear._w.OC).astype(x.dtype)
+
+    return finish(first, out0), finish(second, out1)
 
 
 def build(group: dict[str, np.ndarray]) -> EschaLinear:

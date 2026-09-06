@@ -150,7 +150,7 @@ def test_synthetic_checkpoint_end_to_end(tmp_path):
     import mlx.core as mx
     from escha_mlx.loader import LastPositionHead, load_model
     from escha_mlx.models.qwen3_5_moe import EschaSparseMoeBlock
-    from escha_mlx.quant import EschaQ8Embedding, EschaQ8Linear
+    from escha_mlx.quant import EschaQ8Embedding, EschaQ8Head, EschaQ8Linear
 
     _write_tiny_checkpoint(tmp_path, np.random.default_rng(0))
     model = load_model(tmp_path)
@@ -160,7 +160,7 @@ def test_synthetic_checkpoint_end_to_end(tmp_path):
     assert isinstance(model.language_model.model.embed_tokens, EschaQ8Embedding)
     assert isinstance(layers[1].self_attn.q_proj, EschaQ8Linear)
     head = model.language_model.lm_head
-    assert isinstance(head, LastPositionHead) and isinstance(head.inner, EschaQ8Linear)
+    assert isinstance(head, LastPositionHead) and isinstance(head.inner, EschaQ8Head)
 
     def forward():
         cache = model.make_cache()
@@ -304,7 +304,7 @@ def test_dense_synthetic_checkpoint_end_to_end(tmp_path, monkeypatch):
     import mlx.core as mx
     from escha_mlx.dense import EschaLinear
     from escha_mlx.loader import LastPositionHead, load_model
-    from escha_mlx.quant import EschaQ8Embedding, EschaQ8Linear
+    from escha_mlx.quant import EschaQ8Embedding, EschaQ8Head
 
     monkeypatch.setenv("ESCHA_MLX_LINEAR", "ops")   # portable path: CI has no Metal
     monkeypatch.setenv("ESCHA_MLX_BIAS", "1")       # exercise the correction path
@@ -340,7 +340,7 @@ def test_dense_synthetic_checkpoint_end_to_end(tmp_path, monkeypatch):
 
     assert isinstance(model.language_model.model.embed_tokens, EschaQ8Embedding)
     head = model.language_model.lm_head
-    assert isinstance(head, LastPositionHead) and isinstance(head.inner, EschaQ8Linear)
+    assert isinstance(head, LastPositionHead) and isinstance(head.inner, EschaQ8Head)
 
     def forward():
         cache = model.make_cache()
