@@ -46,11 +46,16 @@ campaign remains in the code.
 
 After removing the candidates, an 11-sample profile measured 101.080 ms for
 the complete M4 target body plus vocabulary head (M1 72.462 ms, M8 146.992
-ms).  A final 256-token smoke test measured autoregressive decoding at 59.759
-ms/token and fixed-tree M4 at 43.880 ms/token, or 1.362x, with mean emission
-2.931 tokens per target round.  As documented for this checkpoint, the two
-greedy digests can diverge at near ties; this smoke test is a performance
-regression check rather than a bit-identity assertion.
+ms). The final post-fix measurement at revision `b30bb9b` used a warmed ABBA
+run with a 20-token chat prompt and 256 output tokens, including prefill. It
+measured autoregressive generation at 60.128 ms/token and fixed-tree M4 at
+46.598 ms/token, or 1.290x, with mean emission 2.844 tokens per target round;
+both arms had the same token digest. As documented for this checkpoint, greedy
+digests can still diverge at shape-dependent near ties, so this is a
+performance regression check rather than a general bit-identity assertion.
+Continuous-batch and C=8 server results from the same revision are recorded in
+`bench/results/m5-pro-24gb/dense27b_mtp_20260907.json`; `bench/mtp.py`
+reproduces the one-shot and local continuous-batch measurements.
 
 ## What each result means
 

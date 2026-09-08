@@ -1,0 +1,578 @@
+{
+  "measurement_date": "2026-09-07",
+  "runtime_revision": "b30bb9b83113a4d391aeb676fc3ebf1f3cba0ad4",
+  "model": "EschaLabs/Qwen3.8-27B-Escha-W2",
+  "machine": {
+    "device": "Apple M5 Pro, 16-core GPU",
+    "ram_bytes": 25769803776,
+    "macos": "26.6.2",
+    "mlx": "0.32.0",
+    "mlx_lm": "0.31.3",
+    "max_recommended_working_set_bytes": 19069665280
+  },
+  "reproduce_with": {
+    "one_shot": "python bench/mtp.py --model \"$MODEL\" --mode one-shot --out /tmp/mtp-one-shot.json",
+    "continuous_batch": "python bench/mtp.py --model \"$MODEL\" --mode continuous --batches 1,2,4,8 --out /tmp/mtp-batch.json",
+    "server": "python -m escha_mlx.server --model \"$MODEL\" --mtp --port 18102 --prefill-step-size 256 --decode-concurrency 8 --prompt-concurrency 2",
+    "server_client": "python bench/isl_osl_grid.py --model \"$MODEL\" --url http://127.0.0.1:18102/v1/chat/completions --grid 128:96 --concurrency 8 --requests-per-point 16 --timeout 600"
+  },
+  "one_shot_abba": {
+    "workload": {
+      "prompt": "chat template: Explain speculative decoding in one paragraph.",
+      "prompt_tokens": 20,
+      "output_tokens": 256,
+      "sampling": "greedy",
+      "order": "ABBA",
+      "timing": "end-to-end including prefill"
+    },
+    "runs": {
+      "ar": [
+        {
+          "elapsed_s": 15.371962083008839,
+          "ms_per_token": 60.04672688675328,
+          "tokens_per_s": 16.653697076378144,
+          "mean_emit": null,
+          "digest": "8ddd7b0b9c542d72",
+          "output_tokens": 256,
+          "reached_max_tokens": true
+        },
+        {
+          "elapsed_s": 15.413509584002895,
+          "ms_per_token": 60.20902181251131,
+          "tokens_per_s": 16.60880661894763,
+          "mean_emit": null,
+          "digest": "8ddd7b0b9c542d72",
+          "output_tokens": 256,
+          "reached_max_tokens": true
+        }
+      ],
+      "mtp": [
+        {
+          "elapsed_s": 11.912896291993093,
+          "ms_per_token": 46.53475114059802,
+          "tokens_per_s": 21.489316596507514,
+          "mean_emit": 2.8444444444444446,
+          "digest": "8ddd7b0b9c542d72",
+          "output_tokens": 256,
+          "reached_max_tokens": true
+        },
+        {
+          "elapsed_s": 11.945475666987477,
+          "ms_per_token": 46.66201432416983,
+          "tokens_per_s": 21.430707921282846,
+          "mean_emit": 2.8444444444444446,
+          "digest": "8ddd7b0b9c542d72",
+          "output_tokens": 256,
+          "reached_max_tokens": true
+        }
+      ]
+    },
+    "median_speedup": 1.290342514566411,
+    "medians": {
+      "ar": {
+        "ms_per_token": 60.12787434963229,
+        "tokens_per_s": 16.631251847662888,
+        "mean_emit": null
+      },
+      "mtp": {
+        "ms_per_token": 46.598382732383925,
+        "tokens_per_s": 21.46001225889518,
+        "mean_emit": 2.8444444444444446
+      }
+    }
+  },
+  "continuous_batch_abba": {
+    "model": "EschaLabs/Qwen3.8-27B-Escha-W2",
+    "runtime_revision": "b30bb9b83113a4d391aeb676fc3ebf1f3cba0ad4",
+    "workload": {
+      "isl": 128,
+      "osl": 96,
+      "order": "ABBA, fresh process per arm",
+      "warmup_tokens": 16
+    },
+    "rows": [
+      {
+        "path": "ar",
+        "batch": 1,
+        "seconds": 5.630183582979953,
+        "output_tps": 17.050953771775408,
+        "steps": 96,
+        "emission_per_request_round": 1.0,
+        "peak_gb": 11.284608355,
+        "digest": "f879acd5dc82891ab9247edf56626838b56d6f6cdc7ca61ad6a44295b8c2aa13",
+        "output_tokens_per_request": [
+          96
+        ],
+        "finish_reasons": [
+          "length"
+        ],
+        "reached_max_tokens": true
+      },
+      {
+        "path": "mtp",
+        "batch": 1,
+        "seconds": 4.9563340000167955,
+        "output_tps": 19.36915470177649,
+        "steps": 36,
+        "emission_per_request_round": 2.6666666666666665,
+        "peak_gb": 11.602885557,
+        "digest": "f879acd5dc82891ab9247edf56626838b56d6f6cdc7ca61ad6a44295b8c2aa13",
+        "output_tokens_per_request": [
+          96
+        ],
+        "finish_reasons": [
+          "length"
+        ],
+        "reached_max_tokens": true
+      },
+      {
+        "path": "mtp",
+        "batch": 1,
+        "seconds": 4.958327250002185,
+        "output_tps": 19.361368292090383,
+        "steps": 36,
+        "emission_per_request_round": 2.6666666666666665,
+        "peak_gb": 11.602803637,
+        "digest": "f879acd5dc82891ab9247edf56626838b56d6f6cdc7ca61ad6a44295b8c2aa13",
+        "output_tokens_per_request": [
+          96
+        ],
+        "finish_reasons": [
+          "length"
+        ],
+        "reached_max_tokens": true
+      },
+      {
+        "path": "ar",
+        "batch": 1,
+        "seconds": 5.631840999994893,
+        "output_tps": 17.045935778387044,
+        "steps": 96,
+        "emission_per_request_round": 1.0,
+        "peak_gb": 11.284620641,
+        "digest": "f879acd5dc82891ab9247edf56626838b56d6f6cdc7ca61ad6a44295b8c2aa13",
+        "output_tokens_per_request": [
+          96
+        ],
+        "finish_reasons": [
+          "length"
+        ],
+        "reached_max_tokens": true
+      },
+      {
+        "path": "ar",
+        "batch": 2,
+        "seconds": 7.663272624980891,
+        "output_tps": 25.05456994628046,
+        "steps": 96,
+        "emission_per_request_round": 1.0,
+        "peak_gb": 11.416147958,
+        "digest": "dc666d7b06bc7ddd73e0227572522e630a6e6b7e57a9818376ee2d13d8aaebc5",
+        "output_tokens_per_request": [
+          96,
+          96
+        ],
+        "finish_reasons": [
+          "length",
+          "length"
+        ],
+        "reached_max_tokens": true
+      },
+      {
+        "path": "mtp",
+        "batch": 2,
+        "seconds": 7.207485958002508,
+        "output_tps": 26.638969693284167,
+        "steps": 39,
+        "emission_per_request_round": 2.4615384615384617,
+        "peak_gb": 12.247174194,
+        "digest": "dc666d7b06bc7ddd73e0227572522e630a6e6b7e57a9818376ee2d13d8aaebc5",
+        "output_tokens_per_request": [
+          96,
+          96
+        ],
+        "finish_reasons": [
+          "length",
+          "length"
+        ],
+        "reached_max_tokens": true
+      },
+      {
+        "path": "mtp",
+        "batch": 2,
+        "seconds": 7.288611291995039,
+        "output_tps": 26.342466665888796,
+        "steps": 39,
+        "emission_per_request_round": 2.4615384615384617,
+        "peak_gb": 12.247181362,
+        "digest": "dc666d7b06bc7ddd73e0227572522e630a6e6b7e57a9818376ee2d13d8aaebc5",
+        "output_tokens_per_request": [
+          96,
+          96
+        ],
+        "finish_reasons": [
+          "length",
+          "length"
+        ],
+        "reached_max_tokens": true
+      },
+      {
+        "path": "ar",
+        "batch": 2,
+        "seconds": 7.514031749975402,
+        "output_tps": 25.552194399581627,
+        "steps": 96,
+        "emission_per_request_round": 1.0,
+        "peak_gb": 11.41618289,
+        "digest": "dc666d7b06bc7ddd73e0227572522e630a6e6b7e57a9818376ee2d13d8aaebc5",
+        "output_tokens_per_request": [
+          96,
+          96
+        ],
+        "finish_reasons": [
+          "length",
+          "length"
+        ],
+        "reached_max_tokens": true
+      },
+      {
+        "path": "ar",
+        "batch": 4,
+        "seconds": 8.905451250000624,
+        "output_tps": 43.11965662604386,
+        "steps": 96,
+        "emission_per_request_round": 1.0,
+        "peak_gb": 11.681535224,
+        "digest": "570a552a54a6bc70de7f035deb687084c2f348f1e269ca034f208f77ba95da9f",
+        "output_tokens_per_request": [
+          96,
+          96,
+          96,
+          96
+        ],
+        "finish_reasons": [
+          "length",
+          "length",
+          "length",
+          "length"
+        ],
+        "reached_max_tokens": true
+      },
+      {
+        "path": "mtp",
+        "batch": 4,
+        "seconds": 11.451820209011203,
+        "output_tps": 33.531787348341204,
+        "steps": 39,
+        "emission_per_request_round": 2.4615384615384617,
+        "peak_gb": 13.679398554,
+        "digest": "d38d36fbd48439d4c7dc530b995cfd572be7bef5b9adba4e60f9887125c02d32",
+        "output_tokens_per_request": [
+          96,
+          96,
+          96,
+          96
+        ],
+        "finish_reasons": [
+          "length",
+          "length",
+          "length",
+          "length"
+        ],
+        "reached_max_tokens": true
+      },
+      {
+        "path": "mtp",
+        "batch": 4,
+        "seconds": 11.448350207996555,
+        "output_tps": 33.54195085085534,
+        "steps": 39,
+        "emission_per_request_round": 2.4615384615384617,
+        "peak_gb": 13.680217978,
+        "digest": "d38d36fbd48439d4c7dc530b995cfd572be7bef5b9adba4e60f9887125c02d32",
+        "output_tokens_per_request": [
+          96,
+          96,
+          96,
+          96
+        ],
+        "finish_reasons": [
+          "length",
+          "length",
+          "length",
+          "length"
+        ],
+        "reached_max_tokens": true
+      },
+      {
+        "path": "ar",
+        "batch": 4,
+        "seconds": 8.897825374995591,
+        "output_tps": 43.15661229755144,
+        "steps": 96,
+        "emission_per_request_round": 1.0,
+        "peak_gb": 11.68153932,
+        "digest": "570a552a54a6bc70de7f035deb687084c2f348f1e269ca034f208f77ba95da9f",
+        "output_tokens_per_request": [
+          96,
+          96,
+          96,
+          96
+        ],
+        "finish_reasons": [
+          "length",
+          "length",
+          "length",
+          "length"
+        ],
+        "reached_max_tokens": true
+      },
+      {
+        "path": "ar",
+        "batch": 8,
+        "seconds": 13.75867783400463,
+        "output_tps": 55.8193170350922,
+        "steps": 96,
+        "emission_per_request_round": 1.0,
+        "peak_gb": 12.185197326,
+        "digest": "8a0c4139c78cd08759229eb8546d21206ccc85d1cce6abe4c338dfcea78c705c",
+        "output_tokens_per_request": [
+          96,
+          96,
+          96,
+          96,
+          96,
+          96,
+          96,
+          96
+        ],
+        "finish_reasons": [
+          "length",
+          "length",
+          "length",
+          "length",
+          "length",
+          "length",
+          "length",
+          "length"
+        ],
+        "reached_max_tokens": true
+      },
+      {
+        "path": "mtp",
+        "batch": 8,
+        "seconds": 18.455651333002606,
+        "output_tps": 41.613269894552765,
+        "steps": 39,
+        "emission_per_request_round": 2.4615384615384617,
+        "peak_gb": 16.513840641,
+        "digest": "1c08dd3a03b155f8465fda121deb32fbce898d39b653dbbf435d29d13797c308",
+        "output_tokens_per_request": [
+          96,
+          96,
+          96,
+          96,
+          96,
+          96,
+          96,
+          96
+        ],
+        "finish_reasons": [
+          "length",
+          "length",
+          "length",
+          "length",
+          "length",
+          "length",
+          "length",
+          "length"
+        ],
+        "reached_max_tokens": true
+      },
+      {
+        "path": "mtp",
+        "batch": 8,
+        "seconds": 18.449767500016605,
+        "output_tps": 41.62654082222493,
+        "steps": 39,
+        "emission_per_request_round": 2.4615384615384617,
+        "peak_gb": 16.513840661,
+        "digest": "1c08dd3a03b155f8465fda121deb32fbce898d39b653dbbf435d29d13797c308",
+        "output_tokens_per_request": [
+          96,
+          96,
+          96,
+          96,
+          96,
+          96,
+          96,
+          96
+        ],
+        "finish_reasons": [
+          "length",
+          "length",
+          "length",
+          "length",
+          "length",
+          "length",
+          "length",
+          "length"
+        ],
+        "reached_max_tokens": true
+      },
+      {
+        "path": "ar",
+        "batch": 8,
+        "seconds": 13.480012416985119,
+        "output_tps": 56.97324128813878,
+        "steps": 96,
+        "emission_per_request_round": 1.0,
+        "peak_gb": 12.18516454,
+        "digest": "8a0c4139c78cd08759229eb8546d21206ccc85d1cce6abe4c338dfcea78c705c",
+        "output_tokens_per_request": [
+          96,
+          96,
+          96,
+          96,
+          96,
+          96,
+          96,
+          96
+        ],
+        "finish_reasons": [
+          "length",
+          "length",
+          "length",
+          "length",
+          "length",
+          "length",
+          "length",
+          "length"
+        ],
+        "reached_max_tokens": true
+      }
+    ],
+    "summary": [
+      {
+        "batch": 1,
+        "ar_tps_mean": 17.048444775081226,
+        "mtp_tps_mean": 19.365261496933435,
+        "speedup": 1.1358960745345272,
+        "mtp_emission_mean": 2.6666666666666665,
+        "ar_peak_gb_max": 11.284620641,
+        "mtp_peak_gb_max": 11.602885557,
+        "ar_samples": [
+          17.050953771775408,
+          17.045935778387044
+        ],
+        "mtp_samples": [
+          19.36915470177649,
+          19.361368292090383
+        ],
+        "ar_drift_pct": -0.02942939999445171,
+        "mtp_drift_pct": -0.0402000490263732,
+        "same_ar_mtp_digest": true
+      },
+      {
+        "batch": 2,
+        "ar_tps_mean": 25.303382172931045,
+        "mtp_tps_mean": 26.49071817958648,
+        "speedup": 1.0469240040141994,
+        "mtp_emission_mean": 2.4615384615384617,
+        "ar_peak_gb_max": 11.41618289,
+        "mtp_peak_gb_max": 12.247181362,
+        "ar_samples": [
+          25.05456994628046,
+          25.552194399581627
+        ],
+        "mtp_samples": [
+          26.638969693284167,
+          26.342466665888796
+        ],
+        "ar_drift_pct": 1.9861624221374496,
+        "mtp_drift_pct": -1.113042399196551,
+        "same_ar_mtp_digest": true
+      },
+      {
+        "batch": 4,
+        "ar_tps_mean": 43.13813446179765,
+        "mtp_tps_mean": 33.53686909959828,
+        "speedup": 0.7774297502201427,
+        "mtp_emission_mean": 2.4615384615384617,
+        "ar_peak_gb_max": 11.68153932,
+        "mtp_peak_gb_max": 13.680217978,
+        "ar_samples": [
+          43.11965662604386,
+          43.15661229755144
+        ],
+        "mtp_samples": [
+          33.531787348341204,
+          33.54195085085534
+        ],
+        "ar_drift_pct": 0.08570492995358947,
+        "mtp_drift_pct": 0.03031005299107825,
+        "same_ar_mtp_digest": false
+      },
+      {
+        "batch": 8,
+        "ar_tps_mean": 56.39627916161549,
+        "mtp_tps_mean": 41.61990535838885,
+        "speedup": 0.7379902712928665,
+        "mtp_emission_mean": 2.4615384615384617,
+        "ar_peak_gb_max": 12.185197326,
+        "mtp_peak_gb_max": 16.513840661,
+        "ar_samples": [
+          55.8193170350922,
+          56.97324128813878
+        ],
+        "mtp_samples": [
+          41.613269894552765,
+          41.62654082222493
+        ],
+        "ar_drift_pct": 2.0672489638688063,
+        "mtp_drift_pct": 0.03189109557071301,
+        "same_ar_mtp_digest": false
+      }
+    ]
+  },
+  "server_stability_c8": {
+    "escha_mlx_git_revision": "b30bb9b83113a4d391aeb676fc3ebf1f3cba0ad4",
+    "model_hf_revision": null,
+    "results": [
+      {
+        "n_ok": 16,
+        "n_err": 0,
+        "errors": [],
+        "wall_s": 89.83,
+        "ttft_p50": 17.269,
+        "ttft_p99": 28.455,
+        "tpot_ms_p50": 294.86,
+        "per_user_tps": 2.32,
+        "aggregate_out_tps": 17.1,
+        "total_tps": 42.08,
+        "out_tok_mean": 96.0,
+        "osl_target": 96,
+        "osl_hit_rate": 1.0,
+        "cached_tok_mean": 0.0,
+        "isl": 128,
+        "osl": 96,
+        "concurrency": 8,
+        "n_requests": 16
+      }
+    ],
+    "launch": {
+      "decode_concurrency": 8,
+      "prompt_concurrency": 2,
+      "prompt_cache_bytes": 512000000,
+      "prompt_cache_budget_source": "MTP default"
+    },
+    "observed_prompt_cache_peak_gb": 0.44,
+    "log_errors": 0
+  },
+  "tests": {
+    "command": "ESCHA_MODEL=<Qwen3.6> ESCHA_DENSE_MODEL=<Qwen3.8> ESCHA_MLX_SLOW_TESTS=1 pytest -q -rs",
+    "passed": 379,
+    "skipped": 0,
+    "duration_s": 26.53
+  }
+}

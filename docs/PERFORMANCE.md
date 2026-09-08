@@ -638,6 +638,45 @@ Raw evidence: [machine and software](../bench/results/m5-pro-24gb/dense27b_machi
 [opening roofline](../bench/results/m5-pro-24gb/dense27b_roofline_20260831-180252_open.json), and
 [closing roofline](../bench/results/m5-pro-24gb/dense27b_roofline_20260831-180252_close.json).
 
+### Native MTP post-fix validation — 2026-09-07
+
+This is a separate session at runtime revision
+`b30bb9b83113a4d391aeb676fc3ebf1f3cba0ad4`, macOS 26.6.2, MLX 0.32.0 and
+mlx-lm 0.31.3. The local checkpoint did not retain an unambiguous Hub revision,
+so the report identifies it as `Qwen3.8-27B-Escha-W2` without inventing one.
+
+The one-shot comparison used a 20-token chat prompt, 256 greedy output tokens,
+warmed AR/MTP/MTP/AR ordering, and end-to-end timing including prefill. Every
+arm reached the 256-token limit and both paths produced the same token digest.
+
+| path | median ms/output token | median output tok/s | relative |
+|---|---:|---:|---:|
+| AR | 60.128 | 16.63 | 1.000x |
+| fixed-tree M4 MTP | 46.598 | 21.46 | **1.290x** |
+
+Continuous-batch rows exclude prefill. Each arm used a fresh process, a
+128-token prompt, a 16-token warmup and 96 measured output tokens per request;
+all requests finished by the length limit.
+
+| batch | AR output tok/s | MTP output tok/s | MTP / AR | MTP peak |
+|---:|---:|---:|---:|---:|
+| 1 | 17.05 | 19.37 | **1.136x** | 11.60 GB |
+| 2 | 25.30 | 26.49 | **1.047x** | 12.25 GB |
+| 4 | 43.14 | 33.54 | 0.777x | 13.68 GB |
+| 8 | 56.40 | 41.62 | 0.738x | 16.51 GB |
+
+The crossover supports the conservative MTP server default of concurrency 2.
+A separate stress run explicitly raised decode concurrency to 8: all 16
+ISL/OSL 128/96 requests completed, OSL hit rate was 1.00, aggregate output was
+17.10 tok/s, and the Prompt LRU peaked at 0.44 GB under its 512 MB budget. The
+full test suite with both real checkpoints and slow tests enabled completed as
+379 passed, 0 skipped.
+
+Raw samples, commands, completion evidence and Server metrics are in
+[`dense27b_mtp_20260907.json`](../bench/results/m5-pro-24gb/dense27b_mtp_20260907.json).
+Use [`bench/mtp.py`](../bench/mtp.py) to reproduce the one-shot and continuous
+measurements.
+
 ---
 
 ## Apple M4 base 24 GB — Qwen3.8-27B dense (W2)

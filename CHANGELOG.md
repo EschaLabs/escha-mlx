@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Qwen3.8 native MTP decoding** — opt-in fixed-tree speculative decoding for
+  `Qwen3.8-27B-Escha-W2` across the Python generator, CLI, and continuous-batching
+  server. The checkpoint-native MTP head uses a top-k=3, depth=3 tree and verifies
+  four target positions per round, with per-request path acceptance and cache commit.
+  Batched projection fusion, GDN state tracing, fused tree top-k/logsumexp, and shared
+  proposal-prefix caches keep the implementation on the existing mlx-lm scheduler.
+  Previous-round GDN traces are released before constructing the next tree. On a
+  24 GB M5 Pro, MTP servers default prompt/decode concurrency to 2 and cap the prompt
+  LRU at 512 MB; explicit CLI values still win. Post-fix validation completed 16/16
+  C=8 requests at ISL/OSL 128/96 with no errors or short outputs. A warmed batch-1
+  ABBA measured 21.46 versus 16.63 output tok/s (1.290x); continuous-batch MTP was
+  beneficial at B=1/2 and slower than AR at B=4/8, so it is not presented as a
+  universal batched-decode accelerator. Raw results and the reproducer live under
+  `bench/results/m5-pro-24gb/dense27b_mtp_20260907.json` and `bench/mtp.py`.
 - **M4 bring-up of the dense path** — first execution of the dense Metal kernels on
   hardware. They were bit-exact on arrival: the P0 dense gate (G0.2b), the
   real-checkpoint tests and the correctness battery all passed without a kernel fix.
