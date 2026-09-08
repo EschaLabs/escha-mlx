@@ -164,18 +164,39 @@ low-acceptance request no longer shortens the whole batch.
 
 ### Qwen3.8 MTP performance
 
-Batch-1 end-to-end decode on a 24 GB, 16-core-GPU M5 Pro with
-`Qwen3.8-27B-Escha-W2`, macOS 26.6.2, MLX 0.32.0 and mlx-lm 0.31.3. This is a
-256-output-token greedy smoke test after warm-up.
+Batch-1 end-to-end generation on a 24 GB, 16-core-GPU M5 Pro with
+`Qwen3.8-27B-Escha-W2`, macOS 26.6.2, MLX 0.32.0 and mlx-lm 0.31.3, measured at
+revision `b30bb9b`. This is a warmed ABBA run over a 20-token chat prompt and
+256 greedy output tokens; timing includes prefill.
 
 | decode path | latency / output token | output throughput | speedup |
 |---|---:|---:|---:|
-| autoregressive (MTP off) | 59.759 ms | 16.73 tok/s | 1.000x |
-| fixed-tree M4 (MTP on) | 43.880 ms | 22.79 tok/s | **1.362x** |
+| autoregressive (MTP off) | 60.128 ms | 16.63 tok/s | 1.000x |
+| fixed-tree M4 (MTP on) | 46.598 ms | 21.46 tok/s | **1.290x** |
 
-The MTP run emitted 2.931 tokens per target verification round on average.
-Greedy outputs can diverge at near-tied logits, so this measurement is a
-performance regression test rather than a bit-identity assertion.
+The MTP run emitted 2.844 tokens per target verification round on average, and
+both arms produced the same token digest for this prompt.
+
+Continuous-batch decode was measured separately after a 128-token prefill, with
+96 output tokens per request, a fresh process per arm, and warmed ABBA ordering.
+Prefill is excluded from these rows.
+
+| batch | AR output tok/s | MTP output tok/s | MTP / AR | MTP peak |
+|---:|---:|---:|---:|---:|
+| 1 | 17.05 | 19.37 | **1.136x** | 11.60 GB |
+| 2 | 25.30 | 26.49 | **1.047x** | 12.25 GB |
+| 4 | 43.14 | 33.54 | 0.777x | 13.68 GB |
+| 8 | 56.40 | 41.62 | 0.738x | 16.51 GB |
+
+This crossover is why the MTP server defaults decode and prompt concurrency to
+2. An explicit C=8 server stress run (ISL/OSL 128/96, 16 requests) completed all
+requests with no errors or missed output lengths at 17.10 output tok/s after the
+prompt-cache memory fix. The Prompt LRU peaked at 0.44 GB under its 512 MB budget.
+Greedy outputs can still diverge at shape-dependent near ties, so these
+measurements are performance regression checks rather than a general
+bit-identity assertion. Raw ABBA and server evidence is in
+[`bench/results/m5-pro-24gb/dense27b_mtp_20260907.json`](bench/results/m5-pro-24gb/dense27b_mtp_20260907.json);
+reproduce the local generation measurements with [`bench/mtp.py`](bench/mtp.py).
 
 Small-row coded-projection experiments which did not clear the whole-target
 retention gate are recorded in
