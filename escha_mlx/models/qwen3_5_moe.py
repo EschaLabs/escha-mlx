@@ -304,7 +304,9 @@ class CheckpointLoader:
     def _install_q8(self, base_name: str, pair: dict[str, np.ndarray]) -> None:
         w8, scale = pair["weight_int8"], pair["weight_scale"]
         if base_name == "lm_head":
-            self.model.language_model.lm_head = quant.make_linear(w8, scale, self.group_size)
+            self.model.language_model.lm_head = quant.make_head(
+                w8, scale, self.group_size
+            )
         elif base_name == "embed_tokens":
             self.model.language_model.model.embed_tokens = quant.make_embedding(
                 w8, scale, self.group_size)

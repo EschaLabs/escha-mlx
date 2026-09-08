@@ -145,8 +145,8 @@ def use_last_logit() -> bool:
     return bool(envs.ESCHA_MLX_LAST_LOGIT.get())
 
 
-def load_model(path: str | Path):
-    """Build the model. Returns the mlx-lm Model instance (module-swapped)."""
+def load_model(path: str | Path, *, load_mtp: bool = False):
+    """Build the model, optionally attaching its native pretrained MTP head."""
     # Fail on malformed process configuration before allocating weights or a
     # server can report ready and defer the error to its first request.
     envs.validate_environment()
@@ -174,12 +174,24 @@ def load_model(path: str | Path):
     mx.eval(model.parameters())
     mx.eval(escha_arrays)
     model.eval()
+    if install_fusion := getattr(arch, "install_projection_fusion", None):
+        install_fusion(model)
+    if load_mtp:
+        if arch.MODEL_TYPE != "qwen3_5":
+            raise ValueError(
+                f"MTP is only supported for qwen3_5 dense checkpoints, got "
+                f"{arch.MODEL_TYPE}"
+            )
+        from .mtp import load_mtp as _load_mtp
+
+        model.mtp = _load_mtp(path, model)
     logger.info("escha_mlx: %s model ready in %.1fs",
                 arch.MODEL_TYPE, time.time() - t0)
     return model
 
 
-def load(path: str | Path, tokenizer_config: dict | None = None, **_ignored):
+def load(path: str | Path, tokenizer_config: dict | None = None,
+         *, load_mtp: bool = False, **_ignored):
     """(model, tokenizer) — signature-compatible with mlx_lm.utils.load.
 
     Mirrors mlx_lm's eos handling: generation_config.json's eos_token_id list
@@ -205,7 +217,7 @@ def load(path: str | Path, tokenizer_config: dict | None = None, **_ignored):
         eos = json.loads(gen_cfg.read_text()).get("eos_token_id")
         if eos is not None:
             eos_ids = eos if isinstance(eos, list) else [eos]
-    model = load_model(path)
+    model = load_model(path, load_mtp=load_mtp)
     tokenizer = load_tokenizer(path, tokenizer_config_extra=tokenizer_config or {},
                                eos_token_ids=eos_ids)
     return model, tokenizer
