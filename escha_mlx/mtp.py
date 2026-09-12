@@ -185,6 +185,7 @@ def load_mtp(path: str | Path, target) -> MTPHead:
     """Load ``path/mtp`` and share the target model's vocabulary modules."""
     from safetensors import safe_open
 
+    from . import envs
     from .loader import resolve_module
 
     mtp_dir = Path(path) / "mtp"
@@ -226,6 +227,16 @@ def load_mtp(path: str | Path, target) -> MTPHead:
     missing = expected - loaded
     if missing:
         raise ValueError(f"incomplete MTP checkpoint, missing {sorted(missing)}")
+
+    # The checkpoint ships this head in fp16 -- the only unquantized module in
+    # an otherwise 2-bit model -- and one proposal round reads it 3-4 times
+    # (once per tree depth, plus the replay): ~3 GB against the target's ~10 GB.
+    # Quantizing it cannot change output, because the target verifies every
+    # proposed token and the emitted token is always the target's own sample;
+    # it can only move ACCEPTANCE, and measured acceptance is flat.
+    bits = envs.ESCHA_MLX_MTP_HEAD_BITS.get()
+    if bits != "fp16":
+        nn.quantize(mtp_head, group_size=envs.MTP_HEAD_GROUP_SIZE, bits=int(bits))
 
     mtp_head.eval()
     mx.eval(mtp_head.parameters())

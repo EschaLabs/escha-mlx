@@ -14,6 +14,7 @@ EXPECTED_LAYERS = {
     envs.EnvLayer.RUNTIME: {
         "ESCHA_MLX_GDN_STATE",
         "ESCHA_MLX_LAST_LOGIT",
+        "ESCHA_MLX_MTP_HEAD_BITS",
         "ESCHA_MLX_Q8_GROUP",
         "ESCHA_MLX_BIAS",
     },
