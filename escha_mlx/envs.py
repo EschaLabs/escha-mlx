@@ -155,6 +155,18 @@ ESCHA_MLX_GDN_STATE = EnvVar(
     value_help=f"one of {', '.join(GDN_STATE_CHOICES)}",
 )
 
+MTP_HEAD_BITS_CHOICES = ("4", "8", "fp16")
+MTP_HEAD_GROUP_SIZE = 64
+
+ESCHA_MLX_MTP_HEAD_BITS = EnvVar(
+    "ESCHA_MLX_MTP_HEAD_BITS",
+    EnvLayer.RUNTIME,
+    _choice(*MTP_HEAD_BITS_CHOICES),
+    "Weight precision for the MTP draft head; fp16 keeps the checkpoint's.",
+    default="4",
+    value_help=f"one of {', '.join(MTP_HEAD_BITS_CHOICES)}",
+)
+
 ESCHA_MLX_LAST_LOGIT = EnvVar(
     "ESCHA_MLX_LAST_LOGIT",
     EnvLayer.RUNTIME,
@@ -358,6 +370,7 @@ _DECLARATIONS = (
     ESCHA_MLX_WIRED_GB,
     ESCHA_MLX_GDN_STATE,
     ESCHA_MLX_LAST_LOGIT,
+    ESCHA_MLX_MTP_HEAD_BITS,
     ESCHA_MLX_Q8_GROUP,
     ESCHA_MLX_BIAS,
     ESCHA_MLX_DENSE,

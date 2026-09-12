@@ -61,11 +61,14 @@ def _write_mtp(path, target):
 
 
 @needs_mlx
-def test_mtp_loads_exact_15_tensors_and_shares_vocab(tmp_path):
+def test_mtp_loads_exact_15_tensors_and_shares_vocab(tmp_path, monkeypatch):
     from mlx.utils import tree_flatten
 
     from escha_mlx.mtp import _NORM_WEIGHTS, load_mtp
 
+    # This asserts the checkpoint-loading contract, so it must see the head
+    # exactly as stored; the default quantizes it (see the test below).
+    monkeypatch.setenv("ESCHA_MLX_MTP_HEAD_BITS", "fp16")
     target = _target()
     weights = _write_mtp(tmp_path, target)
     mtp_head = load_mtp(tmp_path, target)
@@ -934,3 +937,42 @@ def test_mtp_rejects_incomplete_directory(tmp_path):
 
     with pytest.raises(FileNotFoundError, match="MTP requested"):
         load_mtp(tmp_path, _target())
+
+
+@needs_mlx
+def test_mtp_head_is_quantized_by_default_and_keeps_vocab_shared(tmp_path, monkeypatch):
+    """The draft head is quantized on load; the shared vocab modules are not.
+
+    Quantizing the head is a speed change only -- the target verifies every
+    proposed token -- so this pins the mechanism, not any output property.
+    """
+    from mlx.utils import tree_flatten
+
+    from escha_mlx.mtp import load_mtp
+
+    target = _target()
+    _write_mtp(tmp_path, target)
+
+    monkeypatch.setenv("ESCHA_MLX_MTP_HEAD_BITS", "fp16")
+    stored = dict(tree_flatten(load_mtp(tmp_path, target).parameters()))
+
+    monkeypatch.delenv("ESCHA_MLX_MTP_HEAD_BITS", raising=False)
+    head = load_mtp(tmp_path, target)
+    quantized = dict(tree_flatten(head.parameters()))
+
+    # Quantized linears carry scales/biases the fp16 head does not have.
+    assert len(quantized) > len(stored)
+    assert any(name.endswith(".scales") for name in quantized)
+    # The 2.5 GB vocabulary modules stay shared and untouched.
+    assert head._embed_tokens is target.language_model.model.embed_tokens
+    assert not any(name.startswith("_embed_tokens") for name in quantized)
+    assert not any(name.startswith("_lm_head") for name in quantized)
+
+
+@needs_mlx
+def test_mtp_head_bits_rejects_unknown_precision(monkeypatch):
+    monkeypatch.setenv("ESCHA_MLX_MTP_HEAD_BITS", "3")
+    from escha_mlx import envs
+
+    with pytest.raises(ValueError):
+        envs.ESCHA_MLX_MTP_HEAD_BITS.get()
