@@ -695,6 +695,21 @@ Single stream, N=256, greedy, one load per arm, AR baseline 134.63 ms/token:
 Acceptance is unchanged, so the gain is the byte reduction, not a tree change.
 Rechecked in the same process at 97.64 ms/token (1.379x).
 
+Continuous batch, decode-only, ISL 128, via `bench/mtp.py --mode continuous`,
+each arm in a fresh subprocess:
+
+| batch | AR tok/s | MTP fp16 | MTP Q4 | fp16 MTP/AR | Q4 MTP/AR | MTP gain |
+|---|---|---|---|---|---|---|
+| 1 | 7.74 | 9.74 | 10.85 | 1.250x | **1.402x** | 1.114x |
+| 2 | 12.94 | 13.55 | 15.19 | 1.055x | **1.174x** | 1.122x |
+
+The gain does **not** shrink at B=2 (1.114x vs 1.122x on MTP throughput), which
+is worth stating because the opposite was expected: the draft head is read once
+per round regardless of batch, so the saving was predicted to amortize away.
+It does not, and at B=2 measured acceptance also rose (2.462 -> 2.595). B=2
+remains below the B=4 crossover, so this does not change the server default of
+concurrency 2.
+
 Quantizing the draft cannot change output: the target verifies every proposed
 token and the emitted token is always the target's own sample. Confirmed
 against plain AR over 12 prompt classes (code x2, math x2, CJK x2, reasoning,

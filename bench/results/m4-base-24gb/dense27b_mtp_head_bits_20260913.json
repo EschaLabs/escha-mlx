@@ -1,0 +1,89 @@
+{
+ "measurement_date": "2026-09-13",
+ "machine": {
+  "device": "Apple M4, 10-core GPU",
+  "ram_bytes": 25769803776,
+  "max_recommended_working_set_bytes": 19069665280,
+  "macos": "26.6.2",
+  "mlx": "0.32.0",
+  "mlx_lm": "0.31.3"
+ },
+ "model": "EschaLabs/Qwen3.8-27B-Escha-W2",
+ "what": "ESCHA_MLX_MTP_HEAD_BITS: draft head fp16 (as stored) vs Q4 (new default)",
+ "reproduce_with": {
+  "fp16": "ESCHA_MLX_MTP_HEAD_BITS=fp16 python bench/mtp.py --model $MODEL --mode continuous --batches 1,2",
+  "q4": "python bench/mtp.py --model $MODEL --mode continuous --batches 1,2"
+ },
+ "fp16_head": [
+  {
+   "batch": 1,
+   "ar_tps_mean": 7.792829369999541,
+   "mtp_tps_mean": 9.741056062710605,
+   "speedup": 1.2500024830790282,
+   "mtp_emission_mean": 2.5945945945945947,
+   "ar_peak_gb_max": 11.276934873,
+   "mtp_peak_gb_max": 11.596916849,
+   "ar_samples": [
+    7.7959779834755265,
+    7.789680756523555
+   ],
+   "mtp_samples": [
+    9.741381293928624,
+    9.740730831492586
+   ]
+  },
+  {
+   "batch": 2,
+   "ar_tps_mean": 12.844887809496822,
+   "mtp_tps_mean": 13.545675745150348,
+   "speedup": 1.0545577311415208,
+   "mtp_emission_mean": 2.4615384615384617,
+   "ar_peak_gb_max": 11.40931729,
+   "mtp_peak_gb_max": 12.22596034,
+   "ar_samples": [
+    13.084516301266943,
+    12.6052593177267
+   ],
+   "mtp_samples": [
+    13.600985377148978,
+    13.490366113151715
+   ]
+  }
+ ],
+ "q4_head": [
+  {
+   "batch": 1,
+   "ar_tps_mean": 7.742082148529639,
+   "mtp_tps_mean": 10.853279809591724,
+   "speedup": 1.4018554183970984,
+   "mtp_emission_mean": 2.5945945945945947,
+   "ar_peak_gb_max": 10.666466997,
+   "mtp_peak_gb_max": 10.986448861,
+   "ar_samples": [
+    7.712261494805948,
+    7.77190280225333
+   ],
+   "mtp_samples": [
+    10.830541229810862,
+    10.876018389372586
+   ]
+  },
+  {
+   "batch": 2,
+   "ar_tps_mean": 12.942954555263032,
+   "mtp_tps_mean": 15.194154635568122,
+   "speedup": 1.1739324719632642,
+   "mtp_emission_mean": 2.5945945945945947,
+   "ar_peak_gb_max": 10.798849446,
+   "mtp_peak_gb_max": 11.617066172,
+   "ar_samples": [
+    12.806393058137873,
+    13.07951605238819
+   ],
+   "mtp_samples": [
+    15.434968465532803,
+    14.953340805603439
+   ]
+  }
+ ]
+}
