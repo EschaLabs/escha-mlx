@@ -305,6 +305,32 @@ def _topk_log_probs(logits: mx.array, topk: int):
     )
 
 
+# Ancestor closure in _propose_tree rests on every child scoring STRICTLY below
+# its parent, so that selecting a child by score always selects its parent too.
+# Accumulating in fp16 broke that: at a parent path score of -8.0 the fp16 ulp is
+# 2**-7, so any child log-probability smaller than half of that (a child the draft
+# is ~certain of, p > 0.996) rounds the sum back onto the parent's score. The two
+# then tie, argpartition may keep the child and drop the parent, and the orphan is
+# silently reattached to selected[0] -- verified under the wrong ancestor, hence
+# the wrong tree mask, RoPE position and GDN parent state.
+#
+# f32 shrinks that window but does not close it: at -8.0 the f32 ulp is ~9.5e-7,
+# so a child with p > 0.9999995 still ties, and language models do emit tokens
+# that confidently. The margin closes it by construction -- it is far above the
+# f32 ulp across the score range these paths reach (~1e-5 at -40) and far below
+# any log-probability gap that should decide a ranking.
+_TIE_MARGIN = 1e-4
+
+
+def _descend_scores(parent_scores: mx.array, child_log_probs: mx.array) -> mx.array:
+    """Path scores for one tree level, strictly below their parents' scores."""
+    return (
+        parent_scores.astype(mx.float32)
+        + child_log_probs.astype(mx.float32)
+        - _TIE_MARGIN
+    )
+
+
 @dataclasses.dataclass
 class _TreeProposal:
     tokens: mx.array       # [1, selected draft nodes]
@@ -331,6 +357,7 @@ def _propose_tree(
 
     batch = seed_logits.shape[0]
     scores, tokens = _topk_log_probs(seed_logits, topk)
+    scores = scores.astype(mx.float32)
     all_scores = [scores]
     all_tokens = [tokens]
     all_parents = [mx.full((batch, topk), -1, dtype=mx.int32)]
@@ -376,7 +403,9 @@ def _propose_tree(
             for level in range(1, depth):
                 next_logits = mtp_head.logits(frontier_hidden)
                 child_log_probs, child_tokens = _topk_log_probs(next_logits, topk)
-                path_scores = frontier_scores[:, :, None] + child_log_probs
+                path_scores = _descend_scores(
+                    frontier_scores[:, :, None], child_log_probs
+                )
                 flat_scores = path_scores.reshape(batch, topk * topk)
                 flat_tokens = child_tokens.reshape(batch, topk * topk)
                 parents = mx.repeat(frontier_nodes, topk, axis=1)
@@ -459,8 +488,12 @@ def _propose_tree(
 
         # Map parents from candidate-lattice coordinates into the compact tree
         # without synchronizing selected indices back to Python. Depth-major
-        # ordering plus non-increasing cumulative log probability guarantees
-        # that every selected child's parent is also selected.
+        # ordering plus STRICTLY decreasing cumulative log probability (see
+        # _descend_scores) guarantees every selected child's parent is also
+        # selected, so argmax below always finds a match. Non-increasing is not
+        # enough: on an exact parent/child tie argpartition may keep the child
+        # and drop the parent, and this argmax would then silently reattach the
+        # orphan to selected[0].
         parent_matches = selected_parents[:, :, None] == selected[:, None, :]
         compact_parents = mx.argmax(
             parent_matches.astype(mx.int32), axis=-1
