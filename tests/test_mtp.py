@@ -61,11 +61,14 @@ def _write_mtp(path, target):
 
 
 @needs_mlx
-def test_mtp_loads_exact_15_tensors_and_shares_vocab(tmp_path):
+def test_mtp_loads_exact_15_tensors_and_shares_vocab(tmp_path, monkeypatch):
     from mlx.utils import tree_flatten
 
     from escha_mlx.mtp import _NORM_WEIGHTS, load_mtp
 
+    # This asserts the checkpoint-loading contract, so it must see the head
+    # exactly as stored; the default quantizes it (see the test below).
+    monkeypatch.setenv("ESCHA_MLX_MTP_HEAD_BITS", "fp16")
     target = _target()
     weights = _write_mtp(tmp_path, target)
     mtp_head = load_mtp(tmp_path, target)
@@ -934,3 +937,127 @@ def test_mtp_rejects_incomplete_directory(tmp_path):
 
     with pytest.raises(FileNotFoundError, match="MTP requested"):
         load_mtp(tmp_path, _target())
+
+
+@needs_mlx
+def test_mtp_head_is_quantized_by_default_and_keeps_vocab_shared(tmp_path, monkeypatch):
+    """The draft head is quantized on load; the shared vocab modules are not.
+
+    Quantizing the head is a speed change only -- the target verifies every
+    proposed token -- so this pins the mechanism, not any output property.
+    """
+    from mlx.utils import tree_flatten
+
+    from escha_mlx.mtp import load_mtp
+
+    target = _target()
+    _write_mtp(tmp_path, target)
+
+    monkeypatch.setenv("ESCHA_MLX_MTP_HEAD_BITS", "fp16")
+    stored = dict(tree_flatten(load_mtp(tmp_path, target).parameters()))
+
+    monkeypatch.delenv("ESCHA_MLX_MTP_HEAD_BITS", raising=False)
+    head = load_mtp(tmp_path, target)
+    quantized = dict(tree_flatten(head.parameters()))
+
+    # Quantized linears carry scales/biases the fp16 head does not have.
+    assert len(quantized) > len(stored)
+    assert any(name.endswith(".scales") for name in quantized)
+    # The 2.5 GB vocabulary modules stay shared and untouched.
+    assert head._embed_tokens is target.language_model.model.embed_tokens
+    assert not any(name.startswith("_embed_tokens") for name in quantized)
+    assert not any(name.startswith("_lm_head") for name in quantized)
+
+
+@needs_mlx
+def test_mtp_head_bits_rejects_unknown_precision(monkeypatch):
+    monkeypatch.setenv("ESCHA_MLX_MTP_HEAD_BITS", "3")
+    from escha_mlx import envs
+
+    with pytest.raises(ValueError):
+        envs.ESCHA_MLX_MTP_HEAD_BITS.get()
+
+
+@needs_mlx
+def test_child_scores_stay_strictly_below_parent_at_fp16_tie():
+    """A near-certain child must not tie with its parent's path score.
+
+    This is the exact fp16 case: at -8.0 the fp16 ulp is 2**-7, so adding a
+    log-probability of -1e-5 rounds straight back to -8.0. Ancestor closure in
+    _propose_tree depends on the child landing strictly lower.
+    """
+    import mlx.core as mx
+
+    from escha_mlx.mtp import _descend_scores
+
+    parent = mx.array([[-8.0]], dtype=mx.float16)
+    near_certain = mx.array([[-1e-5]], dtype=mx.float16)
+
+    # The arithmetic this replaced: fp16 accumulation collapses onto the parent.
+    assert float((parent + near_certain)[0, 0]) == float(parent[0, 0])
+
+    child = _descend_scores(parent, near_certain)
+    assert child.dtype == mx.float32
+    assert float(child[0, 0]) < float(parent[0, 0])
+
+
+@needs_mlx
+def test_tree_stays_ancestor_closed_under_adversarial_tie_break(tmp_path, monkeypatch):
+    """Closure must not depend on how argpartition happens to break ties.
+
+    Every child here is near-certain, so fp16 accumulation would tie it with its
+    parent. MLX's argpartition currently resolves ties toward the lower index,
+    and parents always hold lower candidate indices, which is the only reason
+    the fp16 version survived. This test removes that accident: argpartition is
+    replaced by one that resolves ties toward the HIGHER index, i.e. toward the
+    child. With non-strict scores the parent is then dropped and its orphan is
+    silently reattached to selected[0], breaking the depth relation.
+    """
+    import mlx.core as mx
+    from mlx_lm.models.cache import BatchKVCache
+
+    from escha_mlx import mtp as mtp_mod
+
+    def near_certain_topk(logits, topk):
+        shape = tuple(logits.shape[:-1]) + (topk,)
+        tokens = mx.broadcast_to(
+            mx.arange(topk, dtype=mx.uint32), shape
+        ).astype(mx.uint32)
+        rank = mx.arange(topk, dtype=mx.float16) * mx.array(1e-5, dtype=mx.float16)
+        if logits.ndim == 2:
+            # Seed: park the parents at a magnitude whose fp16 ulp is 2**-7.
+            return (mx.full(shape, -8.0, dtype=mx.float16) - rank), tokens
+        # Children the draft is ~certain of: below half that ulp, so in fp16 the
+        # accumulated path score rounds straight back onto the parent's.
+        return (mx.full(shape, -1e-5, dtype=mx.float16) - rank), tokens
+
+    monkeypatch.setattr(mtp_mod, "_topk_log_probs", near_certain_topk)
+
+    real_argpartition = mx.argpartition
+
+    def tie_break_toward_higher_index(a, kth, axis=-1):
+        # Reversing the axis makes equal values resolve to the largest original
+        # index instead of the smallest -- the opposite of MLX's current habit.
+        size = a.shape[axis]
+        return size - 1 - real_argpartition(a[..., ::-1], kth=kth, axis=axis)
+
+    monkeypatch.setattr(mx, "argpartition", tie_break_toward_higher_index)
+
+    target = _target()
+    target.eval()
+    _write_mtp(tmp_path, target)
+    head = mtp_mod.load_mtp(tmp_path, target)
+    cache = [BatchKVCache([0, 0])]
+    hidden = mx.zeros((2, 1, 128), dtype=mx.float16)
+    seed_hidden = head.forward_hidden(
+        mx.array([[7], [11]], dtype=mx.uint32), hidden, cache
+    )
+    seed_logits = head.logits(seed_hidden)[:, -1]
+    tree = mtp_mod._propose_tree(head, seed_hidden, seed_logits, cache)
+    mx.eval(tree.tokens, tree.parents, tree.depths)
+
+    for parents, depths in zip(tree.parents.tolist(), tree.depths.tolist()):
+        assert parents[0] == -1 and depths[0] == 0
+        for node in range(1, len(parents)):
+            assert 0 <= parents[node] < node
+            assert depths[node] == depths[parents[node]] + 1

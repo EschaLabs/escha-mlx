@@ -226,6 +226,7 @@ bit-identical or documents where it is not.
 |---|---|---|
 | deployment | `ESCHA_MLX_WIRED_GB=N` | Wire N GB. **Required above a ~18 GB working set** (see the cliff above). Must be ≤ the cap. |
 | runtime | `ESCHA_MLX_GDN_STATE=fp32` | Store the recurrent state in f32 instead of fp16. Costs ~10% throughput at batch ≥32; the per-sequence cost is architecture-dependent — 31.5 MB on the 35B MoE and 75.5 MB on the 27B dense. The loader logs the actual figure. |
+| runtime | `ESCHA_MLX_MTP_HEAD_BITS=8\|fp16` | Weight precision of the MTP draft head (default `4`). The checkpoint ships it in fp16 — the only unquantized module in an otherwise 2-bit model — and a proposal round reads it 3–4 times, so quantizing it is worth ~9% of MTP decode. Output cannot change (the target verifies every proposed token); measured acceptance is flat and agreement with plain AR is slightly *better* than fp16 (99.5% vs 96.4% over 12 prompt classes). Set `fp16` to keep the checkpoint's. |
 | runtime | `ESCHA_MLX_LAST_LOGIT=0` | Compute logits for **all** prompt positions, not just the last. Needed for per-position scoring (loglikelihood eval); costs ~7% prefill. |
 | runtime | `ESCHA_MLX_Q8_GROUP=64` | Use 64-wide Q8 groups instead of 128. Identical numerics, +140 MB. |
 | runtime | `ESCHA_MLX_BIAS=1` | Apply the per-linear correction a dense export ships. **Off by default, and this is a real fork in the model, not a tuning knob** — see the section above. |

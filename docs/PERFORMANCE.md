@@ -677,6 +677,77 @@ Raw samples, commands, completion evidence and Server metrics are in
 Use [`bench/mtp.py`](../bench/mtp.py) to reproduce the one-shot and continuous
 measurements.
 
+### Quantized MTP draft head — Apple M4 base 24 GB, 2026-09-13
+
+The checkpoint ships the MTP head in fp16 (0.849 GB): the only unquantized
+module in an otherwise 2-bit model. A proposal round reads it 3-4 times — once
+per tree depth plus the replay — about 3 GB against the target's ~10 GB, so it
+is a large share of the non-verification cost. `ESCHA_MLX_MTP_HEAD_BITS`
+(default `4`) quantizes it to 0.239 GB.
+
+Single stream, N=256, greedy, one load per arm, AR baseline 134.63 ms/token:
+
+| draft head | size | ms/token | emit | MTP / AR |
+|---|---|---|---|---|
+| fp16 (as stored) | 0.849 GB | 107.56 | 2.639 | 1.252x |
+| **Q4 (default)** | **0.239 GB** | **97.05** | 2.639 | **1.387x** |
+
+Acceptance is unchanged, so the gain is the byte reduction, not a tree change.
+Rechecked in the same process at 97.64 ms/token (1.379x).
+
+Continuous batch, decode-only, ISL 128, via `bench/mtp.py --mode continuous`,
+each arm in a fresh subprocess:
+
+| batch | AR tok/s | MTP fp16 | MTP Q4 | fp16 MTP/AR | Q4 MTP/AR | MTP gain |
+|---|---|---|---|---|---|---|
+| 1 | 7.74 | 9.74 | 10.85 | 1.250x | **1.402x** | 1.114x |
+| 2 | 12.94 | 13.55 | 15.19 | 1.055x | **1.174x** | 1.122x |
+
+The gain does **not** shrink at B=2 (1.114x vs 1.122x on MTP throughput), which
+is worth stating because the opposite was expected: the draft head is read once
+per round regardless of batch, so the saving was predicted to amortize away.
+It does not, and at B=2 measured acceptance also rose (2.462 -> 2.595). B=2
+remains below the B=4 crossover, so this does not change the server default of
+concurrency 2.
+
+Quantizing the draft cannot change output: the target verifies every proposed
+token and the emitted token is always the target's own sample. Confirmed
+against plain AR over 12 prompt classes (code x2, math x2, CJK x2, reasoning,
+long CoT, prose, chat, JSON, factual) at N=256 greedy, scoring token-level
+agreement with the AR reference:
+
+| draft head | mean agreement with AR | exact-match prompts | mean emit |
+|---|---|---|---|
+| fp16 (as stored) | 96.42% | 10/12 | 2.924 |
+| Q4 (default) | **99.51%** | **11/12** | 2.924 |
+
+Q4 tracks AR *better* than the stored fp16 head, and mean emit is identical.
+Both variants are internally deterministic, and both diverge from AR on
+`math_calc` at the same token (241) — a target-side near tie, independent of
+the draft. The one prompt where they differ is `long_cot`, where the fp16 head
+diverges from AR at token 123 and Q4 matches it exactly. As already noted for
+this checkpoint, greedy digests can diverge at shape-dependent near ties, so
+agreement with AR is the meaningful measure rather than digest equality.
+
+Two levers measured and **rejected** on the same box, recorded so they are not
+retried on the strength of a plausible estimate:
+
+| lever | result | why |
+|---|---|---|
+| draft-vocabulary pruning to 64k | 1.252x -> 1.051x | costs 23% of acceptance (emit 2.639 -> 2.032); the vocabulary projection was not the bottleneck |
+| in-place batch path commit | +2.3% at B=1, -1.6% at B=4 | the per-round cache rebuild is nearly free under lazy evaluation and unified memory, unlike the CUDA reports it was modelled on |
+
+### Remaining headroom
+
+With the Q4 head, the zero-overhead ceiling is `emit / [T_verify(M=4) /
+T_verify(M=1)]`. Measured on this box at B=1: T_verify is 135.39 ms at M=1 and
+239.84 ms at M=4, a ratio of **1.771**, so at emit 2.639 the ceiling is
+**1.48x** against 1.387x measured — about 7% of round time is still
+non-verification work. Reaching 1.7x needs emit >= 3.03 and 1.9x needs
+emit >= 3.39, which are draft-quality (training) targets, not runtime ones.
+M=4 is already the best width: M=2 would need emit 2.57 against a ceiling of
+2.0, and M=8 (ratio 2.767) would need 4.70.
+
 ---
 
 ## Apple M4 base 24 GB — Qwen3.8-27B dense (W2)
