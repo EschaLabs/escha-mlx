@@ -1,6 +1,17 @@
 {
   "measurement_date": "2026-09-07",
   "runtime_revision": "b30bb9b83113a4d391aeb676fc3ebf1f3cba0ad4",
+  "historical_configuration": {
+    "mtp_head_precision": "fp16",
+    "mtp_head_quantized": false,
+    "note": "The recorded runtime predates MTP draft-head quantization and loads the checkpoint's stored fp16 head. All original measurements, revisions and reproduce_with commands are retained. Reproducing the historical setup requires that runtime revision, checkpoint and software environment."
+  },
+  "recheck_with_current_code": {
+    "note": "These commands explicitly select the stored draft precision on the current checkout. They produce new measurements; selecting fp16 alone does not recreate the historical runtime or guarantee the original timings. Use reproduce_with.server_client for the server request workload.",
+    "one_shot": "ESCHA_MLX_MTP_HEAD_BITS=fp16 python bench/mtp.py --model \"$MODEL\" --mode one-shot --out /tmp/mtp-fp16-one-shot.json",
+    "continuous_batch": "ESCHA_MLX_MTP_HEAD_BITS=fp16 python bench/mtp.py --model \"$MODEL\" --mode continuous --batches 1,2,4,8 --out /tmp/mtp-fp16-batch.json",
+    "server": "ESCHA_MLX_MTP_HEAD_BITS=fp16 python -m escha_mlx.server --model \"$MODEL\" --mtp --port 18102 --prefill-step-size 256 --decode-concurrency 8 --prompt-concurrency 2"
+  },
   "model": "EschaLabs/Qwen3.8-27B-Escha-W2",
   "machine": {
     "device": "Apple M5 Pro, 16-core GPU",

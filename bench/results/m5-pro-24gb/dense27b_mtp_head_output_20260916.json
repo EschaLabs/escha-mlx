@@ -1,0 +1,1720 @@
+{
+  "provenance": {
+    "note": "Completed output comparison of the PR #12 snapshot before rebase; these are not measurements of the later rebased commit.",
+    "source_revision": "46140e0511d501e147e60168a86d9b461dd438ed",
+    "source_dirty": null,
+    "source_dirty_note": "The original snapshot runner did not record git status; per-file source hashes are retained below.",
+    "original_runner_sha256": "e4f66cbe335bf8e6abdd03c833d342da2e0e4184c11d945617837b3a0c84c409",
+    "measurement_scope": "12 greedy cases, 2 sampled cases, and 3 same-head repeat cases. The user-interrupted long_math follow-up is excluded.",
+    "interpretation": "Output equality only, not a throughput benchmark or quality evaluation."
+  },
+  "started_at": "2026-09-16T04:05:27.966189+00:00",
+  "pr": 12,
+  "pr_head": "46140e0511d501e147e60168a86d9b461dd438ed",
+  "pr_base": "13f63d9fd7dc9d91350b6d8f39d55021fe07221f",
+  "source_sha256": {
+    "escha_mlx/__init__.py": "580aae05d3b4e9b1a81535720098104178c45d53fb1b505ab4ae70e8cca6b96f",
+    "escha_mlx/benchmark_metadata.py": "e83ee79bc059561184318ea87c70eaf3d17a78017f340f16ce68aaf951ad6832",
+    "escha_mlx/dense.py": "add5753996ec4fc69da37047aa40baa6b6791e637abc1e8ecc1619f78e26c2fd",
+    "escha_mlx/envs.py": "1df12f74a75ea24273ea37172f80e21f4ae43fe67ffcdfb1a17ddd834c3eb7d8",
+    "escha_mlx/gdn_cache.py": "95ed2f2bbf7a870aa0a39aee3cf9e0fb8edd813abbd56b3a615e32546e4d2e86",
+    "escha_mlx/generate.py": "f972bf19458ba1d5cb0b0d567f09bedf0164acf247473937ac224893bdf20028",
+    "escha_mlx/loader.py": "a81760e9a687007bee3e6ad343dc540c281fd7136a61b0af1bccf2129b00c3cf",
+    "escha_mlx/models/__init__.py": "6592afc94cff0a33285134ec089d4be4905cd83a07cb8ced3040fa10e79e878c",
+    "escha_mlx/models/qwen3_5.py": "5280da1446faa805d7ddf46e70ef6ece67c405ba4b193165fe02c3989100d540",
+    "escha_mlx/models/qwen3_5_moe.py": "8469ee6700c48fa7eef6fd937a767a963f2d194fa3445eb2f5167b032b11fe40",
+    "escha_mlx/moe.py": "667cb819debd358e2e185efbbe345a2e22e882f3d0225ef360d39c6f6a4b6346",
+    "escha_mlx/msl.py": "985e3f75533a61a66d3f2278eb4b4fe3129e01a18e9a463c51880764f71ecb15",
+    "escha_mlx/mtp.py": "ae902a34dbdb1793b46e4a0be8f4fe89915b164a972f3da2ef23df8de779ebe6",
+    "escha_mlx/mtp_batch.py": "997da534802b5d206e5cca8261cbca3f0dd02df3982b0661d861967429cebe45",
+    "escha_mlx/mtp_topk.py": "2432e66999ed595f49f35fc218e9106dec2d753efae751faa72e209c0288ced1",
+    "escha_mlx/quant.py": "634956178dbcc341bfc7cc37633a3b5945c298cc73d055669da5d643d25e4728",
+    "escha_mlx/ref.py": "f4216f0fc30d79e2fd92dcc1388732349818b4fefd14b06f4fac035d5f347cfe",
+    "escha_mlx/server.py": "a1a8d4e3a4180893ce1d9117fe161b35576b221fbd7ca7c8985eaa5679256e6b"
+  },
+  "machine": {
+    "device_name": "Apple M5 Pro",
+    "max_recommended_working_set_size": 19069665280,
+    "memory_size": 25769803776,
+    "architecture": "applegpu_g17s",
+    "max_buffer_length": 14302248960,
+    "resource_limit": 499000
+  },
+  "macos": "26.6.2",
+  "versions": {
+    "mlx": "0.32.0",
+    "mlx-lm": "0.31.3",
+    "numpy": "2.5.1",
+    "safetensors": "0.8.0"
+  },
+  "model": "EschaLabs/Qwen3.8-27B-Escha-W2",
+  "model_hf_revision": null,
+  "checkpoint_files": {
+    "config.json": {
+      "bytes": 70151,
+      "sha256": "cf7f1d3eca065e5d3f82316543ed8cdf85cdbd73a0cd2a587c1fda608838f4e3"
+    },
+    "mtp/config.json": {
+      "bytes": 3636,
+      "sha256": "75ee6918f289ce855ca196cfdedfa29ae572054441554e7c33977ebde4565b5f"
+    },
+    "mtp/model.safetensors": {
+      "bytes": 849400408,
+      "sha256": "51f430e5c08186ad9ed37043e4c34ee1f7841695e0932a62e28f281048f893a8"
+    }
+  },
+  "environment": {},
+  "settings": {
+    "batch": 1,
+    "prefill_step_size": 256,
+    "stop_at_eos": true,
+    "target": "Same loaded target instance, same weights for every arm",
+    "caches": "Fresh target and draft caches on every run",
+    "rng": "Reseed immediately before each generation, after all model loading",
+    "ar": "mlx_lm.generate.generate_step; upstream prefill boundary retained",
+    "comparison": "Same-position token equality, including EOS; not a quality metric"
+  },
+  "cases": [
+    {
+      "case": {
+        "id": "code_python",
+        "thinking": false,
+        "limit": 256,
+        "prompt": "Write a Python function merge_intervals(intervals) that merges overlapping closed intervals. Include three assertions covering empty input, touching intervals, and unsorted input. Output only code."
+      },
+      "rendered_prompt": "<|im_start|>user\nWrite a Python function merge_intervals(intervals) that merges overlapping closed intervals. Include three assertions covering empty input, touching intervals, and unsorted input. Output only code.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+      "prompt_ids": [248045,846,198,7734,264,12654,709,10562,87682,1494,40798,8,421,78161,48142,7629,26126,13,28763,2250,52992,17661,4147,1879,11,29588,26126,11,321,632,27379,1879,13,8984,1132,1970,13,248046,198,248045,74455,198,248068,271,248069,271],
+      "prompt_tokens": 46,
+      "runs": {
+        "ar": {
+          "tokens": [71093,12305,198,727,10562,87682,1494,40798,1590,198,262,413,524,26126,25,198,285,460,2958,198,1031,262,653,15495,26126,539,1151,1406,198,262,26126,283,10300,1494,40798,11,1328,26612,830,25,830,58,15,2387,198,1031,262,25170,283,498,390,40798,58,15,4891,198,262,364,1428,303,26126,58,16,25,5491,198,285,1483,283,25170,7368,16,60,198,285,413,1428,58,15,60,2564,1483,58,16,5491,198,309,653,5875,87502,466,29588,11,10562,198,309,25170,7368,16,60,283,318,4119,58,15,1089,1866,22634,58,16,1089,1428,58,16,9087,198,285,745,25,198,309,25170,1989,8497,8,198,1031,262,460,25170,271,2,57788,198,2138,10562,87682,10243,8,606,2958,198,2138,10562,87682,56611,16,11,220,18,681,318,18,11,220,20,45047,606,17294,16,11,220,20,7025,198,2138,10562,87682,56611,20,11,220,22,681,318,16,11,220,18,681,318,17,11,220,19,45047,606,17294,16,11,220,19,681,318,20,11,220,22,7025,198,71093,248046],
+          "text": "```python\ndef merge_intervals(intervals):\n    if not intervals:\n        return []\n    \n    # Sort intervals by start point\n    intervals = sorted(intervals, key=lambda x: x[0])\n    \n    merged = [intervals[0]]\n    for current in intervals[1:]:\n        last = merged[-1]\n        if current[0] <= last[1]:\n            # Overlapping or touching, merge\n            merged[-1] = (last[0], max(last[1], current[1]))\n        else:\n            merged.append(current)\n    \n    return merged\n\n# Assertions\nassert merge_intervals([]) == []\nassert merge_intervals([(1, 3), (3, 5)]) == [(1, 5)]\nassert merge_intervals([(5, 7), (1, 3), (2, 4)]) == [(1, 4), (5, 7)]\n```<|im_end|>",
+          "token_count": 202,
+          "digest": "c8a84ff8c36af13557e2a2bfbbad586f4c28bd4b25b99330816f2ea4c7892cd5",
+          "finish_reason": "eos",
+          "elapsed_s": 18.504997666110285,
+          "from_draft_count": 0,
+          "mean_emit": 1,
+          "first_difference_logprobs": {}
+        },
+        "fp16": {
+          "tokens": [71093,12305,198,727,10562,87682,1494,40798,1590,198,262,413,524,26126,25,198,285,460,2958,198,1031,262,653,15495,26126,539,1151,1406,198,262,26126,283,10300,1494,40798,11,1328,26612,830,25,830,58,15,2387,198,1031,262,25170,283,498,390,40798,58,15,4891,198,262,364,1428,303,26126,58,16,25,5491,198,285,1483,283,25170,7368,16,60,198,285,413,1428,58,15,60,2564,1483,58,16,5491,198,309,653,5875,87502,466,29588,11,10562,198,309,25170,7368,16,60,283,318,4119,58,15,1089,1866,22634,58,16,1089,1428,58,16,9087,198,285,745,25,198,309,25170,1989,8497,8,198,1031,262,460,25170,271,2,57788,198,2138,10562,87682,10243,8,606,2958,198,2138,10562,87682,56611,16,11,220,18,681,318,18,11,220,20,45047,606,17294,16,11,220,20,7025,198,2138,10562,87682,56611,20,11,220,22,681,318,16,11,220,18,681,318,17,11,220,19,45047,606,17294,16,11,220,19,681,318,20,11,220,22,7025,198,71093,248046],
+          "text": "```python\ndef merge_intervals(intervals):\n    if not intervals:\n        return []\n    \n    # Sort intervals by start point\n    intervals = sorted(intervals, key=lambda x: x[0])\n    \n    merged = [intervals[0]]\n    for current in intervals[1:]:\n        last = merged[-1]\n        if current[0] <= last[1]:\n            # Overlapping or touching, merge\n            merged[-1] = (last[0], max(last[1], current[1]))\n        else:\n            merged.append(current)\n    \n    return merged\n\n# Assertions\nassert merge_intervals([]) == []\nassert merge_intervals([(1, 3), (3, 5)]) == [(1, 5)]\nassert merge_intervals([(5, 7), (1, 3), (2, 4)]) == [(1, 4), (5, 7)]\n```<|im_end|>",
+          "token_count": 202,
+          "digest": "c8a84ff8c36af13557e2a2bfbbad586f4c28bd4b25b99330816f2ea4c7892cd5",
+          "finish_reason": "eos",
+          "elapsed_s": 9.009945375029929,
+          "from_draft_count": 146,
+          "mean_emit": 3.607142857142857,
+          "first_difference_logprobs": {}
+        },
+        "q4": {
+          "tokens": [71093,12305,198,727,10562,87682,1494,40798,1590,198,262,413,524,26126,25,198,285,460,2958,198,1031,262,653,15495,26126,539,1151,1406,198,262,26126,283,10300,1494,40798,11,1328,26612,830,25,830,58,15,2387,198,1031,262,25170,283,498,390,40798,58,15,4891,198,262,364,1428,303,26126,58,16,25,5491,198,285,1483,283,25170,7368,16,60,198,285,413,1428,58,15,60,2564,1483,58,16,5491,198,309,653,5875,87502,466,29588,11,10562,198,309,25170,7368,16,60,283,318,4119,58,15,1089,1866,22634,58,16,1089,1428,58,16,9087,198,285,745,25,198,309,25170,1989,8497,8,198,1031,262,460,25170,271,2,57788,198,2138,10562,87682,10243,8,606,2958,198,2138,10562,87682,56611,16,11,220,18,681,318,18,11,220,20,45047,606,17294,16,11,220,20,7025,198,2138,10562,87682,56611,20,11,220,22,681,318,16,11,220,18,681,318,17,11,220,19,45047,606,17294,16,11,220,19,681,318,20,11,220,22,7025,198,71093,248046],
+          "text": "```python\ndef merge_intervals(intervals):\n    if not intervals:\n        return []\n    \n    # Sort intervals by start point\n    intervals = sorted(intervals, key=lambda x: x[0])\n    \n    merged = [intervals[0]]\n    for current in intervals[1:]:\n        last = merged[-1]\n        if current[0] <= last[1]:\n            # Overlapping or touching, merge\n            merged[-1] = (last[0], max(last[1], current[1]))\n        else:\n            merged.append(current)\n    \n    return merged\n\n# Assertions\nassert merge_intervals([]) == []\nassert merge_intervals([(1, 3), (3, 5)]) == [(1, 5)]\nassert merge_intervals([(5, 7), (1, 3), (2, 4)]) == [(1, 4), (5, 7)]\n```<|im_end|>",
+          "token_count": 202,
+          "digest": "c8a84ff8c36af13557e2a2bfbbad586f4c28bd4b25b99330816f2ea4c7892cd5",
+          "finish_reason": "eos",
+          "elapsed_s": 7.79310758295469,
+          "from_draft_count": 146,
+          "mean_emit": 3.607142857142857,
+          "first_difference_logprobs": {}
+        }
+      },
+      "comparisons": {
+        "fp16_vs_q4": {
+          "exact": true,
+          "lengths": [202,202],
+          "position_matches": 202,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        },
+        "ar_vs_fp16": {
+          "exact": true,
+          "lengths": [202,202],
+          "position_matches": 202,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        },
+        "ar_vs_q4": {
+          "exact": true,
+          "lengths": [202,202],
+          "position_matches": 202,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "code_sql",
+        "thinking": false,
+        "limit": 256,
+        "prompt": "PostgreSQL has orders(id, customer_id, created_at, amount). Write a query returning each customer's latest order, breaking timestamp ties by largest id. Explain in two sentences why the result has one row per customer."
+      },
+      "rendered_prompt": "<|im_start|>user\nPostgreSQL has orders(id, customer_id, created_at, amount). Write a query returning each customer's latest order, breaking timestamp ties by largest id. Explain in two sentences why the result has one row per customer.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+      "prompt_ids": [248045,846,198,3997,57778,682,9861,3598,11,5813,816,11,3354,3625,11,3202,553,9357,264,3134,13064,1754,5813,579,5362,1906,11,14293,11112,19213,539,7526,850,13,79091,303,1330,22157,3069,279,1067,682,799,2713,791,5813,13,248046,198,248045,74455,198,248068,271,248069,271],
+      "prompt_tokens": 56,
+      "runs": {
+        "ar": {
+          "tokens": [71093,3427,198,4703,296,4749,198,29109,9861,296,198,25665,318,78,30737,816,11,296,22350,3625,11,296,1702,8,283,318,198,262,18519,5813,816,11,8075,68556,3625,681,8075,3598,8,198,262,4154,9861,198,262,5120,5813,816,283,296,30737,816,198,262,26008,7466,5813,816,198,1174,198,71093,271,13784,11,279,3294,3134,369,14673,1521,1510,10272,3598,44646,303,279,1146,1574,3070,914,13902,7618,310,279,2713,440,279,1866,1510,6898,3625,63,413,1017,513,19213,13,357,777,21094,5313,369,310,958,264,3136,709,466,264,46683,1146,1574,421,9971,13081,279,17592,52483,11870,13,271,8160,369,279,4252,3134,1608,264,3136,709,25,271,71093,3427,198,4703,348,198,29109,318,198,262,18519,695,285,296,51039,198,285,44193,18777,363,34291,318,198,309,6553,6871,7466,5813,816,695,309,15064,7466,3354,3625,15616,11,850,15616,198,285,847,430,53966,198,262,4154,9861,296,198,8,20364,198,25665,53966,283,220,16,26,198,71093,271,332,67407,64700,198,760,1510,14654,18777,52434,3136,709,48233,264,4752,49282,1324,310,1754,2713,2785,1754,5813,16168,11,11128,539,1510,6898,3625,63,41662,321,1179,1510,306,63,41662,310,1387,19213,13,3113,28701,364,1510,34445,283,220,16,7561,567,5790,421,1132,279,3074,2713,440,279,5362,11112],
+          "text": "```sql\nSELECT o.*\nFROM orders o\nWHERE (o.customer_id, o.created_at, o.id) = (\n    SELECT customer_id, MAX(created_at), MAX(id)\n    FROM orders\n    WHERE customer_id = o.customer_id\n    GROUP BY customer_id\n);\n```\n\nWait, the above query is incorrect because `MAX(id)` in the subquery doesn't necessarily correspond to the row with the max `created_at` if there are ties. A more robust approach is to use a window function or a correlated subquery that properly handles the tie-breaking logic.\n\nHere is the correct query using a window function:\n\n```sql\nSELECT *\nFROM (\n    SELECT \n        o.*,\n        ROW_NUMBER() OVER (\n            PARTITION BY customer_id \n            ORDER BY created_at DESC, id DESC\n        ) as rn\n    FROM orders o\n) ranked\nWHERE rn = 1;\n```\n\n**Explanation:**\nThe `ROW_NUMBER()` window function assigns a unique sequential number to each row within each customer partition, ordered by `created_at` descending and then `id` descending to break ties. By filtering for `rn = 1`, we ensure that only the single row with the latest timestamp",
+          "token_count": 256,
+          "digest": "12321607c321e4c7dffd9587060821b0abe6797c4257724fe67a8cc58077d739",
+          "finish_reason": "length",
+          "elapsed_s": 16.758574917097576,
+          "from_draft_count": 0,
+          "mean_emit": 1,
+          "first_difference_logprobs": {}
+        },
+        "fp16": {
+          "tokens": [71093,3427,198,4703,296,4749,198,29109,9861,296,198,25665,318,78,30737,816,11,296,22350,3625,11,296,1702,8,283,318,198,262,18519,5813,816,11,8075,68556,3625,681,8075,3598,8,198,262,4154,9861,198,262,5120,5813,816,283,296,30737,816,198,262,26008,7466,5813,816,198,1174,198,71093,271,13784,11,279,3294,3134,369,14673,1521,1510,10272,3598,44646,303,279,1146,1574,3070,914,13902,7618,310,279,2713,440,279,1866,1510,6898,3625,63,413,1017,513,19213,13,357,777,21094,5313,369,310,958,264,3136,709,466,264,46683,1146,1574,421,9971,13081,279,17592,52483,11870,13,271,8160,369,279,4252,3134,1608,264,3136,709,25,271,71093,3427,198,4703,348,198,29109,318,198,262,18519,695,285,296,51039,198,285,44193,18777,363,34291,318,198,309,6553,6871,7466,5813,816,695,309,15064,7466,3354,3625,15616,11,850,15616,198,285,847,430,53966,198,262,4154,9861,296,198,8,20364,198,25665,53966,283,220,16,26,198,71093,271,332,67407,64700,198,760,1510,14654,18777,52434,3136,709,48233,264,4752,49282,1324,310,1754,2713,2785,1754,5813,16168,11,11128,539,1510,6898,3625,63,41662,321,1179,1510,306,63,41662,310,1387,19213,13,3113,28701,364,1510,34445,283,220,16,7561,567,5790,421,1132,279,3074,2713,440,279,5362,11112],
+          "text": "```sql\nSELECT o.*\nFROM orders o\nWHERE (o.customer_id, o.created_at, o.id) = (\n    SELECT customer_id, MAX(created_at), MAX(id)\n    FROM orders\n    WHERE customer_id = o.customer_id\n    GROUP BY customer_id\n);\n```\n\nWait, the above query is incorrect because `MAX(id)` in the subquery doesn't necessarily correspond to the row with the max `created_at` if there are ties. A more robust approach is to use a window function or a correlated subquery that properly handles the tie-breaking logic.\n\nHere is the correct query using a window function:\n\n```sql\nSELECT *\nFROM (\n    SELECT \n        o.*,\n        ROW_NUMBER() OVER (\n            PARTITION BY customer_id \n            ORDER BY created_at DESC, id DESC\n        ) as rn\n    FROM orders o\n) ranked\nWHERE rn = 1;\n```\n\n**Explanation:**\nThe `ROW_NUMBER()` window function assigns a unique sequential number to each row within each customer partition, ordered by `created_at` descending and then `id` descending to break ties. By filtering for `rn = 1`, we ensure that only the single row with the latest timestamp",
+          "token_count": 256,
+          "digest": "12321607c321e4c7dffd9587060821b0abe6797c4257724fe67a8cc58077d739",
+          "finish_reason": "length",
+          "elapsed_s": 11.097197958035395,
+          "from_draft_count": 178,
+          "mean_emit": 3.282051282051282,
+          "first_difference_logprobs": {}
+        },
+        "q4": {
+          "tokens": [71093,3427,198,4703,296,4749,198,29109,9861,296,198,25665,318,78,30737,816,11,296,22350,3625,11,296,1702,8,283,318,198,262,18519,5813,816,11,8075,68556,3625,681,8075,3598,8,198,262,4154,9861,198,262,5120,5813,816,283,296,30737,816,198,262,26008,7466,5813,816,198,1174,198,71093,271,13784,11,279,3294,3134,369,14673,1521,1510,10272,3598,44646,303,279,1146,1574,3070,914,13902,7618,310,279,2713,440,279,1866,1510,6898,3625,63,413,1017,513,19213,13,357,777,21094,5313,369,310,958,264,3136,709,466,264,46683,1146,1574,421,9971,13081,279,17592,52483,11870,13,271,8160,369,279,4252,3134,1608,264,3136,709,25,271,71093,3427,198,4703,348,198,29109,318,198,262,18519,695,285,296,51039,198,285,44193,18777,363,34291,318,198,309,6553,6871,7466,5813,816,695,309,15064,7466,3354,3625,15616,11,850,15616,198,285,847,430,53966,198,262,4154,9861,296,198,8,20364,198,25665,53966,283,220,16,26,198,71093,271,332,67407,64700,198,760,1510,14654,18777,52434,3136,709,48233,264,4752,49282,1324,310,1754,2713,2785,1754,5813,16168,11,11128,539,1510,6898,3625,63,41662,321,1179,1510,306,63,41662,310,1387,19213,13,3113,28701,364,1510,34445,283,220,16,7561,567,5790,421,1132,279,3074,2713,440,279,5362,11112],
+          "text": "```sql\nSELECT o.*\nFROM orders o\nWHERE (o.customer_id, o.created_at, o.id) = (\n    SELECT customer_id, MAX(created_at), MAX(id)\n    FROM orders\n    WHERE customer_id = o.customer_id\n    GROUP BY customer_id\n);\n```\n\nWait, the above query is incorrect because `MAX(id)` in the subquery doesn't necessarily correspond to the row with the max `created_at` if there are ties. A more robust approach is to use a window function or a correlated subquery that properly handles the tie-breaking logic.\n\nHere is the correct query using a window function:\n\n```sql\nSELECT *\nFROM (\n    SELECT \n        o.*,\n        ROW_NUMBER() OVER (\n            PARTITION BY customer_id \n            ORDER BY created_at DESC, id DESC\n        ) as rn\n    FROM orders o\n) ranked\nWHERE rn = 1;\n```\n\n**Explanation:**\nThe `ROW_NUMBER()` window function assigns a unique sequential number to each row within each customer partition, ordered by `created_at` descending and then `id` descending to break ties. By filtering for `rn = 1`, we ensure that only the single row with the latest timestamp",
+          "token_count": 256,
+          "digest": "12321607c321e4c7dffd9587060821b0abe6797c4257724fe67a8cc58077d739",
+          "finish_reason": "length",
+          "elapsed_s": 9.747771665919572,
+          "from_draft_count": 176,
+          "mean_emit": 3.2,
+          "first_difference_logprobs": {}
+        }
+      },
+      "comparisons": {
+        "fp16_vs_q4": {
+          "exact": true,
+          "lengths": [256,256],
+          "position_matches": 256,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        },
+        "ar_vs_fp16": {
+          "exact": true,
+          "lengths": [256,256],
+          "position_matches": 256,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        },
+        "ar_vs_q4": {
+          "exact": true,
+          "lengths": [256,256],
+          "position_matches": 256,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "math_calc",
+        "thinking": false,
+        "limit": 256,
+        "prompt": "Calculate (137 * 289) - (48 * 76) + 2026. Show the intermediate products and put the exact integer answer on the last line."
+      },
+      "rendered_prompt": "<|im_start|>user\nCalculate (137 * 289) - (48 * 76) + 2026. Show the intermediate products and put the exact integer answer on the last line.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+      "prompt_ids": [248045,846,198,46270,318,16,18,22,348,220,17,23,24,8,471,318,19,23,348,220,22,21,8,478,220,17,15,17,21,13,6712,279,27510,3741,321,2113,279,4581,7308,4087,383,279,1483,1500,13,248046,198,248045,74455,198,248068,271,248069,271],
+      "prompt_tokens": 54,
+      "runs": {
+        "ar": {
+          "tokens": [1206,10724,279,7258,4771,16,18,22,1088,14695,220,17,23,24,8,471,318,19,23,1088,14695,220,22,21,8,478,220,17,15,17,21,53031,567,668,1387,424,1441,1083,7123,11,36370,279,27510,3741,1118,13,271,332,8046,220,16,25,19892,279,1118,1918,393,16,18,22,1088,14695,220,17,23,24,3,332,271,13682,198,59,7038,90,45569,92,198,16,18,22,1088,14695,220,17,23,24,14161,220,16,18,22,1088,14695,318,18,15,15,471,220,16,16,8,24193,198,5,28,318,16,18,22,1088,14695,220,18,15,15,8,471,318,16,18,22,1088,14695,220,16,16,8,24193,198,5,28,220,19,16,16,15,15,471,220,16,20,15,22,24193,198,5,28,220,18,24,20,24,18,198,59,400,90,45569,92,198,13682,271,88842,11,1608,5129,44896,25,198,13682,198,59,7038,90,1595,14728,81,92,198,256,220,17,23,24,24193,198,4795,1672,220,16,18,22,24193,198,59,71,1021,198,220,220,17,15,17,18,1088,30571,318,17,23,24,1088,14695,220,22,8,24193,198,220,220,23,21,22,15,1088,30571,318,17,23,24,1088,14695,220,18,15,8,24193,198,220,17,23,24,15,15,1088,30571,318,17,23,24,1088,14695,220,16,15,15],
+          "text": "To calculate the expression $(137 \\times 289) - (48 \\times 76) + 2026$, we will break it down into steps, calculating the intermediate products first.\n\n**Step 1: Calculate the first product $137 \\times 289$**\n\n$$\n\\begin{aligned}\n137 \\times 289 &= 137 \\times (300 - 11) \\\\\n&= (137 \\times 300) - (137 \\times 11) \\\\\n&= 41100 - 1507 \\\\\n&= 39593\n\\end{aligned}\n$$\n\nAlternatively, using standard multiplication:\n$$\n\\begin{array}{r}\n   289 \\\\\n\\times 137 \\\\\n\\hline\n  2023 \\quad (289 \\times 7) \\\\\n  8670 \\quad (289 \\times 30) \\\\\n 28900 \\quad (289 \\times 100",
+          "token_count": 256,
+          "digest": "e0a17d925e6cf8c6b3801bd99a24766bc14434b2f7697ffba49e24aaad1d8b2d",
+          "finish_reason": "length",
+          "elapsed_s": 16.581893416005187,
+          "from_draft_count": 0,
+          "mean_emit": 1,
+          "first_difference_logprobs": {}
+        },
+        "fp16": {
+          "tokens": [1206,10724,279,7258,4771,16,18,22,1088,14695,220,17,23,24,8,471,318,19,23,1088,14695,220,22,21,8,478,220,17,15,17,21,53031,567,668,1387,424,1441,1083,7123,11,36370,279,27510,3741,1118,13,271,332,8046,220,16,25,19892,279,1118,1918,393,16,18,22,1088,14695,220,17,23,24,3,332,271,13682,198,59,7038,90,45569,92,198,16,18,22,1088,14695,220,17,23,24,14161,220,16,18,22,1088,14695,318,18,15,15,471,220,16,16,8,24193,198,5,28,318,16,18,22,1088,14695,220,18,15,15,8,471,318,16,18,22,1088,14695,220,16,16,8,24193,198,5,28,220,19,16,16,15,15,471,220,16,20,15,22,24193,198,5,28,220,18,24,20,24,18,198,59,400,90,45569,92,198,13682,271,88842,11,1608,5129,44896,25,198,13682,198,59,7038,90,1595,14728,81,92,198,256,220,17,23,24,24193,198,4795,1672,220,16,18,22,24193,198,59,71,1021,198,220,220,17,15,17,18,1088,30571,318,17,23,24,1088,14695,220,22,8,24193,198,220,220,23,21,22,15,1088,30571,318,17,23,24,1088,14695,220,18,15,8,24193,198,220,17,23,24,15,15,1088,30571,318,17,23,24,1088,14695,220,16,15,15],
+          "text": "To calculate the expression $(137 \\times 289) - (48 \\times 76) + 2026$, we will break it down into steps, calculating the intermediate products first.\n\n**Step 1: Calculate the first product $137 \\times 289$**\n\n$$\n\\begin{aligned}\n137 \\times 289 &= 137 \\times (300 - 11) \\\\\n&= (137 \\times 300) - (137 \\times 11) \\\\\n&= 41100 - 1507 \\\\\n&= 39593\n\\end{aligned}\n$$\n\nAlternatively, using standard multiplication:\n$$\n\\begin{array}{r}\n   289 \\\\\n\\times 137 \\\\\n\\hline\n  2023 \\quad (289 \\times 7) \\\\\n  8670 \\quad (289 \\times 30) \\\\\n 28900 \\quad (289 \\times 100",
+          "token_count": 256,
+          "digest": "e0a17d925e6cf8c6b3801bd99a24766bc14434b2f7697ffba49e24aaad1d8b2d",
+          "finish_reason": "length",
+          "elapsed_s": 10.38793083303608,
+          "from_draft_count": 185,
+          "mean_emit": 3.6056338028169015,
+          "first_difference_logprobs": {}
+        },
+        "q4": {
+          "tokens": [1206,10724,279,7258,4771,16,18,22,1088,14695,220,17,23,24,8,471,318,19,23,1088,14695,220,22,21,8,478,220,17,15,17,21,53031,567,668,1387,424,1441,1083,7123,11,36370,279,27510,3741,1118,13,271,332,8046,220,16,25,19892,279,1118,1918,393,16,18,22,1088,14695,220,17,23,24,3,332,271,13682,198,59,7038,90,45569,92,198,16,18,22,1088,14695,220,17,23,24,14161,220,16,18,22,1088,14695,318,18,15,15,471,220,16,16,8,24193,198,5,28,318,16,18,22,1088,14695,220,18,15,15,8,471,318,16,18,22,1088,14695,220,16,16,8,24193,198,5,28,220,19,16,16,15,15,471,220,16,20,15,22,24193,198,5,28,220,18,24,20,24,18,198,59,400,90,45569,92,198,13682,271,88842,11,1608,5129,44896,25,198,13682,198,59,7038,90,1595,14728,81,92,198,256,220,17,23,24,24193,198,4795,1672,220,16,18,22,24193,198,59,71,1021,198,220,220,17,15,17,18,1088,30571,318,17,23,24,1088,14695,220,22,8,24193,198,220,220,23,21,22,15,1088,30571,318,17,23,24,1088,14695,220,18,15,8,24193,198,220,17,23,24,15,15,1088,30571,318,17,23,24,1088,14695,220,16,15,15],
+          "text": "To calculate the expression $(137 \\times 289) - (48 \\times 76) + 2026$, we will break it down into steps, calculating the intermediate products first.\n\n**Step 1: Calculate the first product $137 \\times 289$**\n\n$$\n\\begin{aligned}\n137 \\times 289 &= 137 \\times (300 - 11) \\\\\n&= (137 \\times 300) - (137 \\times 11) \\\\\n&= 41100 - 1507 \\\\\n&= 39593\n\\end{aligned}\n$$\n\nAlternatively, using standard multiplication:\n$$\n\\begin{array}{r}\n   289 \\\\\n\\times 137 \\\\\n\\hline\n  2023 \\quad (289 \\times 7) \\\\\n  8670 \\quad (289 \\times 30) \\\\\n 28900 \\quad (289 \\times 100",
+          "token_count": 256,
+          "digest": "e0a17d925e6cf8c6b3801bd99a24766bc14434b2f7697ffba49e24aaad1d8b2d",
+          "finish_reason": "length",
+          "elapsed_s": 8.972578292014077,
+          "from_draft_count": 184,
+          "mean_emit": 3.5555555555555554,
+          "first_difference_logprobs": {}
+        }
+      },
+      "comparisons": {
+        "fp16_vs_q4": {
+          "exact": true,
+          "lengths": [256,256],
+          "position_matches": 256,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        },
+        "ar_vs_fp16": {
+          "exact": true,
+          "lengths": [256,256],
+          "position_matches": 256,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        },
+        "ar_vs_q4": {
+          "exact": true,
+          "lengths": [256,256],
+          "position_matches": 256,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "math_word",
+        "thinking": false,
+        "limit": 256,
+        "prompt": "A tank is 1/3 full. Adding 24 liters makes it 3/5 full. What is its full capacity in liters? Show the equations, then verify the answer."
+      },
+      "rendered_prompt": "<|im_start|>user\nA tank is 1/3 full. Adding 24 liters makes it 3/5 full. What is its full capacity in liters? Show the equations, then verify the answer.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+      "prompt_ids": [248045,846,198,32,12526,369,220,16,14,18,2400,13,29381,220,17,19,89668,3520,424,220,18,14,20,2400,13,3437,369,1141,2400,8390,303,89668,30,6712,279,36655,11,1179,9845,279,4087,13,248046,198,248045,74455,198,248068,271,248069,271],
+      "prompt_tokens": 51,
+      "runs": {
+        "ar": {
+          "tokens": [8160,369,279,2923,13909,28253,6093,310,1423,279,2400,8390,314,279,12526,13,271,13962,220,16,13,18053,20762,321,2488,3038,11365,778,271,9764,393,34,3,381,279,2400,8390,314,279,12526,303,89668,13,271,332,6140,3130,64700,198,760,12526,369,56014,35790,90,16,14728,18,30675,2400,13,198,13682,1088,1272,90,6140,19649,92,283,1088,35790,90,16,14728,18,92,34,25273,271,332,18770,3130,64700,198,5836,7594,220,17,19,89668,11,279,12526,369,56014,35790,90,18,14728,20,30675,2400,13,198,13682,1088,1272,90,18770,19649,92,283,1088,35790,90,18,14728,20,92,34,25273,271,332,49112,64700,198,760,1534,7867,369,5951,310,279,2763,7867,5346,279,3568,3202,318,17,19,89668,553,198,13682,1088,1272,90,6140,19649,92,478,220,17,19,283,1088,1272,90,18770,19649,92,25273,271,3036,3570,10292,279,22666,303,3665,314,393,34,60439,198,13682,1088,35790,90,16,14728,18,92,34,478,220,17,19,283,1088,35790,90,18,14728,20,92,34,25273,271,13962,220,17,13,61148,364,393,34,3,271,1206,11290,364,393,34,53031,567,1144,310,40729,393,34,3,383,799,3008,314,279,22868,13,271,16,13,220,89999,56014,35790,90,16,14728,18,92,34,3,494,2107,10744,25,198,262,25273,220,17,19],
+          "text": "Here is the step-by-step solution to find the full capacity of the tank.\n\n### 1. Define Variables and Set Up Equations\n\nLet $C$ be the full capacity of the tank in liters.\n\n**Initial State:**\nThe tank is $\\frac{1}{3}$ full.\n$$ \\text{Initial Volume} = \\frac{1}{3}C $$\n\n**Final State:**\nAfter adding 24 liters, the tank is $\\frac{3}{5}$ full.\n$$ \\text{Final Volume} = \\frac{3}{5}C $$\n\n**Relationship:**\nThe final volume is equal to the initial volume plus the added amount (24 liters).\n$$ \\text{Initial Volume} + 24 = \\text{Final Volume} $$\n\nSubstituting the expressions in terms of $C$:\n$$ \\frac{1}{3}C + 24 = \\frac{3}{5}C $$\n\n### 2. Solve for $C$\n\nTo solve for $C$, we need to isolate $C$ on one side of the equation.\n\n1.  Subtract $\\frac{1}{3}C$ from both sides:\n    $$ 24",
+          "token_count": 256,
+          "digest": "7f48e5c66b64c80452b102d04eab56ef8b02663bd811971b5533d4a3cf87d468",
+          "finish_reason": "length",
+          "elapsed_s": 16.391993916011415,
+          "from_draft_count": 0,
+          "mean_emit": 1,
+          "first_difference_logprobs": {}
+        },
+        "fp16": {
+          "tokens": [8160,369,279,2923,13909,28253,6093,310,1423,279,2400,8390,314,279,12526,13,271,13962,220,16,13,18053,20762,321,2488,3038,11365,778,271,9764,393,34,3,381,279,2400,8390,314,279,12526,303,89668,13,271,332,6140,3130,64700,198,760,12526,369,56014,35790,90,16,14728,18,30675,2400,13,198,13682,1088,1272,90,6140,19649,92,283,1088,35790,90,16,14728,18,92,34,25273,271,332,18770,3130,64700,198,5836,7594,220,17,19,89668,11,279,12526,369,56014,35790,90,18,14728,20,30675,2400,13,198,13682,1088,1272,90,18770,19649,92,283,1088,35790,90,18,14728,20,92,34,25273,271,332,49112,64700,198,760,1534,7867,369,5951,310,279,2763,7867,5346,279,3568,3202,318,17,19,89668,553,198,13682,1088,1272,90,6140,19649,92,478,220,17,19,283,1088,1272,90,18770,19649,92,25273,271,3036,3570,10292,279,22666,303,3665,314,393,34,60439,198,13682,1088,35790,90,16,14728,18,92,34,478,220,17,19,283,1088,35790,90,18,14728,20,92,34,25273,271,13962,220,17,13,61148,364,393,34,3,271,1206,11290,364,393,34,53031,567,1144,310,40729,393,34,3,383,799,3008,314,279,22868,13,271,16,13,220,89999,56014,35790,90,16,14728,18,92,34,3,494,2107,10744,25,198,262,25273,220,17,19],
+          "text": "Here is the step-by-step solution to find the full capacity of the tank.\n\n### 1. Define Variables and Set Up Equations\n\nLet $C$ be the full capacity of the tank in liters.\n\n**Initial State:**\nThe tank is $\\frac{1}{3}$ full.\n$$ \\text{Initial Volume} = \\frac{1}{3}C $$\n\n**Final State:**\nAfter adding 24 liters, the tank is $\\frac{3}{5}$ full.\n$$ \\text{Final Volume} = \\frac{3}{5}C $$\n\n**Relationship:**\nThe final volume is equal to the initial volume plus the added amount (24 liters).\n$$ \\text{Initial Volume} + 24 = \\text{Final Volume} $$\n\nSubstituting the expressions in terms of $C$:\n$$ \\frac{1}{3}C + 24 = \\frac{3}{5}C $$\n\n### 2. Solve for $C$\n\nTo solve for $C$, we need to isolate $C$ on one side of the equation.\n\n1.  Subtract $\\frac{1}{3}C$ from both sides:\n    $$ 24",
+          "token_count": 256,
+          "digest": "7f48e5c66b64c80452b102d04eab56ef8b02663bd811971b5533d4a3cf87d468",
+          "finish_reason": "length",
+          "elapsed_s": 10.031068167067133,
+          "from_draft_count": 186,
+          "mean_emit": 3.657142857142857,
+          "first_difference_logprobs": {}
+        },
+        "q4": {
+          "tokens": [8160,369,279,2923,13909,28253,6093,310,1423,279,2400,8390,314,279,12526,13,271,13962,220,16,13,18053,20762,321,2488,3038,11365,778,271,9764,393,34,3,381,279,2400,8390,314,279,12526,303,89668,13,271,332,6140,3130,64700,198,760,12526,369,56014,35790,90,16,14728,18,30675,2400,13,198,13682,1088,1272,90,6140,19649,92,283,1088,35790,90,16,14728,18,92,34,25273,271,332,18770,3130,64700,198,5836,7594,220,17,19,89668,11,279,12526,369,56014,35790,90,18,14728,20,30675,2400,13,198,13682,1088,1272,90,18770,19649,92,283,1088,35790,90,18,14728,20,92,34,25273,271,332,49112,64700,198,760,1534,7867,369,5951,310,279,2763,7867,5346,279,3568,3202,318,17,19,89668,553,198,13682,1088,1272,90,6140,19649,92,478,220,17,19,283,1088,1272,90,18770,19649,92,25273,271,3036,3570,10292,279,22666,303,3665,314,393,34,60439,198,13682,1088,35790,90,16,14728,18,92,34,478,220,17,19,283,1088,35790,90,18,14728,20,92,34,25273,271,13962,220,17,13,61148,364,393,34,3,271,1206,11290,364,393,34,53031,567,1144,310,40729,393,34,3,383,799,3008,314,279,22868,13,271,16,13,220,89999,56014,35790,90,16,14728,18,92,34,3,494,2107,10744,25,198,262,25273,220,17,19],
+          "text": "Here is the step-by-step solution to find the full capacity of the tank.\n\n### 1. Define Variables and Set Up Equations\n\nLet $C$ be the full capacity of the tank in liters.\n\n**Initial State:**\nThe tank is $\\frac{1}{3}$ full.\n$$ \\text{Initial Volume} = \\frac{1}{3}C $$\n\n**Final State:**\nAfter adding 24 liters, the tank is $\\frac{3}{5}$ full.\n$$ \\text{Final Volume} = \\frac{3}{5}C $$\n\n**Relationship:**\nThe final volume is equal to the initial volume plus the added amount (24 liters).\n$$ \\text{Initial Volume} + 24 = \\text{Final Volume} $$\n\nSubstituting the expressions in terms of $C$:\n$$ \\frac{1}{3}C + 24 = \\frac{3}{5}C $$\n\n### 2. Solve for $C$\n\nTo solve for $C$, we need to isolate $C$ on one side of the equation.\n\n1.  Subtract $\\frac{1}{3}C$ from both sides:\n    $$ 24",
+          "token_count": 256,
+          "digest": "7f48e5c66b64c80452b102d04eab56ef8b02663bd811971b5533d4a3cf87d468",
+          "finish_reason": "length",
+          "elapsed_s": 8.494192417012528,
+          "from_draft_count": 188,
+          "mean_emit": 3.764705882352941,
+          "first_difference_logprobs": {}
+        }
+      },
+      "comparisons": {
+        "fp16_vs_q4": {
+          "exact": true,
+          "lengths": [256,256],
+          "position_matches": 256,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        },
+        "ar_vs_fp16": {
+          "exact": true,
+          "lengths": [256,256],
+          "position_matches": 256,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        },
+        "ar_vs_q4": {
+          "exact": true,
+          "lengths": [256,256],
+          "position_matches": 256,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "cjk_explain",
+        "thinking": false,
+        "limit": 256,
+        "prompt": "请用中文解释数据库事务的隔离级别，说明可重复读与读已提交的区别，并给出一个两笔事务交错执行的具体例子。控制在200字以内。"
+      },
+      "rendered_prompt": "<|im_start|>user\n请用中文解释数据库事务的隔离级别，说明可重复读与读已提交的区别，并给出一个两笔事务交错执行的具体例子。控制在200字以内。<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+      "prompt_ids": [248045,846,198,139054,99986,98682,101756,100026,95726,101962,104001,3709,98419,95824,108695,96451,95999,96451,96221,100598,111916,3709,96172,110334,96125,96177,97002,100026,122673,97328,104450,102177,1710,113309,17,15,15,96356,110268,1710,248046,198,248045,74455,198,248068,271,248069,271],
+      "prompt_tokens": 49,
+      "runs": {
+        "ar": {
+          "tokens": [101756,101962,104001,96987,104942,100026,108722,101802,95911,1710,96451,96221,100598,9616,7146,7313,95849,3709,100026,98640,97275,96903,96221,100598,100026,95726,103723,3709,103740,111388,96539,97275,96844,96902,3709,97322,97196,108695,96451,96304,1710,95824,108695,96451,9616,7850,7313,95849,3709,100026,95988,103769,111388,101825,96902,97989,98696,3709,96342,96539,98611,97313,96451,1710,271,110393,4960,100026,32,111388,104690,16,15,15,1710,100026,33,96123,104690,111271,17,15,15,145131,1710,95772,7146,95849,3709,32,108531,111388,98257,17,15,15,24178,95772,7850,95849,3709,32,108531,111388,97454,95814,16,15,15,3709,97559,129419,128523,1710,248046],
+          "text": "数据库隔离级别控制并发事务间的可见性。读已提交（RC）下，事务只能看到其他已提交事务的修改，每次读取可能看到不同数据，存在不可重复读问题。可重复读（RR）下，事务内多次读取同一数据结果一致，但可能产生幻读。\n\n示例：事务A读取余额100。事务B将余额改为200并提交。在RC下，A再次读取得到200；在RR下，A再次读取仍为100，保持快照一致性。<|im_end|>",
+          "token_count": 115,
+          "digest": "63133cb3269f3ea6bf7d329136336b6b2c818251f0f947b3d0802e5ef892e280",
+          "finish_reason": "eos",
+          "elapsed_s": 7.744833083939739,
+          "from_draft_count": 0,
+          "mean_emit": 1,
+          "first_difference_logprobs": {}
+        },
+        "fp16": {
+          "tokens": [101756,101962,104001,96987,104942,100026,108722,101802,95911,1710,96451,96221,100598,9616,7146,7313,95849,3709,100026,98640,97275,96903,96221,100598,100026,95726,103723,3709,103740,111388,96539,97275,96844,96902,3709,97322,97196,108695,96451,96304,1710,95824,108695,96451,9616,7850,7313,95849,3709,100026,95988,103769,111388,101825,96902,97989,98696,3709,96342,96539,98611,97313,96451,1710,271,110393,4960,100026,32,111388,104690,16,15,15,1710,100026,33,96123,104690,111271,17,15,15,145131,1710,95772,7146,95849,3709,32,108531,111388,98257,17,15,15,24178,95772,7850,95849,3709,32,108531,111388,97454,95814,16,15,15,3709,97559,129419,128523,1710,248046],
+          "text": "数据库隔离级别控制并发事务间的可见性。读已提交（RC）下，事务只能看到其他已提交事务的修改，每次读取可能看到不同数据，存在不可重复读问题。可重复读（RR）下，事务内多次读取同一数据结果一致，但可能产生幻读。\n\n示例：事务A读取余额100。事务B将余额改为200并提交。在RC下，A再次读取得到200；在RR下，A再次读取仍为100，保持快照一致性。<|im_end|>",
+          "token_count": 115,
+          "digest": "63133cb3269f3ea6bf7d329136336b6b2c818251f0f947b3d0802e5ef892e280",
+          "finish_reason": "eos",
+          "elapsed_s": 7.277513250010088,
+          "from_draft_count": 68,
+          "mean_emit": 2.4468085106382977,
+          "first_difference_logprobs": {}
+        },
+        "q4": {
+          "tokens": [101756,101962,104001,96987,104942,100026,108722,101802,95911,1710,96451,96221,100598,9616,7146,7313,95849,3709,100026,98640,97275,96903,96221,100598,100026,95726,103723,3709,103740,111388,96539,97275,96844,96902,3709,97322,97196,108695,96451,96304,1710,95824,108695,96451,9616,7850,7313,95849,3709,100026,95988,103769,111388,101825,96902,97989,98696,3709,96342,96539,98611,97313,96451,1710,271,110393,4960,100026,32,111388,104690,16,15,15,1710,100026,33,96123,104690,111271,17,15,15,145131,1710,95772,7146,95849,3709,32,108531,111388,98257,17,15,15,24178,95772,7850,95849,3709,32,108531,111388,97454,95814,16,15,15,3709,97559,129419,128523,1710,248046],
+          "text": "数据库隔离级别控制并发事务间的可见性。读已提交（RC）下，事务只能看到其他已提交事务的修改，每次读取可能看到不同数据，存在不可重复读问题。可重复读（RR）下，事务内多次读取同一数据结果一致，但可能产生幻读。\n\n示例：事务A读取余额100。事务B将余额改为200并提交。在RC下，A再次读取得到200；在RR下，A再次读取仍为100，保持快照一致性。<|im_end|>",
+          "token_count": 115,
+          "digest": "63133cb3269f3ea6bf7d329136336b6b2c818251f0f947b3d0802e5ef892e280",
+          "finish_reason": "eos",
+          "elapsed_s": 5.959386416012421,
+          "from_draft_count": 69,
+          "mean_emit": 2.5,
+          "first_difference_logprobs": {}
+        }
+      },
+      "comparisons": {
+        "fp16_vs_q4": {
+          "exact": true,
+          "lengths": [115,115],
+          "position_matches": 115,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        },
+        "ar_vs_fp16": {
+          "exact": true,
+          "lengths": [115,115],
+          "position_matches": 115,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        },
+        "ar_vs_q4": {
+          "exact": true,
+          "lengths": [115,115],
+          "position_matches": 115,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "cjk_translation",
+        "thinking": false,
+        "limit": 256,
+        "prompt": "将下面这句话译成自然的英文，并解释你如何处理其中的比喻：与其临渊羡鱼，不如退而结网；但开始之前，先确认这片水域真的有鱼。"
+      },
+      "rendered_prompt": "<|im_start|>user\n将下面这句话译成自然的英文，并解释你如何处理其中的比喻：与其临渊羡鱼，不如退而结网；但开始之前，先确认这片水域真的有鱼。<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+      "prompt_ids": [248045,846,198,96123,99133,109780,98719,95873,111756,98936,3709,96172,98682,95933,126829,109439,110837,4960,109756,96773,99875,103013,97255,3709,103810,96826,96051,96126,96020,24178,96342,96932,99439,3709,96218,101632,113266,119280,126318,97255,1710,248046,198,248045,74455,198,248068,271,248069,271],
+      "prompt_tokens": 50,
+      "runs": {
+        "ar": {
+          "tokens": [332,23640,64700,198,1,61745,1056,338,6448,506,279,7397,303,279,2919,440,63226,11,424,369,2577,310,708,1142,321,65230,264,4041,26,694,1518,488,3060,11,1236,2617,1017,513,3404,7397,303,411,2919,1149,271,332,67407,314,6017,1294,269,53844,64700,271,16,13,220,2972,16839,5972,13,191263,1340,69628,362,64700,198,262,561,3889,8193,16629,328,96773,99875,103013,97255,1,318,70,6448,506,279,7397,303,279,2919,440,63226,8,369,264,27882,850,32483,7063,328,3059,6806,1092,3672,599,1973,4483,1852,1149,733,6163,11,411,369,3428,23756,15433,430,328,70,6448,506,279,7397,1,466,328,3059,6806,279,7397,1288,864,72346,279,39107,13,4213,11,310,1236,424,4950,5629,303,6278,6163,11,353,14135,328,70,6448,506,279,7397,303,279,2919,440,63226,1,310,10000,279,8851,43837,1345,18905,7520,279,13861,1528,318,3059,88,553,271,17,13,220,2972,2432,22882,12614,290,36783,64700,198,262,328,96826,96051,96126,96020,1,318,2054,1180,321,65230,264,4041,8,369,264,43837,364,4483,14542,7123,310,10752,264,5614,13,353,23756,411,430,328,3237,1142,321,65230,264,4041,1288,864,13205,279,43837,33295,13,733,6163,11,328,868,511,264,4041,1,369,264,2708,11,87941,2099,421,68951,279,3889,13,271,18,13,220,2972],
+          "text": "**Translation:**\n\"Rather than gazing at the fish in the water with envy, it is better to go back and weave a net; but before you begin, make sure there are actually fish in this water.\"\n\n**Explanation of Metaphor Handling:**\n\n1.  **Literal vs. Figurative Interpretation:**\n    The original Chinese phrase \"临渊羡鱼\" (gazing at the fish in the water with envy) is a classical idiom meaning \"envying what others have without taking action.\" In English, this is often translated literally as \"gazing at the fish\" or \"envying the fish,\" which preserves the imagery. However, to make it sound natural in modern English, I chose \"gazing at the fish in the water with envy\" to maintain the visual metaphor while clarifying the emotional state (envy).\n\n2.  **Action-Oriented Translation:**\n    \"退而结网\" (retreat and weave a net) is a metaphor for taking practical steps to achieve a goal. I translated this as \"go back and weave a net,\" which keeps the metaphor intact. In English, \"weave a net\" is a clear, actionable image that parallels the original.\n\n3.  **",
+          "token_count": 256,
+          "digest": "12936263fe8aa97023c2815165f720507164a8f3352df1fdad09de1659eb2155",
+          "finish_reason": "length",
+          "elapsed_s": 15.594053957960568,
+          "from_draft_count": 0,
+          "mean_emit": 1,
+          "first_difference_logprobs": {}
+        },
+        "fp16": {
+          "tokens": [332,23640,64700,198,1,61745,1056,338,6448,506,279,7397,303,279,2919,440,63226,11,424,369,2577,310,708,1142,321,65230,264,4041,26,694,1518,488,3060,11,1236,2617,1017,513,3404,7397,303,411,2919,1149,271,332,67407,314,6017,1294,269,53844,64700,271,16,13,220,2972,16839,5972,13,191263,1340,69628,362,64700,198,262,561,3889,8193,16629,328,96773,99875,103013,97255,1,318,70,6448,506,279,7397,303,279,2919,440,63226,8,369,264,27882,850,32483,7063,328,3059,6806,1092,3672,599,1973,4483,1852,1149,733,6163,11,411,369,3428,23756,15433,430,328,70,6448,506,279,7397,1,466,328,3059,6806,279,7397,1288,864,72346,279,39107,13,4213,11,310,1236,424,4950,5629,303,6278,6163,11,353,14135,328,70,6448,506,279,7397,303,279,2919,440,63226,1,310,10000,279,8851,43837,1345,18905,7520,279,13861,1528,318,3059,88,553,271,17,13,220,2972,13955,18913,279,6017,1294,269,64700,198,262,561,43837,314,328,868,2241,264,4041,1,318,96126,96020,8,369,8341,33295,1521,424,369,264,13769,1852,421,79439,440,26974,63226,13,733,6163,11,328,868,511,264,4041,1,369,264,2708,321,47110,43837,364,19435,466,4483,14542,7123,13,271,18,13,220,2972,37326,279,10130,53926,64700,198,262,561,2018,919,11,328,7834],
+          "text": "**Translation:**\n\"Rather than gazing at the fish in the water with envy, it is better to go back and weave a net; but before you begin, make sure there are actually fish in this water.\"\n\n**Explanation of Metaphor Handling:**\n\n1.  **Literal vs. Figurative Interpretation:**\n    The original Chinese phrase \"临渊羡鱼\" (gazing at the fish in the water with envy) is a classical idiom meaning \"envying what others have without taking action.\" In English, this is often translated literally as \"gazing at the fish\" or \"envying the fish,\" which preserves the imagery. However, to make it sound natural in modern English, I chose \"gazing at the fish in the water with envy\" to maintain the visual metaphor while clarifying the emotional state (envy).\n\n2.  **Preserving the Metaphor:**\n    The metaphor of \"weaving a net\" (结网) is kept intact because it is a concrete action that contrasts with passive envy. In English, \"weave a net\" is a clear and understandable metaphor for preparing or taking practical steps.\n\n3.  **Handling the Second Clause:**\n    The second part, \"but",
+          "token_count": 256,
+          "digest": "b42a7db250dbfe72cf43050b95971c8cfbbf7cb3999c15366f47018a6a6bb782",
+          "finish_reason": "length",
+          "elapsed_s": 12.080760582932271,
+          "from_draft_count": 167,
+          "mean_emit": 2.8764044943820224,
+          "first_difference_logprobs": {
+            "ar": {
+              "position_1based": 180,
+              "token": 13955,
+              "reference_token": 2432,
+              "logprob_token": -1.25,
+              "logprob_reference_token": -1.265625,
+              "top5": [
+                {
+                  "id": 13955,
+                  "text": "Pres",
+                  "logprob": -1.25
+                },
+                {
+                  "id": 2432,
+                  "text": "Action",
+                  "logprob": -1.265625
+                },
+                {
+                  "id": 64479,
+                  "text": "Maint",
+                  "logprob": -2.046875
+                },
+                {
+                  "id": 33525,
+                  "text": "Met",
+                  "logprob": -2.546875
+                },
+                {
+                  "id": 37326,
+                  "text": "Handling",
+                  "logprob": -3.171875
+                }
+              ]
+            }
+          }
+        },
+        "q4": {
+          "tokens": [332,23640,64700,198,1,61745,1056,338,6448,506,279,7397,303,279,2919,440,63226,11,424,369,2577,310,708,1142,321,65230,264,4041,26,694,1518,488,3060,11,1236,2617,1017,513,3404,7397,303,411,2919,1149,271,332,67407,314,6017,1294,269,53844,64700,271,16,13,220,2972,16839,5972,13,191263,1340,69628,362,64700,198,262,561,3889,8193,16629,328,96773,99875,103013,97255,1,318,70,6448,506,279,7397,303,279,2919,440,63226,8,369,264,27882,850,32483,7063,328,3059,6806,1092,3672,599,1973,4483,1852,1149,733,6163,11,411,369,3428,23756,15433,430,328,70,6448,506,279,7397,1,466,328,3059,6806,279,7397,1288,864,72346,279,39107,13,4213,11,310,1236,424,4950,5629,303,6278,6163,11,353,14135,328,70,6448,506,279,7397,303,279,2919,440,63226,1,310,10000,279,8851,43837,1345,18905,7520,279,13861,1528,318,3059,88,553,271,17,13,220,2972,13955,18913,279,6017,1294,269,64700,198,262,561,43837,314,328,868,2241,264,4041,1,318,96126,96020,8,369,8341,33295,1521,424,369,264,13769,1852,421,79439,440,26974,63226,13,733,6163,11,328,868,511,264,4041,1,369,264,2708,321,47110,43837,364,19435,466,4483,14542,7123,13,271,18,13,220,2972,37326,279,10130,53926,64700,198,262,561,2018,919,11,328,7834],
+          "text": "**Translation:**\n\"Rather than gazing at the fish in the water with envy, it is better to go back and weave a net; but before you begin, make sure there are actually fish in this water.\"\n\n**Explanation of Metaphor Handling:**\n\n1.  **Literal vs. Figurative Interpretation:**\n    The original Chinese phrase \"临渊羡鱼\" (gazing at the fish in the water with envy) is a classical idiom meaning \"envying what others have without taking action.\" In English, this is often translated literally as \"gazing at the fish\" or \"envying the fish,\" which preserves the imagery. However, to make it sound natural in modern English, I chose \"gazing at the fish in the water with envy\" to maintain the visual metaphor while clarifying the emotional state (envy).\n\n2.  **Preserving the Metaphor:**\n    The metaphor of \"weaving a net\" (结网) is kept intact because it is a concrete action that contrasts with passive envy. In English, \"weave a net\" is a clear and understandable metaphor for preparing or taking practical steps.\n\n3.  **Handling the Second Clause:**\n    The second part, \"but",
+          "token_count": 256,
+          "digest": "b42a7db250dbfe72cf43050b95971c8cfbbf7cb3999c15366f47018a6a6bb782",
+          "finish_reason": "length",
+          "elapsed_s": 10.693925124942325,
+          "from_draft_count": 167,
+          "mean_emit": 2.8764044943820224,
+          "first_difference_logprobs": {
+            "ar": {
+              "position_1based": 180,
+              "token": 13955,
+              "reference_token": 2432,
+              "logprob_token": -1.25,
+              "logprob_reference_token": -1.265625,
+              "top5": [
+                {
+                  "id": 13955,
+                  "text": "Pres",
+                  "logprob": -1.25
+                },
+                {
+                  "id": 2432,
+                  "text": "Action",
+                  "logprob": -1.265625
+                },
+                {
+                  "id": 64479,
+                  "text": "Maint",
+                  "logprob": -2.046875
+                },
+                {
+                  "id": 33525,
+                  "text": "Met",
+                  "logprob": -2.546875
+                },
+                {
+                  "id": 37326,
+                  "text": "Handling",
+                  "logprob": -3.171875
+                }
+              ]
+            }
+          }
+        }
+      },
+      "comparisons": {
+        "fp16_vs_q4": {
+          "exact": true,
+          "lengths": [256,256],
+          "position_matches": 256,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        },
+        "ar_vs_fp16": {
+          "exact": false,
+          "lengths": [256,256],
+          "position_matches": 183,
+          "position_agreement": 0.71484375,
+          "first_difference_1based": 180,
+          "shared_prefix_tail": " sound natural in modern English, I chose \"gazing at the fish in the water with envy\" to maintain the visual metaphor while clarifying the emotional state (envy).\n\n2.  **",
+          "left_window": " to maintain the visual metaphor while clarifying the emotional state (envy).\n\n2.  **Action-Oriented Translation:**\n    \"退而结网\" (retreat and weave a net) is a metaphor for taking practical steps to achieve a",
+          "right_window": " to maintain the visual metaphor while clarifying the emotional state (envy).\n\n2.  **Preserving the Metaphor:**\n    The metaphor of \"weaving a net\" (结网) is kept intact because it is a concrete action that",
+          "left_token": 2432,
+          "right_token": 13955
+        },
+        "ar_vs_q4": {
+          "exact": false,
+          "lengths": [256,256],
+          "position_matches": 183,
+          "position_agreement": 0.71484375,
+          "first_difference_1based": 180,
+          "shared_prefix_tail": " sound natural in modern English, I chose \"gazing at the fish in the water with envy\" to maintain the visual metaphor while clarifying the emotional state (envy).\n\n2.  **",
+          "left_window": " to maintain the visual metaphor while clarifying the emotional state (envy).\n\n2.  **Action-Oriented Translation:**\n    \"退而结网\" (retreat and weave a net) is a metaphor for taking practical steps to achieve a",
+          "right_window": " to maintain the visual metaphor while clarifying the emotional state (envy).\n\n2.  **Preserving the Metaphor:**\n    The metaphor of \"weaving a net\" (结网) is kept intact because it is a concrete action that",
+          "left_token": 2432,
+          "right_token": 13955
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "prose",
+        "thinking": false,
+        "limit": 256,
+        "prompt": "Write a 150-word scene in which a lighthouse keeper discovers that the light is sending messages. Use concrete sensory details and end with a single line of dialogue."
+      },
+      "rendered_prompt": "<|im_start|>user\nWrite a 150-word scene in which a lighthouse keeper discovers that the light is sending messages. Use concrete sensory details and end with a single line of dialogue.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+      "prompt_ids": [248045,846,198,7734,264,220,16,20,15,36093,5918,303,864,264,324,55965,51624,49296,421,279,3000,369,11293,6397,13,5272,13769,46368,3447,321,809,440,264,3074,1500,314,20623,13,248046,198,248045,74455,198,248068,271,248069,271],
+      "prompt_tokens": 47,
+      "runs": {
+        "ar": {
+          "tokens": [760,11679,3594,2612,506,82697,725,22164,430,551,42942,279,39740,30129,11,279,10679,7123,10174,41638,1172,780,4528,13,20543,11,279,29262,21748,303,11702,321,17024,11,87529,279,32946,13,1216,22643,279,34844,17796,11,279,8720,8981,2272,780,68636,13,55767,11,279,27163,20569,26357,314,279,22690,87421,290,13,1049,5532,1357,279,13087,23271,7960,26,424,557,264,25888,3438,11,39943,5215,13,348,2525,29618,463,11,4066,29618,463,4749,1216,73746,11,80269,9464,40249,494,279,8720,13,561,3000,5532,1357,1066,41567,1060,279,6121,26,424,557,11750,13,561,5215,11173,11,32556,321,16724,11,13964,1472,279,20513,314,279,23443,20618,13,82697,52995,11784,11,780,11155,29262,3072,279,36087,13,561,22690,38891,3808,279,2919,11,18961,279,22317,440,264,3050,18820,738,421,6273,2599,1040,264,9663,321,777,1040,264,37677,13,1216,14607,279,51624,1518,1384,995,978,4313,310,18459,440,279,48331,11,524,1066,8214,17199,13,561,3000,7491,30293,1495,11,264,1248,11,57135,1218,14084,314,31143,13,82697,23191,279,8720,11,8008,279,46219,314,279,16456,13,271,1,14749,513,488,4313,310,5372,7285,248046],
+          "text": "The salt air bit at Elias’s lips as he climbed the spiral stairs, the iron steps groaning under his weight. Below, the fog rolled in thick and gray, swallowing the horizon. He adjusted the brass lens, the glass cold against his fingertips. Suddenly, the rhythmic pulse of the beam stuttered. It wasn’t the usual steady flash; it was a jagged, irregular pattern. *Click-clack, click-clack.* He frowned, wiping condensation from the glass. The light wasn’t just illuminating the dark; it was speaking. The pattern repeated, urgent and sharp, cutting through the silence of the isolated tower. Elias leaned closer, his breath fogging the pane. The beam swept across the water, hitting the rocks with a specific cadence that felt less like a warning and more like a plea. He realized the keeper before him had been trying to communicate with the mainland, not just guide ships. The light pulsed again, a long, mournful stretch of brightness. Elias touched the glass, feeling the vibration of the mechanism.\n\n\"Who are you trying to reach?\"<|im_end|>",
+          "token_count": 225,
+          "digest": "f51ce3b163d2e3a9b687e07e7c38e6c720e5a2e5a587c9aa0afaaf431a1aee78",
+          "finish_reason": "eos",
+          "elapsed_s": 13.771798041998409,
+          "from_draft_count": 0,
+          "mean_emit": 1,
+          "first_difference_logprobs": {}
+        },
+        "fp16": {
+          "tokens": [760,11679,3594,2612,506,82697,725,22164,430,551,42942,279,39740,30129,11,279,10679,7123,10174,41638,1172,780,4528,13,20543,11,279,29262,21748,303,11702,321,17024,11,87529,279,32946,13,1216,22643,279,34844,17796,11,279,8720,8981,2272,780,68636,13,55767,11,279,27163,20569,26357,314,279,22690,87421,290,13,1049,5532,1357,279,13087,23271,7960,26,424,557,264,25888,3438,11,39943,5215,13,348,2525,29618,463,11,4066,29618,463,4749,1216,73746,11,80269,9464,40249,494,279,8720,13,561,3000,5532,1357,1066,41567,1060,279,6121,26,424,557,11750,13,561,5215,11173,11,32556,321,16724,11,13964,1472,279,20513,314,279,23443,20618,13,82697,52995,11784,11,780,11155,29262,3072,279,36087,13,561,22690,38891,3808,279,2919,11,18961,279,22317,440,264,3050,18820,738,421,6273,2599,1040,264,9663,321,777,1040,264,37677,13,1216,14607,279,51624,1518,1384,995,978,4313,310,18459,440,279,48331,11,524,1066,8214,17199,13,561,3000,7491,30293,1495,11,264,1248,11,57135,1218,14084,314,31143,13,82697,23191,279,8720,11,8008,279,46219,314,279,16456,13,271,1,14749,513,488,4313,310,5372,7285,248046],
+          "text": "The salt air bit at Elias’s lips as he climbed the spiral stairs, the iron steps groaning under his weight. Below, the fog rolled in thick and gray, swallowing the horizon. He adjusted the brass lens, the glass cold against his fingertips. Suddenly, the rhythmic pulse of the beam stuttered. It wasn’t the usual steady flash; it was a jagged, irregular pattern. *Click-clack, click-clack.* He frowned, wiping condensation from the glass. The light wasn’t just illuminating the dark; it was speaking. The pattern repeated, urgent and sharp, cutting through the silence of the isolated tower. Elias leaned closer, his breath fogging the pane. The beam swept across the water, hitting the rocks with a specific cadence that felt less like a warning and more like a plea. He realized the keeper before him had been trying to communicate with the mainland, not just guide ships. The light pulsed again, a long, mournful stretch of brightness. Elias touched the glass, feeling the vibration of the mechanism.\n\n\"Who are you trying to reach?\"<|im_end|>",
+          "token_count": 225,
+          "digest": "f51ce3b163d2e3a9b687e07e7c38e6c720e5a2e5a587c9aa0afaaf431a1aee78",
+          "finish_reason": "eos",
+          "elapsed_s": 13.210619749967009,
+          "from_draft_count": 131,
+          "mean_emit": 2.393617021276596,
+          "first_difference_logprobs": {}
+        },
+        "q4": {
+          "tokens": [760,11679,3594,2612,506,82697,725,22164,430,551,42942,279,39740,30129,11,279,10679,7123,10174,41638,1172,780,4528,13,20543,11,279,29262,21748,303,11702,321,17024,11,87529,279,32946,13,1216,22643,279,34844,17796,11,279,8720,8981,2272,780,68636,13,55767,11,279,27163,20569,26357,314,279,22690,87421,290,13,1049,5532,1357,279,13087,23271,7960,26,424,557,264,25888,3438,11,39943,5215,13,348,2525,29618,463,11,4066,29618,463,4749,1216,73746,11,80269,9464,40249,494,279,8720,13,561,3000,5532,1357,1066,41567,1060,279,6121,26,424,557,11750,13,561,5215,11173,11,32556,321,16724,11,13964,1472,279,20513,314,279,23443,20618,13,82697,52995,11784,11,780,11155,29262,3072,279,36087,13,561,22690,38891,3808,279,2919,11,18961,279,22317,440,264,3050,18820,738,421,6273,2599,1040,264,9663,321,777,1040,264,37677,13,1216,14607,279,51624,1518,1384,995,978,4313,310,18459,440,279,48331,11,524,1066,8214,17199,13,561,3000,7491,30293,1495,11,264,1248,11,57135,1218,14084,314,31143,13,82697,23191,279,8720,11,8008,279,46219,314,279,16456,13,271,1,14749,513,488,4313,310,5372,7285,248046],
+          "text": "The salt air bit at Elias’s lips as he climbed the spiral stairs, the iron steps groaning under his weight. Below, the fog rolled in thick and gray, swallowing the horizon. He adjusted the brass lens, the glass cold against his fingertips. Suddenly, the rhythmic pulse of the beam stuttered. It wasn’t the usual steady flash; it was a jagged, irregular pattern. *Click-clack, click-clack.* He frowned, wiping condensation from the glass. The light wasn’t just illuminating the dark; it was speaking. The pattern repeated, urgent and sharp, cutting through the silence of the isolated tower. Elias leaned closer, his breath fogging the pane. The beam swept across the water, hitting the rocks with a specific cadence that felt less like a warning and more like a plea. He realized the keeper before him had been trying to communicate with the mainland, not just guide ships. The light pulsed again, a long, mournful stretch of brightness. Elias touched the glass, feeling the vibration of the mechanism.\n\n\"Who are you trying to reach?\"<|im_end|>",
+          "token_count": 225,
+          "digest": "f51ce3b163d2e3a9b687e07e7c38e6c720e5a2e5a587c9aa0afaaf431a1aee78",
+          "finish_reason": "eos",
+          "elapsed_s": 12.080321167013608,
+          "from_draft_count": 127,
+          "mean_emit": 2.295918367346939,
+          "first_difference_logprobs": {}
+        }
+      },
+      "comparisons": {
+        "fp16_vs_q4": {
+          "exact": true,
+          "lengths": [225,225],
+          "position_matches": 225,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        },
+        "ar_vs_fp16": {
+          "exact": true,
+          "lengths": [225,225],
+          "position_matches": 225,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        },
+        "ar_vs_q4": {
+          "exact": true,
+          "lengths": [225,225],
+          "position_matches": 225,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "chat",
+        "thinking": false,
+        "limit": 256,
+        "prompt": "I'm organizing a small reading group for six friends with different tastes. Suggest a fair way to pick books and run our first meeting. Keep it practical and give a four-week plan in fewer than 180 words."
+      },
+      "rendered_prompt": "<|im_start|>user\nI'm organizing a small reading group for six friends with different tastes. Suggest a fair way to pick books and run our first meeting. Keep it practical and give a four-week plan in fewer than 180 words.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+      "prompt_ids": [248045,846,198,40,2688,33572,264,2526,5122,1809,364,4590,4627,440,2086,33999,13,326,3671,264,6415,1560,310,3608,6265,321,1542,1004,1118,6236,13,13262,424,14542,321,2873,264,2943,28547,3019,303,16253,1056,220,16,23,15,4105,13,248046,198,248045,74455,198,248068,271,248069,271],
+      "prompt_tokens": 58,
+      "runs": {
+        "ar": {
+          "tokens": [332,10852,6519,64700,198,9947,264,328,11280,12,23949,32906,1149,8618,4314,90790,1330,2236,14865,13,561,1809,12320,383,279,1844,4590,10853,13,561,2236,440,279,1379,12320,14387,13,1368,1017,725,264,17592,11,279,17592,61955,369,279,2236,440,279,8166,5289,10412,494,279,1809,13,1061,24546,49034,321,27028,799,1637,494,64998,279,5576,13,271,332,5170,28107,27662,318,24,15,4276,188912,198,16,13,2972,13536,594,22136,318,16,15,24049,188912,80332,383,264,14647,9412,321,264,328,2083,63121,1,5728,13,198,17,13,2972,6911,44059,318,17,15,24049,188912,561,11543,2236,725,27109,12863,3069,781,12405,424,13,198,18,13,2972,68610,318,20,15,24049,188912,24985,383,20730,11,5587,11,321,4204,23698,13,13262,424,1724,80205,13,198,19,13,2972,5666,38540,318,16,15,24049,188912,32906,383,279,1727,2236,1608,279,1788,1654,13,271,332,26108,12,16552,9392,64700,198,9,256,2972,16552,220,16,64700,8167,279,1118,2236,4417,279,1330,60514,6695,13,22777,279,1118,6236,13,198,9,256,2972,16552,220,17,64700,4310,279,2236,13,11438,9522,8570,303,264,1809,6040,310,10000,22546,13,198,9,256,2972,16552,220,18,64700,22041,279,1118,6236,13,63074,279,2236,321,6695,383,279,2018,2236,13,198,9,256,2972,16552,220,19],
+          "text": "**Selection Method:**\nUse a \"Two-Choice Vote.\" Each member submits two book titles. The group votes on the top six candidates. The book with the most votes wins. If there’s a tie, the tiebreaker is the book with the highest average rating from the group. This ensures fairness and prevents one person from dominating the choice.\n\n**First Meeting Structure (90 minutes):**\n1. **Welcome & Rules (10 mins):** Agree on a monthly schedule and a \"no spoilers\" rule.\n2. **Book Pitch (20 mins):** The chosen book’s advocate shares why they picked it.\n3. **Discussion (50 mins):** Focus on themes, characters, and personal reactions. Keep it open-ended.\n4. **Next Steps (10 mins):** Vote on the next book using the same method.\n\n**Four-Week Plan:**\n*   **Week 1:** Select the first book via the two-choice vote. Schedule the first meeting.\n*   **Week 2:** Read the book. Share brief updates in a group chat to maintain momentum.\n*   **Week 3:** Hold the first meeting. Discuss the book and vote on the second book.\n*   **Week 4",
+          "token_count": 256,
+          "digest": "d7060a6ef862bb511db5897e83c87fb2a4fa5432b6bed3cbaae81a45c5d284dd",
+          "finish_reason": "length",
+          "elapsed_s": 17.908865375095047,
+          "from_draft_count": 0,
+          "mean_emit": 1,
+          "first_difference_logprobs": {}
+        },
+        "fp16": {
+          "tokens": [332,10852,6519,64700,198,9947,264,328,11280,12,23949,32906,1149,8618,4314,90790,1330,2236,14865,13,561,1809,12320,383,279,1844,4590,10853,13,561,2236,440,279,1379,12320,14387,13,1368,1017,725,264,17592,11,279,17592,61955,369,279,2236,440,279,8166,5289,10412,494,279,1809,13,1061,24546,49034,321,27028,799,1637,494,64998,279,5576,13,271,332,5170,28107,27662,318,24,15,4276,188912,198,16,13,2972,13536,594,22136,318,16,15,24049,188912,80332,383,264,14647,9412,321,264,328,2083,63121,1,5728,13,198,17,13,2972,6911,44059,318,17,15,24049,188912,561,11543,2236,725,27109,12863,3069,781,12405,424,13,198,18,13,2972,68610,318,20,15,24049,188912,24985,383,20730,11,5587,11,321,4204,23698,13,13262,424,1724,80205,13,198,19,13,2972,5666,38540,318,16,15,24049,188912,32906,383,279,1727,2236,1608,279,1788,1654,13,271,332,26108,12,16552,9392,64700,198,9,256,2972,16552,220,16,64700,8167,279,1118,2236,4417,279,1330,60514,6695,13,22777,279,1118,6236,13,198,9,256,2972,16552,220,17,64700,4310,279,2236,13,11438,9522,8570,303,264,1809,6040,310,10000,22546,13,198,9,256,2972,16552,220,18,64700,22041,279,1118,6236,13,63074,279,2236,321,6695,383,279,2018,2236,13,198,9,256,2972,16552,220,19],
+          "text": "**Selection Method:**\nUse a \"Two-Choice Vote.\" Each member submits two book titles. The group votes on the top six candidates. The book with the most votes wins. If there’s a tie, the tiebreaker is the book with the highest average rating from the group. This ensures fairness and prevents one person from dominating the choice.\n\n**First Meeting Structure (90 minutes):**\n1. **Welcome & Rules (10 mins):** Agree on a monthly schedule and a \"no spoilers\" rule.\n2. **Book Pitch (20 mins):** The chosen book’s advocate shares why they picked it.\n3. **Discussion (50 mins):** Focus on themes, characters, and personal reactions. Keep it open-ended.\n4. **Next Steps (10 mins):** Vote on the next book using the same method.\n\n**Four-Week Plan:**\n*   **Week 1:** Select the first book via the two-choice vote. Schedule the first meeting.\n*   **Week 2:** Read the book. Share brief updates in a group chat to maintain momentum.\n*   **Week 3:** Hold the first meeting. Discuss the book and vote on the second book.\n*   **Week 4",
+          "token_count": 256,
+          "digest": "d7060a6ef862bb511db5897e83c87fb2a4fa5432b6bed3cbaae81a45c5d284dd",
+          "finish_reason": "length",
+          "elapsed_s": 14.969261916936375,
+          "from_draft_count": 161,
+          "mean_emit": 2.694736842105263,
+          "first_difference_logprobs": {}
+        },
+        "q4": {
+          "tokens": [332,10852,6519,64700,198,9947,264,328,11280,12,23949,32906,1149,8618,4314,90790,1330,2236,14865,13,561,1809,12320,383,279,1844,4590,10853,13,561,2236,440,279,1379,12320,14387,13,1368,1017,725,264,17592,11,279,17592,61955,369,279,2236,440,279,8166,5289,10412,494,279,1809,13,1061,24546,49034,321,27028,799,1637,494,64998,279,5576,13,271,332,5170,28107,27662,318,24,15,4276,188912,198,16,13,2972,13536,594,22136,318,16,15,24049,188912,80332,383,264,14647,9412,321,264,328,2083,63121,1,5728,13,198,17,13,2972,6911,44059,318,17,15,24049,188912,561,11543,2236,725,27109,12863,3069,781,12405,424,13,198,18,13,2972,68610,318,20,15,24049,188912,24985,383,20730,11,5587,11,321,4204,23698,13,13262,424,1724,80205,13,198,19,13,2972,5666,38540,318,16,15,24049,188912,32906,383,279,1727,2236,1608,279,1788,1654,13,271,332,26108,12,16552,9392,64700,198,9,256,2972,16552,220,16,64700,8167,279,1118,2236,4417,279,1330,60514,6695,13,22777,279,1118,6236,13,198,9,256,2972,16552,220,17,64700,4310,279,2236,13,11438,9522,8570,303,264,1809,6040,310,10000,22546,13,198,9,256,2972,16552,220,18,64700,22041,279,1118,6236,13,63074,279,2236,321,6695,383,279,2018,2236,13,198,9,256,2972,16552,220,19],
+          "text": "**Selection Method:**\nUse a \"Two-Choice Vote.\" Each member submits two book titles. The group votes on the top six candidates. The book with the most votes wins. If there’s a tie, the tiebreaker is the book with the highest average rating from the group. This ensures fairness and prevents one person from dominating the choice.\n\n**First Meeting Structure (90 minutes):**\n1. **Welcome & Rules (10 mins):** Agree on a monthly schedule and a \"no spoilers\" rule.\n2. **Book Pitch (20 mins):** The chosen book’s advocate shares why they picked it.\n3. **Discussion (50 mins):** Focus on themes, characters, and personal reactions. Keep it open-ended.\n4. **Next Steps (10 mins):** Vote on the next book using the same method.\n\n**Four-Week Plan:**\n*   **Week 1:** Select the first book via the two-choice vote. Schedule the first meeting.\n*   **Week 2:** Read the book. Share brief updates in a group chat to maintain momentum.\n*   **Week 3:** Hold the first meeting. Discuss the book and vote on the second book.\n*   **Week 4",
+          "token_count": 256,
+          "digest": "d7060a6ef862bb511db5897e83c87fb2a4fa5432b6bed3cbaae81a45c5d284dd",
+          "finish_reason": "length",
+          "elapsed_s": 12.920572041999549,
+          "from_draft_count": 161,
+          "mean_emit": 2.694736842105263,
+          "first_difference_logprobs": {}
+        }
+      },
+      "comparisons": {
+        "fp16_vs_q4": {
+          "exact": true,
+          "lengths": [256,256],
+          "position_matches": 256,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        },
+        "ar_vs_fp16": {
+          "exact": true,
+          "lengths": [256,256],
+          "position_matches": 256,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        },
+        "ar_vs_q4": {
+          "exact": true,
+          "lengths": [256,256],
+          "position_matches": 256,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "json",
+        "thinking": false,
+        "limit": 256,
+        "prompt": "Return only valid JSON, no markdown. Extract the following into an object with keys name (string), date (YYYY-MM-DD), attendees (array of strings), and duration_minutes (integer): Project Atlas review, September 16, 2026, 10:00-11:30; attendees Alice Chen, Bob Smith and 王小明."
+      },
+      "rendered_prompt": "<|im_start|>user\nReturn only valid JSON, no markdown. Extract the following into an object with keys name (string), date (YYYY-MM-DD), attendees (array of strings), and duration_minutes (integer): Project Atlas review, September 16, 2026, 10:00-11:30; attendees Alice Chen, Bob Smith and 王小明.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+      "prompt_ids": [248045,846,198,5423,1132,2610,4566,11,874,48794,13,22116,279,2614,1083,449,1576,440,6679,803,318,889,681,2321,318,27273,17953,38843,681,37888,318,1595,314,8796,681,321,7836,65373,318,11326,1590,5606,40937,3286,11,5930,220,16,21,11,220,17,15,17,21,11,220,16,15,25,15,15,12,16,16,25,18,15,26,37888,28445,23720,11,13853,8809,321,220,96498,115942,13,248046,198,248045,74455,198,248068,271,248069,271],
+      "prompt_tokens": 89,
+      "runs": {
+        "ar": {
+          "tokens": [90,198,220,328,591,763,328,7601,40937,3286,487,198,220,328,993,763,328,17,15,17,21,12,15,24,12,16,21,487,198,220,328,54564,5343,763,498,198,262,328,59605,23720,487,198,262,328,31318,8809,487,198,262,328,96498,115942,1,198,220,10339,198,220,328,16523,65373,763,220,24,15,198,92,248046],
+          "text": "{\n  \"name\": \"Project Atlas review\",\n  \"date\": \"2026-09-16\",\n  \"attendees\": [\n    \"Alice Chen\",\n    \"Bob Smith\",\n    \"王小明\"\n  ],\n  \"duration_minutes\": 90\n}<|im_end|>",
+          "token_count": 68,
+          "digest": "10bf339f643e225694d03f29dcfc64880c8531c1b5a45e7f7bf7855a7013b868",
+          "finish_reason": "eos",
+          "elapsed_s": 6.30297616601456,
+          "from_draft_count": 0,
+          "mean_emit": 1,
+          "first_difference_logprobs": {}
+        },
+        "fp16": {
+          "tokens": [90,198,220,328,591,763,328,7601,40937,3286,487,198,220,328,993,763,328,17,15,17,21,12,15,24,12,16,21,487,198,220,328,54564,5343,763,498,198,262,328,59605,23720,487,198,262,328,31318,8809,487,198,262,328,96498,115942,1,198,220,10339,198,220,328,16523,65373,763,220,24,15,198,92,248046],
+          "text": "{\n  \"name\": \"Project Atlas review\",\n  \"date\": \"2026-09-16\",\n  \"attendees\": [\n    \"Alice Chen\",\n    \"Bob Smith\",\n    \"王小明\"\n  ],\n  \"duration_minutes\": 90\n}<|im_end|>",
+          "token_count": 68,
+          "digest": "10bf339f643e225694d03f29dcfc64880c8531c1b5a45e7f7bf7855a7013b868",
+          "finish_reason": "eos",
+          "elapsed_s": 4.44670008297544,
+          "from_draft_count": 50,
+          "mean_emit": 3.7777777777777777,
+          "first_difference_logprobs": {}
+        },
+        "q4": {
+          "tokens": [90,198,220,328,591,763,328,7601,40937,3286,487,198,220,328,993,763,328,17,15,17,21,12,15,24,12,16,21,487,198,220,328,54564,5343,763,498,198,262,328,59605,23720,487,198,262,328,31318,8809,487,198,262,328,96498,115942,1,198,220,10339,198,220,328,16523,65373,763,220,24,15,198,92,248046],
+          "text": "{\n  \"name\": \"Project Atlas review\",\n  \"date\": \"2026-09-16\",\n  \"attendees\": [\n    \"Alice Chen\",\n    \"Bob Smith\",\n    \"王小明\"\n  ],\n  \"duration_minutes\": 90\n}<|im_end|>",
+          "token_count": 68,
+          "digest": "10bf339f643e225694d03f29dcfc64880c8531c1b5a45e7f7bf7855a7013b868",
+          "finish_reason": "eos",
+          "elapsed_s": 3.689026749925688,
+          "from_draft_count": 50,
+          "mean_emit": 3.7777777777777777,
+          "first_difference_logprobs": {}
+        }
+      },
+      "comparisons": {
+        "fp16_vs_q4": {
+          "exact": true,
+          "lengths": [68,68],
+          "position_matches": 68,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        },
+        "ar_vs_fp16": {
+          "exact": true,
+          "lengths": [68,68],
+          "position_matches": 68,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        },
+        "ar_vs_q4": {
+          "exact": true,
+          "lengths": [68,68],
+          "position_matches": 68,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "factual",
+        "thinking": false,
+        "limit": 256,
+        "prompt": "Explain why the Moon has phases and why they are not normally caused by Earth's shadow. Mention the conditions for a lunar eclipse. Use fewer than 180 words."
+      },
+      "rendered_prompt": "<|im_start|>user\nExplain why the Moon has phases and why they are not normally caused by Earth's shadow. Mention the conditions for a lunar eclipse. Use fewer than 180 words.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+      "prompt_ids": [248045,846,198,814,20139,3069,279,16820,682,33286,321,3069,781,513,524,13870,8613,539,8964,579,12098,13,82210,279,4530,364,264,54814,53567,13,5272,16253,1056,220,16,23,15,4105,13,248046,198,248045,74455,198,248068,271,248069,271],
+      "prompt_tokens": 48,
+      "runs": {
+        "ar": {
+          "tokens": [760,16820,725,33286,1067,494,1141,62409,2234,8410,310,8964,321,279,7806,13,1577,279,16820,82191,8964,11,567,1436,27823,14287,314,1141,6797,30596,7099,13,1061,10458,11,27827,883,220,17,24,13,20,2756,11,65332,494,1478,16820,310,8363,16820,321,1142,13,271,15529,1692,32365,11,1439,33286,513,2972,1856,332,8613,539,8964,725,12098,13,1368,781,998,11,279,16820,1000,4833,6121,1132,2261,264,54814,53567,11,864,369,264,8581,1484,13,11746,11,279,33286,513,4777,279,9722,8937,506,864,37728,41567,942,279,16820,494,1004,12682,13,271,32,54814,53567,13273,1132,2261,264,8363,16820,948,279,8964,369,33095,5774,1881,279,7806,321,279,16820,13,1061,16682,54150,8964,725,12098,8366,279,16820,13,1690,411,310,3420,11,279,16820,1902,381,3043,279,57934,11113,291,10709,11,7063,424,369,524,2166,2944,3294,466,3559,279,7806,13044,44947,1500,13,1368,279,16682,369,524,4574,11,279,16820,15734,1472,8964,725,5572,367,40267,12098,11,13969,264,6907,53567,11,466,40889,279,12098,11040,11,12571,303,874,53567,13,13891,11,33286,513,264,50717,39472,314,73354,11,1345,89242,287,513,3050,12098,4216,13,248046],
+          "text": "The Moon’s phases result from its orbital position relative to Earth and the Sun. As the Moon orbits Earth, we see varying amounts of its sunlit surface. This cycle, lasting about 29.5 days, progresses from New Moon to Full Moon and back.\n\nCrucially, these phases are **not** caused by Earth’s shadow. If they were, the Moon would appear dark only during a lunar eclipse, which is a rare event. Instead, the phases are simply the changing angle at which sunlight illuminates the Moon from our perspective.\n\nA lunar eclipse occurs only during a Full Moon when the Earth is positioned directly between the Sun and the Moon. This alignment casts Earth’s shadow onto the Moon. For this to happen, the Moon must be near the ecliptic plane, meaning it is not too far above or below the Sun-Earth line. If the alignment is not perfect, the Moon passes through Earth’s penumbral shadow, causing a partial eclipse, or misses the shadow entirely, resulting in no eclipse. Thus, phases are a geometric illusion of illumination, while eclipses are specific shadow events.<|im_end|>",
+          "token_count": 229,
+          "digest": "50c0863e061c2d9fd5cc0ec9597144632075ef22c79a77d9d9d9021d750ee6b8",
+          "finish_reason": "eos",
+          "elapsed_s": 15.90867050003726,
+          "from_draft_count": 0,
+          "mean_emit": 1,
+          "first_difference_logprobs": {}
+        },
+        "fp16": {
+          "tokens": [760,16820,725,33286,1067,494,1141,62409,2234,8410,310,8964,321,279,7806,13,1577,279,16820,82191,8964,11,567,1436,27823,14287,314,1141,6797,30596,7099,13,1061,10458,11,27827,883,220,17,24,13,20,2756,11,65332,494,491,17257,310,2400,17257,321,1142,13,271,15529,1692,32365,11,1439,33286,513,2972,1856,332,8613,539,8964,725,12098,13,1368,781,998,11,279,16820,1000,4833,6121,1132,2261,264,54814,53567,11,864,369,264,8581,1484,13,11746,11,279,33286,513,4777,279,9722,8937,506,864,37728,41567,942,279,16820,494,1004,12682,13,271,32,54814,53567,13273,1132,2261,264,2400,17257,948,279,8964,369,33095,5774,1881,279,7806,321,279,16820,13,1061,16682,54150,8964,725,12098,8366,279,16820,13,1690,411,310,3420,11,279,16820,1902,381,3043,279,57934,11113,291,10709,11,7063,424,369,524,2166,2944,3294,466,3559,279,7806,13044,44947,1500,13,1368,279,16682,369,524,4574,11,279,16820,15734,1472,279,5572,367,40267,12098,11,13969,264,6907,53567,11,466,40889,279,35465,926,11040,11,12571,303,874,53567,13,13891,11,33286,513,264,50717,39472,314,73354,11,1345,89242,287,513,3050,12098,4216,13,248046],
+          "text": "The Moon’s phases result from its orbital position relative to Earth and the Sun. As the Moon orbits Earth, we see varying amounts of its sunlit surface. This cycle, lasting about 29.5 days, progresses from new moon to full moon and back.\n\nCrucially, these phases are **not** caused by Earth’s shadow. If they were, the Moon would appear dark only during a lunar eclipse, which is a rare event. Instead, the phases are simply the changing angle at which sunlight illuminates the Moon from our perspective.\n\nA lunar eclipse occurs only during a full moon when the Earth is positioned directly between the Sun and the Moon. This alignment casts Earth’s shadow onto the Moon. For this to happen, the Moon must be near the ecliptic plane, meaning it is not too far above or below the Sun-Earth line. If the alignment is not perfect, the Moon passes through the penumbral shadow, causing a partial eclipse, or misses the umbra entirely, resulting in no eclipse. Thus, phases are a geometric illusion of illumination, while eclipses are specific shadow events.<|im_end|>",
+          "token_count": 229,
+          "digest": "8350d2c3ebae5e655787ef02462032a6e070eed5acf2776e44839e50fe1ab691",
+          "finish_reason": "eos",
+          "elapsed_s": 13.15130187489558,
+          "from_draft_count": 142,
+          "mean_emit": 2.632183908045977,
+          "first_difference_logprobs": {
+            "ar": {
+              "position_1based": 47,
+              "token": 491,
+              "reference_token": 1478,
+              "logprob_token": -0.84375,
+              "logprob_reference_token": -0.84375,
+              "top5": [
+                {
+                  "id": 491,
+                  "text": " new",
+                  "logprob": -0.84375
+                },
+                {
+                  "id": 1478,
+                  "text": " New",
+                  "logprob": -0.84375
+                },
+                {
+                  "id": 264,
+                  "text": " a",
+                  "logprob": -2.140625
+                },
+                {
+                  "id": 279,
+                  "text": " the",
+                  "logprob": -4.15625
+                },
+                {
+                  "id": 44234,
+                  "text": " cres",
+                  "logprob": -5.234375
+                }
+              ]
+            }
+          }
+        },
+        "q4": {
+          "tokens": [760,16820,725,33286,1067,494,1141,62409,2234,8410,310,8964,321,279,7806,13,1577,279,16820,82191,8964,11,567,1436,27823,14287,314,1141,6797,30596,7099,13,1061,10458,11,27827,883,220,17,24,13,20,2756,11,65332,494,491,17257,310,2400,17257,321,1142,13,271,15529,1692,32365,11,1439,33286,513,2972,1856,332,8613,539,8964,725,12098,13,1368,781,998,11,279,16820,1000,4833,6121,1132,2261,264,54814,53567,11,864,369,264,8581,1484,13,11746,11,279,33286,513,4777,279,9722,8937,506,864,37728,41567,942,279,16820,494,1004,12682,13,271,32,54814,53567,13273,1132,2261,264,2400,17257,948,279,8964,369,33095,5774,1881,279,7806,321,279,16820,13,1061,16682,54150,8964,725,12098,8366,279,16820,13,1690,411,310,3420,11,279,16820,1902,381,3043,279,57934,11113,291,10709,11,7063,424,369,524,2166,2944,3294,466,3559,279,7806,13044,44947,1500,13,1368,279,16682,369,524,4574,11,279,16820,15734,1472,279,5572,367,40267,12098,11,13969,264,6907,53567,11,466,40889,279,35465,926,11040,11,12571,303,874,53567,13,13891,11,33286,513,264,50717,39472,314,73354,11,1345,89242,287,513,3050,12098,4216,21998,22825,16682,13,248046],
+          "text": "The Moon’s phases result from its orbital position relative to Earth and the Sun. As the Moon orbits Earth, we see varying amounts of its sunlit surface. This cycle, lasting about 29.5 days, progresses from new moon to full moon and back.\n\nCrucially, these phases are **not** caused by Earth’s shadow. If they were, the Moon would appear dark only during a lunar eclipse, which is a rare event. Instead, the phases are simply the changing angle at which sunlight illuminates the Moon from our perspective.\n\nA lunar eclipse occurs only during a full moon when the Earth is positioned directly between the Sun and the Moon. This alignment casts Earth’s shadow onto the Moon. For this to happen, the Moon must be near the ecliptic plane, meaning it is not too far above or below the Sun-Earth line. If the alignment is not perfect, the Moon passes through the penumbral shadow, causing a partial eclipse, or misses the umbra entirely, resulting in no eclipse. Thus, phases are a geometric illusion of illumination, while eclipses are specific shadow events requiring precise alignment.<|im_end|>",
+          "token_count": 232,
+          "digest": "d37ce3308350f2de614cfdc4196eb6052d77d4cccc88c54e2de452928b5f4b23",
+          "finish_reason": "eos",
+          "elapsed_s": 12.250719833071344,
+          "from_draft_count": 140,
+          "mean_emit": 2.5217391304347827,
+          "first_difference_logprobs": {
+            "ar": {
+              "position_1based": 47,
+              "token": 491,
+              "reference_token": 1478,
+              "logprob_token": -0.859375,
+              "logprob_reference_token": -0.859375,
+              "top5": [
+                {
+                  "id": 491,
+                  "text": " new",
+                  "logprob": -0.859375
+                },
+                {
+                  "id": 1478,
+                  "text": " New",
+                  "logprob": -0.859375
+                },
+                {
+                  "id": 264,
+                  "text": " a",
+                  "logprob": -2.140625
+                },
+                {
+                  "id": 279,
+                  "text": " the",
+                  "logprob": -4.15625
+                },
+                {
+                  "id": 44234,
+                  "text": " cres",
+                  "logprob": -5.265625
+                }
+              ]
+            },
+            "fp16": {
+              "position_1based": 228,
+              "token": 21998,
+              "reference_token": 13,
+              "logprob_token": -0.71875,
+              "logprob_reference_token": -0.734375,
+              "top5": [
+                {
+                  "id": 21998,
+                  "text": " requiring",
+                  "logprob": -0.71875
+                },
+                {
+                  "id": 13,
+                  "text": ".",
+                  "logprob": -0.734375
+                },
+                {
+                  "id": 17220,
+                  "text": " dependent",
+                  "logprob": -4.703125
+                },
+                {
+                  "id": 29853,
+                  "text": " occurring",
+                  "logprob": -5.140625
+                },
+                {
+                  "id": 8613,
+                  "text": " caused",
+                  "logprob": -5.9375
+                }
+              ]
+            }
+          }
+        }
+      },
+      "comparisons": {
+        "fp16_vs_q4": {
+          "exact": false,
+          "lengths": [229,232],
+          "position_matches": 227,
+          "position_agreement": 0.978448275862069,
+          "first_difference_1based": 228,
+          "shared_prefix_tail": " the penumbral shadow, causing a partial eclipse, or misses the umbra entirely, resulting in no eclipse. Thus, phases are a geometric illusion of illumination, while eclipses are specific shadow events",
+          "left_window": " no eclipse. Thus, phases are a geometric illusion of illumination, while eclipses are specific shadow events.<|im_end|>",
+          "right_window": " no eclipse. Thus, phases are a geometric illusion of illumination, while eclipses are specific shadow events requiring precise alignment.<|im_end|>",
+          "left_token": 13,
+          "right_token": 21998
+        },
+        "ar_vs_fp16": {
+          "exact": false,
+          "lengths": [229,229],
+          "position_matches": 207,
+          "position_agreement": 0.9039301310043668,
+          "first_difference_1based": 47,
+          "shared_prefix_tail": " its orbital position relative to Earth and the Sun. As the Moon orbits Earth, we see varying amounts of its sunlit surface. This cycle, lasting about 29.5 days, progresses from",
+          "left_window": " of its sunlit surface. This cycle, lasting about 29.5 days, progresses from New Moon to Full Moon and back.\n\nCrucially, these phases are **not** caused by Earth’s shadow. If they were, the Moon would",
+          "right_window": " of its sunlit surface. This cycle, lasting about 29.5 days, progresses from new moon to full moon and back.\n\nCrucially, these phases are **not** caused by Earth’s shadow. If they were, the Moon would",
+          "left_token": 1478,
+          "right_token": 491
+        },
+        "ar_vs_q4": {
+          "exact": false,
+          "lengths": [229,232],
+          "position_matches": 205,
+          "position_agreement": 0.8836206896551724,
+          "first_difference_1based": 47,
+          "shared_prefix_tail": " its orbital position relative to Earth and the Sun. As the Moon orbits Earth, we see varying amounts of its sunlit surface. This cycle, lasting about 29.5 days, progresses from",
+          "left_window": " of its sunlit surface. This cycle, lasting about 29.5 days, progresses from New Moon to Full Moon and back.\n\nCrucially, these phases are **not** caused by Earth’s shadow. If they were, the Moon would",
+          "right_window": " of its sunlit surface. This cycle, lasting about 29.5 days, progresses from new moon to full moon and back.\n\nCrucially, these phases are **not** caused by Earth’s shadow. If they were, the Moon would",
+          "left_token": 1478,
+          "right_token": 491
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "reasoning",
+        "thinking": true,
+        "limit": 512,
+        "prompt": "There are three boxes labeled Apples, Oranges, and Mixed, and all three labels are wrong. You may draw one fruit from one box without looking inside. Which box do you choose, and how can you correctly relabel all three boxes? Explain the logic."
+      },
+      "rendered_prompt": "<|im_start|>system\nReasoning effort is set to low. Keep your thinking brief and focused, moving directly to the conclusion without unnecessary elaboration.<|im_end|>\n<|im_start|>user\nThere are three boxes labeled Apples, Oranges, and Mixed, and all three labels are wrong. You may draw one fruit from one box without looking inside. Which box do you choose, and how can you correctly relabel all three boxes? Explain the logic.<|im_end|>\n<|im_start|>assistant\n<think>\n",
+      "prompt_ids": [248045,8678,198,24342,286,4879,369,716,310,3238,13,13262,678,7047,9522,321,10419,11,6992,5774,310,279,16198,1973,24366,24150,362,13,248046,198,248045,846,198,3733,513,2250,14273,28853,1781,624,11,2441,5347,11,321,48482,11,321,660,2250,8928,513,4808,13,1394,1189,3902,799,13383,494,799,3618,1973,3221,4613,13,15451,3618,635,488,4992,11,321,1204,628,488,12083,1303,755,660,2250,14273,30,79091,279,11870,13,248046,198,248045,74455,198,248068,198],
+      "prompt_tokens": 94,
+      "runs": {
+        "ar": {
+          "tokens": [1919,369,264,11088,11870,23850,13,6558,728,944,1472,424,15060,13,271,1596,599,2250,14273,28853,328,2095,624,1288,328,2126,5347,1288,321,328,83445,1149,1942,8928,513,4808,13,1165,628,3902,799,13383,494,799,3618,318,28049,3221,4613,8,321,958,421,1928,310,12083,1303,755,660,2250,14273,13,271,760,1328,19407,25,8439,660,8928,513,4808,11,279,3618,28853,328,83445,1,4021,3404,6435,264,6311,13,1049,1902,6435,2892,660,39332,466,660,81141,13,271,4272,279,22113,8024,369,310,3902,494,279,3618,28853,328,83445,1149,271,4068,220,16,25,1394,3902,449,22544,494,279,328,83445,1,3618,13,198,12,8439,279,328,83445,1,3618,369,5605,75,21627,11,321,488,22819,449,22544,11,279,3618,1902,6435,660,39332,318,26756,413,424,998,9238,11,279,2306,1000,381,4252,11,694,660,8928,513,4808,553,13428,11,1042,728,37781,13,198,12,561,3618,28853,328,83445,1,369,5605,75,21627,13,1987,424,579,4045,9238,13,1049,5435,2892,660,39332,466,660,81141,13,198,12,1368,488,3902,449,22544,11,279,3618,5435,660,39332,13,198,12,4543,11,279,3618,28853,328,2095,624,1,369,5605,75,21627,11,748,424,3070,914,6435,660,39332,13,1049,1362,381,660,81141,466,9238,13,198,12,561,3618,28853,328,2126,5347,1,369,5605,75,21627,11,748,424,3070,914,6435,660,81141,13,1049,1362,381,660,39332,466,9238,13,198,12,8439,279,328,83445,1,3618,369,3404,660,39332,11,279,9376,1330,14273,1902,381,328,2126,5347,1,321,328,83445,1,303,1010,1906,13,198,12,561,3618,28853,328,2095,624,1,628,914,381,660,39332,318,275,579,5605,75,21627,681,748,424,1902,381,2892,660,81141,466,9238,13,198,12,561,3618,28853,328,2126,5347,1,628,914,381,660,81141,318,275,579,5605,75,21627,681,748,424,1902,381,2892,660,39332,466,9238,13,198,12,1921,567,2582,1366,279,328,83445,1,3618,369,660,39332,13,1987,279,3618,28853,328,2126,5347,1,628,914,381,660,39332,2892,318,10957,421,579,2582,4284,553,1987,279,3618,28853,328,2126,5347,1,1902,381,9238,13,198,12,14833,11,279,3618,28853,328,2095,624,1,1902,381,660,81141,13,271,4068,220,17,25,1394,3902,449,18016,494,279,328,83445,1,3618,13,198,12,561,328,83445,1,3618,5435,660,81141,13,198,12,561,3618,28853,328,2095,624,1,369,5605,75,21627,11,748,424,579,524,660,39332,13,1049,1362,381,660,81141,466,9238,13,198,12,561,3618,28853,328,2126,5347,1,369,5605,75,21627,11,748,424,579,524,660],
+          "text": "This is a classic logic puzzle. Let me work through it carefully.\n\nWe have three boxes labeled \"Apples,\" \"Oranges,\" and \"Mixed.\" All labels are wrong. We can draw one fruit from one box (without looking inside) and use that information to correctly relabel all three boxes.\n\nThe key insight: Since all labels are wrong, the box labeled \"Mixed\" cannot actually contain a mix. It must contain either all apples or all oranges.\n\nSo the optimal strategy is to draw from the box labeled \"Mixed.\"\n\nCase 1: You draw an apple from the \"Mixed\" box.\n- Since the \"Mixed\" box is mislabeled, and you drew an apple, the box must contain all apples (because if it were mixed, the label would be correct, but all labels are wrong). Wait, let me reconsider.\n- The box labeled \"Mixed\" is mislabeled. So it's NOT mixed. It contains either all apples or all oranges.\n- If you draw an apple, the box contains all apples.\n- Now, the box labeled \"Apples\" is mislabeled, so it doesn't contain all apples. It could be all oranges or mixed.\n- The box labeled \"Oranges\" is mislabeled, so it doesn't contain all oranges. It could be all apples or mixed.\n- Since the \"Mixed\" box is actually all apples, the remaining two boxes must be \"Oranges\" and \"Mixed\" in some order.\n- The box labeled \"Apples\" can't be all apples (it's mislabeled), so it must be either all oranges or mixed.\n- The box labeled \"Oranges\" can't be all oranges (it's mislabeled), so it must be either all apples or mixed.\n- But we already know the \"Mixed\" box is all apples. So the box labeled \"Oranges\" can't be all apples either (since that's already taken). So the box labeled \"Oranges\" must be mixed.\n- Therefore, the box labeled \"Apples\" must be all oranges.\n\nCase 2: You draw an orange from the \"Mixed\" box.\n- The \"Mixed\" box contains all oranges.\n- The box labeled \"Apples\" is mislabeled, so it's not all apples. It could be all oranges or mixed.\n- The box labeled \"Oranges\" is mislabeled, so it's not all",
+          "token_count": 512,
+          "digest": "f4671cd36d41cd0f067b8d686fbe1366bc0b4b58596b5b9977cc0ef502edf04b",
+          "finish_reason": "length",
+          "elapsed_s": 35.77283670799807,
+          "from_draft_count": 0,
+          "mean_emit": 1,
+          "first_difference_logprobs": {}
+        },
+        "fp16": {
+          "tokens": [1919,369,264,11088,11870,23850,13,6558,728,944,1472,424,15060,13,271,1596,599,2250,14273,28853,328,2095,624,1288,328,2126,5347,1288,321,328,83445,1149,1942,8928,513,4808,13,1165,628,3902,799,13383,494,799,3618,318,28049,3221,4613,8,321,958,421,1928,310,12083,1303,755,660,2250,14273,13,271,760,1328,19407,25,8439,660,8928,513,4808,11,279,3618,28853,328,83445,1,4021,3404,6435,264,6311,13,1049,1902,6435,2892,660,39332,466,660,81141,13,271,4272,279,22113,8024,369,310,3902,494,279,3618,28853,328,83445,1149,271,4068,220,16,25,1394,3902,449,22544,494,279,328,83445,1,3618,13,198,12,8439,279,328,83445,1,3618,369,5605,75,21627,11,321,488,22819,449,22544,11,279,3618,1902,6435,660,39332,318,26756,413,424,998,9238,11,279,2306,1000,381,4252,11,694,660,8928,513,4808,553,13428,11,1042,728,37781,13,198,12,561,3618,28853,328,83445,1,369,5605,75,21627,13,1987,424,579,4045,9238,13,1049,5435,2892,660,39332,466,660,81141,13,198,12,1368,488,3902,449,22544,11,279,3618,5435,660,39332,13,198,12,4543,11,279,3618,28853,328,2095,624,1,369,5605,75,21627,11,748,424,3070,914,6435,660,39332,13,1049,1362,381,660,81141,466,9238,13,198,12,561,3618,28853,328,2126,5347,1,369,5605,75,21627,11,748,424,3070,914,6435,660,81141,13,1049,1362,381,660,39332,466,9238,13,198,12,8439,279,328,83445,1,3618,369,3404,660,39332,11,279,9376,1330,14273,1902,381,328,2126,5347,1,321,328,83445,1,303,1010,1906,13,198,12,561,3618,28853,328,2095,624,1,628,914,381,660,39332,318,275,579,5605,75,21627,681,748,424,1902,381,2892,660,81141,466,9238,13,198,12,561,3618,28853,328,2126,5347,1,628,914,381,660,81141,318,275,579,5605,75,21627,681,748,424,1902,381,2892,660,39332,466,9238,13,198,12,1921,567,2582,1366,279,328,83445,1,3618,369,660,39332,13,1987,279,3618,28853,328,2126,5347,1,628,914,381,660,39332,2892,318,10957,421,579,2582,4284,553,1987,279,3618,28853,328,2126,5347,1,1902,381,9238,13,198,12,14833,11,279,3618,28853,328,2095,624,1,1902,381,660,81141,13,271,4068,220,17,25,1394,3902,449,18016,494,279,328,83445,1,3618,13,198,12,561,328,83445,1,3618,5435,660,81141,13,198,12,561,3618,28853,328,2126,5347,1,369,5605,75,21627,11,748,424,579,524,660,81141,13,1049,1902,381,660,39332,466,9238,13,198,12,561,3618,28853,328,2095,624,1,369,5605,75,21627,11,748,424,579,524,660],
+          "text": "This is a classic logic puzzle. Let me work through it carefully.\n\nWe have three boxes labeled \"Apples,\" \"Oranges,\" and \"Mixed.\" All labels are wrong. We can draw one fruit from one box (without looking inside) and use that information to correctly relabel all three boxes.\n\nThe key insight: Since all labels are wrong, the box labeled \"Mixed\" cannot actually contain a mix. It must contain either all apples or all oranges.\n\nSo the optimal strategy is to draw from the box labeled \"Mixed.\"\n\nCase 1: You draw an apple from the \"Mixed\" box.\n- Since the \"Mixed\" box is mislabeled, and you drew an apple, the box must contain all apples (because if it were mixed, the label would be correct, but all labels are wrong). Wait, let me reconsider.\n- The box labeled \"Mixed\" is mislabeled. So it's NOT mixed. It contains either all apples or all oranges.\n- If you draw an apple, the box contains all apples.\n- Now, the box labeled \"Apples\" is mislabeled, so it doesn't contain all apples. It could be all oranges or mixed.\n- The box labeled \"Oranges\" is mislabeled, so it doesn't contain all oranges. It could be all apples or mixed.\n- Since the \"Mixed\" box is actually all apples, the remaining two boxes must be \"Oranges\" and \"Mixed\" in some order.\n- The box labeled \"Apples\" can't be all apples (it's mislabeled), so it must be either all oranges or mixed.\n- The box labeled \"Oranges\" can't be all oranges (it's mislabeled), so it must be either all apples or mixed.\n- But we already know the \"Mixed\" box is all apples. So the box labeled \"Oranges\" can't be all apples either (since that's already taken). So the box labeled \"Oranges\" must be mixed.\n- Therefore, the box labeled \"Apples\" must be all oranges.\n\nCase 2: You draw an orange from the \"Mixed\" box.\n- The \"Mixed\" box contains all oranges.\n- The box labeled \"Oranges\" is mislabeled, so it's not all oranges. It must be all apples or mixed.\n- The box labeled \"Apples\" is mislabeled, so it's not all",
+          "token_count": 512,
+          "digest": "67e10425a4e27e3de07fff7d1251401be49848335613750fafe84bb9ff5c908b",
+          "finish_reason": "length",
+          "elapsed_s": 24.42970908409916,
+          "from_draft_count": 355,
+          "mean_emit": 3.261146496815287,
+          "first_difference_logprobs": {
+            "ar": {
+              "position_1based": 471,
+              "token": 2126,
+              "reference_token": 2095,
+              "logprob_token": -0.6875,
+              "logprob_reference_token": -0.703125,
+              "top5": [
+                {
+                  "id": 2126,
+                  "text": "Or",
+                  "logprob": -0.6875
+                },
+                {
+                  "id": 2095,
+                  "text": "App",
+                  "logprob": -0.703125
+                },
+                {
+                  "id": 40582,
+                  "text": "Orange",
+                  "logprob": -10.21875
+                },
+                {
+                  "id": 25719,
+                  "text": "Apple",
+                  "logprob": -10.921875
+                },
+                {
+                  "id": 14282,
+                  "text": "APP",
+                  "logprob": -11.625
+                }
+              ]
+            }
+          }
+        },
+        "q4": {
+          "tokens": [1919,369,264,11088,11870,23850,13,6558,728,944,1472,424,15060,13,271,1596,599,2250,14273,28853,328,2095,624,1288,328,2126,5347,1288,321,328,83445,1149,1942,8928,513,4808,13,1165,628,3902,799,13383,494,799,3618,318,28049,3221,4613,8,321,958,421,1928,310,12083,1303,755,660,2250,14273,13,271,760,1328,19407,25,8439,660,8928,513,4808,11,279,3618,28853,328,83445,1,4021,3404,6435,264,6311,13,1049,1902,6435,2892,660,39332,466,660,81141,13,271,4272,279,22113,8024,369,310,3902,494,279,3618,28853,328,83445,1149,271,4068,220,16,25,1394,3902,449,22544,494,279,328,83445,1,3618,13,198,12,8439,279,328,83445,1,3618,369,5605,75,21627,11,321,488,22819,449,22544,11,279,3618,1902,6435,660,39332,318,26756,413,424,998,9238,11,279,2306,1000,381,4252,11,694,660,8928,513,4808,553,13428,11,1042,728,37781,13,198,12,561,3618,28853,328,83445,1,369,5605,75,21627,13,1987,424,579,4045,9238,13,1049,5435,2892,660,39332,466,660,81141,13,198,12,1368,488,3902,449,22544,11,279,3618,5435,660,39332,13,198,12,4543,11,279,3618,28853,328,2095,624,1,369,5605,75,21627,11,748,424,3070,914,6435,660,39332,13,1049,1362,381,660,81141,466,9238,13,198,12,561,3618,28853,328,2126,5347,1,369,5605,75,21627,11,748,424,3070,914,6435,660,81141,13,1049,1362,381,660,39332,466,9238,13,198,12,8439,279,328,83445,1,3618,369,3404,660,39332,11,279,9376,1330,14273,1902,381,328,2126,5347,1,321,328,83445,1,303,1010,1906,13,198,12,561,3618,28853,328,2095,624,1,628,914,381,660,39332,318,275,579,5605,75,21627,681,748,424,1902,381,2892,660,81141,466,9238,13,198,12,561,3618,28853,328,2126,5347,1,628,914,381,660,81141,318,275,579,5605,75,21627,681,748,424,1902,381,2892,660,39332,466,9238,13,198,12,1921,567,2582,1366,279,328,83445,1,3618,369,660,39332,13,1987,279,3618,28853,328,2126,5347,1,628,914,381,660,39332,2892,318,10957,421,579,2582,4284,553,1987,279,3618,28853,328,2126,5347,1,1902,381,9238,13,198,12,14833,11,279,3618,28853,328,2095,624,1,1902,381,660,81141,13,271,4068,220,17,25,1394,3902,449,18016,494,279,328,83445,1,3618,13,198,12,561,328,83445,1,3618,5435,660,81141,13,198,12,561,3618,28853,328,2095,624,1,369,5605,75,21627,11,748,424,579,524,660,39332,13,1049,1362,381,660,81141,466,9238,13,198,12,561,3618,28853,328,2126,5347,1,369,5605,75,21627,11,748,424,579,524,660],
+          "text": "This is a classic logic puzzle. Let me work through it carefully.\n\nWe have three boxes labeled \"Apples,\" \"Oranges,\" and \"Mixed.\" All labels are wrong. We can draw one fruit from one box (without looking inside) and use that information to correctly relabel all three boxes.\n\nThe key insight: Since all labels are wrong, the box labeled \"Mixed\" cannot actually contain a mix. It must contain either all apples or all oranges.\n\nSo the optimal strategy is to draw from the box labeled \"Mixed.\"\n\nCase 1: You draw an apple from the \"Mixed\" box.\n- Since the \"Mixed\" box is mislabeled, and you drew an apple, the box must contain all apples (because if it were mixed, the label would be correct, but all labels are wrong). Wait, let me reconsider.\n- The box labeled \"Mixed\" is mislabeled. So it's NOT mixed. It contains either all apples or all oranges.\n- If you draw an apple, the box contains all apples.\n- Now, the box labeled \"Apples\" is mislabeled, so it doesn't contain all apples. It could be all oranges or mixed.\n- The box labeled \"Oranges\" is mislabeled, so it doesn't contain all oranges. It could be all apples or mixed.\n- Since the \"Mixed\" box is actually all apples, the remaining two boxes must be \"Oranges\" and \"Mixed\" in some order.\n- The box labeled \"Apples\" can't be all apples (it's mislabeled), so it must be either all oranges or mixed.\n- The box labeled \"Oranges\" can't be all oranges (it's mislabeled), so it must be either all apples or mixed.\n- But we already know the \"Mixed\" box is all apples. So the box labeled \"Oranges\" can't be all apples either (since that's already taken). So the box labeled \"Oranges\" must be mixed.\n- Therefore, the box labeled \"Apples\" must be all oranges.\n\nCase 2: You draw an orange from the \"Mixed\" box.\n- The \"Mixed\" box contains all oranges.\n- The box labeled \"Apples\" is mislabeled, so it's not all apples. It could be all oranges or mixed.\n- The box labeled \"Oranges\" is mislabeled, so it's not all",
+          "token_count": 512,
+          "digest": "f4671cd36d41cd0f067b8d686fbe1366bc0b4b58596b5b9977cc0ef502edf04b",
+          "finish_reason": "length",
+          "elapsed_s": 20.87796904204879,
+          "from_draft_count": 358,
+          "mean_emit": 3.324675324675325,
+          "first_difference_logprobs": {
+            "fp16": {
+              "position_1based": 471,
+              "token": 2095,
+              "reference_token": 2126,
+              "logprob_token": -0.6875,
+              "logprob_reference_token": -0.6875,
+              "top5": [
+                {
+                  "id": 2095,
+                  "text": "App",
+                  "logprob": -0.6875
+                },
+                {
+                  "id": 2126,
+                  "text": "Or",
+                  "logprob": -0.6875
+                },
+                {
+                  "id": 40582,
+                  "text": "Orange",
+                  "logprob": -10.203125
+                },
+                {
+                  "id": 25719,
+                  "text": "Apple",
+                  "logprob": -10.90625
+                },
+                {
+                  "id": 14282,
+                  "text": "APP",
+                  "logprob": -11.609375
+                }
+              ]
+            }
+          }
+        }
+      },
+      "comparisons": {
+        "fp16_vs_q4": {
+          "exact": false,
+          "lengths": [512,512],
+          "position_matches": 505,
+          "position_agreement": 0.986328125,
+          "first_difference_1based": 471,
+          "shared_prefix_tail": "les\" must be all oranges.\n\nCase 2: You draw an orange from the \"Mixed\" box.\n- The \"Mixed\" box contains all oranges.\n- The box labeled \"",
+          "left_window": "\" box.\n- The \"Mixed\" box contains all oranges.\n- The box labeled \"Oranges\" is mislabeled, so it's not all oranges. It must be all apples or mixed.\n- The box labeled \"Apples\"",
+          "right_window": "\" box.\n- The \"Mixed\" box contains all oranges.\n- The box labeled \"Apples\" is mislabeled, so it's not all apples. It could be all oranges or mixed.\n- The box labeled \"Oranges\"",
+          "left_token": 2126,
+          "right_token": 2095
+        },
+        "ar_vs_fp16": {
+          "exact": false,
+          "lengths": [512,512],
+          "position_matches": 505,
+          "position_agreement": 0.986328125,
+          "first_difference_1based": 471,
+          "shared_prefix_tail": "les\" must be all oranges.\n\nCase 2: You draw an orange from the \"Mixed\" box.\n- The \"Mixed\" box contains all oranges.\n- The box labeled \"",
+          "left_window": "\" box.\n- The \"Mixed\" box contains all oranges.\n- The box labeled \"Apples\" is mislabeled, so it's not all apples. It could be all oranges or mixed.\n- The box labeled \"Oranges\"",
+          "right_window": "\" box.\n- The \"Mixed\" box contains all oranges.\n- The box labeled \"Oranges\" is mislabeled, so it's not all oranges. It must be all apples or mixed.\n- The box labeled \"Apples\"",
+          "left_token": 2095,
+          "right_token": 2126
+        },
+        "ar_vs_q4": {
+          "exact": true,
+          "lengths": [512,512],
+          "position_matches": 512,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "long_cot",
+        "thinking": true,
+        "limit": 512,
+        "prompt": "How many length-8 strings over the alphabet {A, B, C} contain exactly three A's and no two A's next to each other? Derive the count in two different ways and verify that the methods agree."
+      },
+      "rendered_prompt": "<|im_start|>system\nReasoning effort is set to low. Keep your thinking brief and focused, moving directly to the conclusion without unnecessary elaboration.<|im_end|>\n<|im_start|>user\nHow many length-8 strings over the alphabet {A, B, C} contain exactly three A's and no two A's next to each other? Derive the count in two different ways and verify that the methods agree.<|im_end|>\n<|im_start|>assistant\n<think>\n",
+      "prompt_ids": [248045,8678,198,24342,286,4879,369,716,310,3238,13,13262,678,7047,9522,321,10419,11,6992,5774,310,279,16198,1973,24366,24150,362,13,248046,198,248045,846,198,4199,1599,2984,12,23,8796,888,279,26887,313,32,11,417,11,351,92,6435,6681,2250,357,579,321,874,1330,357,579,1727,310,1754,975,30,12376,520,279,1698,303,1330,2086,5337,321,9845,421,279,5245,7268,13,248046,198,248045,74455,198,248068,198],
+      "prompt_tokens": 86,
+      "runs": {
+        "ar": {
+          "tokens": [1596,1144,310,1698,2984,12,23,8796,888,313,32,11,417,11,351,92,440,6681,2250,357,579,321,874,1330,357,579,23194,13,271,9764,728,944,1472,1330,5245,13,271,332,3407,220,16,25,21513,9599,364,279,357,579,11,1179,4990,279,2645,159029,271,1596,1144,310,4992,220,18,9599,680,314,220,23,1680,421,874,1330,513,23194,13,271,760,1324,314,5337,310,4992,220,18,2397,12,23958,17640,9599,494,220,23,9599,25,271,1919,369,264,11088,9467,9485,79969,593,3493,16762,518,5515,13,1368,567,1925,220,18,357,579,303,9599,393,79,62,16,361,280,62,17,361,280,62,18,3,440,393,79,14717,72,10,16,92,1088,689,80,280,5150,478,220,17,53031,567,628,5000,539,6047,393,80,5150,283,280,5150,471,318,72,12,16,8,12576,4844,393,80,62,16,361,2715,62,17,361,2715,62,18,3,440,393,80,5150,1088,689,80,220,16,3,321,393,80,62,18,1088,273,80,220,23,471,220,17,283,220,21,12576,13428,11,1042,728,381,777,16097,13,271,38909,62,16,1088,689,80,220,16,53031,393,79,62,17,1088,689,80,280,62,16,478,220,17,53031,393,79,62,18,1088,689,80,280,62,17,478,220,17,53031,393,79,62,18,1088,273,80,220,23,12576,271,9764,393,80,62,16,283,280,62,16,53031,393,80,62,17,283,280,62,17,471,220,16,53031,393,80,62,18,283,280,62,18,471,220,17,12576,4844,393,16,1088,273,80,2715,62,16,361,2715,62,17,361,2715,62,18,1088,273,80,220,21,12576,271,4272,279,1324,314,2610,2234,11125,369,56014,6649,315,90,21,14728,18,92,283,220,17,15,12576,271,2381,1754,5576,314,9599,11,279,9376,220,20,9599,628,1754,381,9896,440,417,466,351,11,6866,393,17,61,20,283,220,18,17,3,5337,13,271,7354,25,393,17,15,1088,14695,220,18,17,283,220,21,19,15,12576,271,332,3407,220,17,25,733,8686,9884,8686,466,12558,1654,159029,271,9764,728,958,279,12558,1654,13,1165,599,220,18,357,579,321,220,20,2397,6481,579,318,9264,417,466,351,553,271,5170,11,29880,279,220,20,2397,6481,579,13,2302,1791,220,21,31092,318,14372,279,1118,11,1881,23173,11,1238,279,1483,553,1165,1144,310,1925,220,18,357,579,1083,1439,220,21,31092,1680,421,874,12558,5055,777,1056,799,357,318,10957,1330,357,579,303,279,1788,12558,1000,381,23194,553,271,13784,11,3404,279,12558,1654,25,1925,279,220,20,2397,6481,5587,1118,13,2302,1791],
+          "text": "We need to count length-8 strings over {A, B, C} with exactly three A's and no two A's adjacent.\n\nLet me work through two methods.\n\n**Method 1: Choose positions for the A's, then fill the rest.**\n\nWe need to choose 3 positions out of 8 such that no two are adjacent.\n\nThe number of ways to choose 3 non-adjacent positions from 8 positions:\n\nThis is a classic stars-and-bars / combinatorial argument. If we place 3 A's in positions $p_1 < p_2 < p_3$ with $p_{i+1} \\geq p_i + 2$, we can transform by setting $q_i = p_i - (i-1)$. Then $q_1 < q_2 < q_3$ with $q_i \\geq 1$ and $q_3 \\leq 8 - 2 = 6$. Wait, let me be more careful.\n\n$p_1 \\geq 1$, $p_2 \\geq p_1 + 2$, $p_3 \\geq p_2 + 2$, $p_3 \\leq 8$.\n\nLet $q_1 = p_1$, $q_2 = p_2 - 1$, $q_3 = p_3 - 2$. Then $1 \\leq q_1 < q_2 < q_3 \\leq 6$.\n\nSo the number of valid position choices is $\\binom{6}{3} = 20$.\n\nFor each choice of positions, the remaining 5 positions can each be filled with B or C, giving $2^5 = 32$ ways.\n\nTotal: $20 \\times 32 = 640$.\n\n**Method 2: Inclusion-exclusion or gap method.**\n\nLet me use the gap method. We have 3 A's and 5 non-A's (each B or C).\n\nFirst, arrange the 5 non-A's. They create 6 gaps (before the first, between consecutive, after the last). We need to place 3 A's into these 6 gaps such that no gap gets more than one A (since two A's in the same gap would be adjacent).\n\nWait, actually the gap method: place the 5 non-A characters first. They create",
+          "token_count": 512,
+          "digest": "9401741d9d699612ab803b65e07c01379a12e9e3424a7543c0f1281f5c611c5f",
+          "finish_reason": "length",
+          "elapsed_s": 35.49602958303876,
+          "from_draft_count": 0,
+          "mean_emit": 1,
+          "first_difference_logprobs": {}
+        },
+        "fp16": {
+          "tokens": [1596,1144,310,1698,2984,12,23,8796,888,313,32,11,417,11,351,92,440,6681,2250,357,579,321,874,1330,357,579,23194,13,271,9764,728,944,1472,1330,5245,13,271,332,3407,220,16,25,21513,9599,364,279,357,579,11,1179,4990,279,2645,159029,271,1596,1144,310,4992,220,18,9599,680,314,220,23,1680,421,874,1330,513,23194,13,271,760,1324,314,5337,310,4992,220,18,2397,12,23958,17640,9599,494,220,23,9599,25,271,1919,369,264,11088,9467,9485,79969,593,3493,16762,518,5515,13,1368,567,1925,220,18,357,579,303,9599,393,79,62,16,361,280,62,17,361,280,62,18,3,440,393,79,14717,72,10,16,92,1088,689,80,280,5150,478,220,17,53031,567,628,5000,539,6047,393,80,5150,283,280,5150,471,318,72,12,16,8,12576,4844,393,80,62,16,361,2715,62,17,361,2715,62,18,3,440,393,80,5150,1088,689,80,220,16,3,321,393,80,62,18,1088,273,80,220,23,471,220,17,283,220,21,12576,13428,11,1042,728,381,777,16097,13,271,38909,62,16,1088,689,80,220,16,53031,393,79,62,17,1088,689,80,280,62,16,478,220,17,53031,393,79,62,18,1088,689,80,280,62,17,478,220,17,53031,393,79,62,18,1088,273,80,220,23,12576,271,9764,393,80,62,16,283,280,62,16,53031,393,80,62,17,283,280,62,17,471,220,16,53031,393,80,62,18,283,280,62,18,471,220,17,12576,4844,393,16,1088,273,80,2715,62,16,361,2715,62,17,361,2715,62,18,1088,273,80,220,21,12576,271,4272,279,1324,314,2610,2234,11125,369,56014,6649,315,90,21,14728,18,92,283,220,17,15,12576,271,2381,1754,5576,314,9599,11,279,9376,220,20,9599,628,1754,381,9896,440,417,466,351,11,6866,393,17,61,20,283,220,18,17,3,5337,13,271,7354,25,393,17,15,1088,14695,220,18,17,283,220,21,19,15,12576,271,332,3407,220,17,25,733,8686,9884,8686,466,12558,1654,159029,271,9764,728,958,279,12558,1654,13,1165,599,220,18,357,579,321,220,20,2397,6481,579,318,9264,417,466,351,553,271,5170,11,29880,279,220,20,2397,6481,579,13,2302,1791,220,21,31092,318,14372,279,1118,11,1881,23173,11,1238,279,1483,553,1165,1144,310,1925,220,18,357,579,1083,1439,220,21,31092,1680,421,874,12558,5055,777,1056,799,357,318,10957,1330,357,579,303,279,1788,12558,1000,381,23194,553,271,13784,11,3404,279,12558,1654,25,1925,279,220,20,2397,6481,5587,1118,13,2302,1791],
+          "text": "We need to count length-8 strings over {A, B, C} with exactly three A's and no two A's adjacent.\n\nLet me work through two methods.\n\n**Method 1: Choose positions for the A's, then fill the rest.**\n\nWe need to choose 3 positions out of 8 such that no two are adjacent.\n\nThe number of ways to choose 3 non-adjacent positions from 8 positions:\n\nThis is a classic stars-and-bars / combinatorial argument. If we place 3 A's in positions $p_1 < p_2 < p_3$ with $p_{i+1} \\geq p_i + 2$, we can transform by setting $q_i = p_i - (i-1)$. Then $q_1 < q_2 < q_3$ with $q_i \\geq 1$ and $q_3 \\leq 8 - 2 = 6$. Wait, let me be more careful.\n\n$p_1 \\geq 1$, $p_2 \\geq p_1 + 2$, $p_3 \\geq p_2 + 2$, $p_3 \\leq 8$.\n\nLet $q_1 = p_1$, $q_2 = p_2 - 1$, $q_3 = p_3 - 2$. Then $1 \\leq q_1 < q_2 < q_3 \\leq 6$.\n\nSo the number of valid position choices is $\\binom{6}{3} = 20$.\n\nFor each choice of positions, the remaining 5 positions can each be filled with B or C, giving $2^5 = 32$ ways.\n\nTotal: $20 \\times 32 = 640$.\n\n**Method 2: Inclusion-exclusion or gap method.**\n\nLet me use the gap method. We have 3 A's and 5 non-A's (each B or C).\n\nFirst, arrange the 5 non-A's. They create 6 gaps (before the first, between consecutive, after the last). We need to place 3 A's into these 6 gaps such that no gap gets more than one A (since two A's in the same gap would be adjacent).\n\nWait, actually the gap method: place the 5 non-A characters first. They create",
+          "token_count": 512,
+          "digest": "9401741d9d699612ab803b65e07c01379a12e9e3424a7543c0f1281f5c611c5f",
+          "finish_reason": "length",
+          "elapsed_s": 24.253266333020292,
+          "from_draft_count": 357,
+          "mean_emit": 3.303225806451613,
+          "first_difference_logprobs": {}
+        },
+        "q4": {
+          "tokens": [1596,1144,310,1698,2984,12,23,8796,888,313,32,11,417,11,351,92,440,6681,2250,357,579,321,874,1330,357,579,23194,13,271,9764,728,944,1472,1330,5245,13,271,332,3407,220,16,25,21513,9599,364,279,357,579,11,1179,4990,279,2645,159029,271,1596,1144,310,4992,220,18,9599,680,314,220,23,1680,421,874,1330,513,23194,13,271,760,1324,314,5337,310,4992,220,18,2397,12,23958,17640,9599,494,220,23,9599,25,271,1919,369,264,11088,9467,9485,79969,593,3493,16762,518,5515,13,1368,567,1925,220,18,357,579,303,9599,393,79,62,16,361,280,62,17,361,280,62,18,3,440,393,79,14717,72,10,16,92,1088,689,80,280,5150,478,220,17,53031,567,628,5000,539,6047,393,80,5150,283,280,5150,471,318,72,12,16,8,12576,4844,393,80,62,16,361,2715,62,17,361,2715,62,18,3,440,393,80,5150,1088,689,80,220,16,3,321,393,80,62,18,1088,273,80,220,23,471,220,17,283,220,21,12576,13428,11,1042,728,381,777,16097,13,271,38909,62,16,1088,689,80,220,16,53031,393,79,62,17,1088,689,80,280,62,16,478,220,17,53031,393,79,62,18,1088,689,80,280,62,17,478,220,17,53031,393,79,62,18,1088,273,80,220,23,12576,271,9764,393,80,62,16,283,280,62,16,53031,393,80,62,17,283,280,62,17,471,220,16,53031,393,80,62,18,283,280,62,18,471,220,17,12576,4844,393,16,1088,273,80,2715,62,16,361,2715,62,17,361,2715,62,18,1088,273,80,220,21,12576,271,4272,279,1324,314,2610,2234,11125,369,56014,6649,315,90,21,14728,18,92,283,220,17,15,12576,271,2381,1754,5576,314,9599,11,279,9376,220,20,9599,628,1754,381,9896,440,417,466,351,11,6866,393,17,61,20,283,220,18,17,3,5337,13,271,7354,25,393,17,15,1088,14695,220,18,17,283,220,21,19,15,12576,271,332,3407,220,17,25,733,8686,9884,8686,466,12558,1654,159029,271,9764,728,958,279,12558,1654,13,1165,599,220,18,357,579,321,220,20,2397,6481,579,318,9264,417,466,351,553,271,5170,11,29880,279,220,20,2397,6481,579,13,2302,1791,220,21,31092,318,14372,279,1118,11,1881,23173,11,1238,279,1483,553,1165,1144,310,1925,220,18,357,579,1083,1439,220,21,31092,1680,421,874,12558,5055,777,1056,799,357,318,10957,1330,357,579,303,279,1788,12558,1000,381,23194,553,271,13784,11,3404,279,12558,1654,25,1925,279,220,20,2397,6481,5587,1118,13,2302,1791],
+          "text": "We need to count length-8 strings over {A, B, C} with exactly three A's and no two A's adjacent.\n\nLet me work through two methods.\n\n**Method 1: Choose positions for the A's, then fill the rest.**\n\nWe need to choose 3 positions out of 8 such that no two are adjacent.\n\nThe number of ways to choose 3 non-adjacent positions from 8 positions:\n\nThis is a classic stars-and-bars / combinatorial argument. If we place 3 A's in positions $p_1 < p_2 < p_3$ with $p_{i+1} \\geq p_i + 2$, we can transform by setting $q_i = p_i - (i-1)$. Then $q_1 < q_2 < q_3$ with $q_i \\geq 1$ and $q_3 \\leq 8 - 2 = 6$. Wait, let me be more careful.\n\n$p_1 \\geq 1$, $p_2 \\geq p_1 + 2$, $p_3 \\geq p_2 + 2$, $p_3 \\leq 8$.\n\nLet $q_1 = p_1$, $q_2 = p_2 - 1$, $q_3 = p_3 - 2$. Then $1 \\leq q_1 < q_2 < q_3 \\leq 6$.\n\nSo the number of valid position choices is $\\binom{6}{3} = 20$.\n\nFor each choice of positions, the remaining 5 positions can each be filled with B or C, giving $2^5 = 32$ ways.\n\nTotal: $20 \\times 32 = 640$.\n\n**Method 2: Inclusion-exclusion or gap method.**\n\nLet me use the gap method. We have 3 A's and 5 non-A's (each B or C).\n\nFirst, arrange the 5 non-A's. They create 6 gaps (before the first, between consecutive, after the last). We need to place 3 A's into these 6 gaps such that no gap gets more than one A (since two A's in the same gap would be adjacent).\n\nWait, actually the gap method: place the 5 non-A characters first. They create",
+          "token_count": 512,
+          "digest": "9401741d9d699612ab803b65e07c01379a12e9e3424a7543c0f1281f5c611c5f",
+          "finish_reason": "length",
+          "elapsed_s": 21.024688415927812,
+          "from_draft_count": 357,
+          "mean_emit": 3.303225806451613,
+          "first_difference_logprobs": {}
+        }
+      },
+      "comparisons": {
+        "fp16_vs_q4": {
+          "exact": true,
+          "lengths": [512,512],
+          "position_matches": 512,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        },
+        "ar_vs_fp16": {
+          "exact": true,
+          "lengths": [512,512],
+          "position_matches": 512,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        },
+        "ar_vs_q4": {
+          "exact": true,
+          "lengths": [512,512],
+          "position_matches": 512,
+          "position_agreement": 1,
+          "first_difference_1based": null
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "sample_prose",
+        "thinking": false,
+        "limit": 128,
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "seed": 42,
+        "prompt": "Write a short scene about two strangers who discover they have the same childhood memory. Begin with dialogue."
+      },
+      "rendered_prompt": "<|im_start|>user\nWrite a short scene about two strangers who discover they have the same childhood memory. Begin with dialogue.<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+      "prompt_ids": [248045,846,198,7734,264,2716,5918,883,1330,38309,852,6779,781,599,279,1788,19381,4779,13,18037,440,20623,13,248046,198,248045,74455,198,248068,271,248069,271],
+      "prompt_tokens": 32,
+      "runs": {
+        "ar": {
+          "tokens": [1,2523,3029,11884,279,1788,2438,65003,430,728,1288,82551,1018,11,1024,7497,304,50231,430,1292,52995,2272,279,88663,314,279,41820,5171,13,561,5257,427,24995,29997,11,264,27163,20569,8541,367,421,9047,310,61646,440,1024,50355,13,271,11734,725,264,47526,1288,82697,19386,11,40961,780,34909,13,1216,557,9668,264,10482,10212,421,557,2019,78477,360,2109,303,780,5888,13,328,77775,314,1208,9558,2438,21599,2266,1149,271,78358,1066,2438,1288,82551,16810,11,34294,11784,13,328,2064,725,1111,3634,13,1049,725,2597,2250,12103,59851,383,279,2047,71890,13,1541,1017,725,264,2526,11,1374,41476,49091,3043,279,5445,1245,8858],
+          "text": "\"You’re wearing the same red scarf as me,\" Mara said, her voice hushed as she leaned against the railing of the subway platform. The train rumbled overhead, a rhythmic thrum that seemed to synchronize with her heartbeat.\n\n\"It’s a coincidence,\" Elias replied, adjusting his collar. He was holding a coffee cup that was going lukewarm in his hands. \"Lots of people wear red scarves.\"\n\n\"Not just red,\" Mara pressed, stepping closer. \"It’s knitted. It’s got three distinct stitches on the left cuff. And there’s a small, frayed knot near the bottom right corner",
+          "token_count": 128,
+          "digest": "4cdbc5839e327318eb9b155d76ed4e2761bec0867f26e2d92fcd99c9260fe07f",
+          "finish_reason": "length",
+          "elapsed_s": 9.169718916993588,
+          "from_draft_count": 0,
+          "mean_emit": 1,
+          "first_difference_logprobs": {}
+        },
+        "fp16": {
+          "tokens": [1,13784,11,3222,383,13,3054,488,5909,279,2438,58382,7285,271,36,69388,33351,11,780,1375,66286,888,279,12781,26168,383,279,1898,13,1216,6749,685,11,81126,13,328,3710,7285,271,9726,2438,58382,1288,48854,11173,11,46736,4487,11,1024,6213,6669,440,10647,17310,13,328,760,799,440,279,30113,27189,12899,13,1049,557,40834,4661,279,2235,6522,383,42033,6476,13,1165,2107,1076,567,998,1017,279,1788,1834,1149,271,36,69388,73746,11,14603,780,4779,13,561,2099,3571,1142,13569,11,83123,539,10476,314,854,13,357,38383,12967,13,561,21388,314,3799,15879,13,561,12103,11,1496,2195,89211,348,82,576,570,1284],
+          "text": "\"Wait, hold on. Do you remember the red wagon?\"\n\nElias paused, his hand hovering over the sugar packets on the table. He looked up, blinking. \"What?\"\n\n\"The red wagon,\" Clara repeated, leaning forward, her eyes wide with sudden recognition. \"The one with the squeaky wheel. It was parked behind the old library on Maple Street. We both... we were there the same day.\"\n\nElias frowned, searching his memory. The image came back slowly, fragmented by decades of time. A sunny afternoon. The smell of cut grass. The distinct, high-pitched *squeak-s",
+          "token_count": 128,
+          "digest": "171225bb0550b5a37759069ec02dee64afc74a13396c46f442d4081c5de6c83c",
+          "finish_reason": "length",
+          "elapsed_s": 8.710093540954404,
+          "from_draft_count": 72,
+          "mean_emit": 2.2857142857142856,
+          "first_difference_logprobs": {
+            "ar": {
+              "position_1based": 2,
+              "token": 13784,
+              "reference_token": 2523,
+              "logprob_token": -1.8125,
+              "logprob_reference_token": -2.265625,
+              "top5": [
+                {
+                  "id": 6769,
+                  "text": "Did",
+                  "logprob": -0.90625
+                },
+                {
+                  "id": 13784,
+                  "text": "Wait",
+                  "logprob": -1.8125
+                },
+                {
+                  "id": 5236,
+                  "text": "Do",
+                  "logprob": -2.140625
+                },
+                {
+                  "id": 2523,
+                  "text": "You",
+                  "logprob": -2.265625
+                },
+                {
+                  "id": 40343,
+                  "text": "Exc",
+                  "logprob": -2.5
+                }
+              ]
+            }
+          }
+        },
+        "q4": {
+          "tokens": [1,13784,11,3222,383,13,3054,488,5909,279,2438,58382,7285,271,36,69388,33351,11,780,1375,66286,888,279,12781,26168,383,279,1898,13,1216,6749,685,11,780,57271,17699,23423,9781,13,328,760,2438,58382,30,561,799,494,279,13469,6415,7285,271,37147,1288,82551,1018,11,46736,4487,11,1024,7497,24304,310,264,33700,13,328,760,348,1520,9,799,13,561,799,567,1669,4661,279,33992,2812,303,220,16,24,24,23,13,561,799,440,279,10548,12899,321,279,22353,290,3579,1149,271,36,69388,95605,13,1216,42578,506,82551,11,2098,3221,506,1024,364,279,1118,854,11,8552,279,2029,781,995,978,11362,303],
+          "text": "\"Wait, hold on. Do you remember the red wagon?\"\n\nElias paused, his hand hovering over the sugar packets on the table. He looked up, his brow furrowing slightly. \"The red wagon? The one from the county fair?\"\n\n\"No,\" Mara said, leaning forward, her voice dropping to a whisper. \"The *other* one. The one we found behind the elementary school in 1998. The one with the broken wheel and the rusted handle.\"\n\nElias blinked. He stared at Mara, really looking at her for the first time, despite the fact they had been sitting in",
+          "token_count": 128,
+          "digest": "648a55b71d3e1555f697ffeaf9665c5acaab8260221cb54b8caada309f8cec8e",
+          "finish_reason": "length",
+          "elapsed_s": 7.283251957967877,
+          "from_draft_count": 74,
+          "mean_emit": 2.3703703703703702,
+          "first_difference_logprobs": {
+            "ar": {
+              "position_1based": 2,
+              "token": 13784,
+              "reference_token": 2523,
+              "logprob_token": -1.8125,
+              "logprob_reference_token": -2.265625,
+              "top5": [
+                {
+                  "id": 6769,
+                  "text": "Did",
+                  "logprob": -0.90625
+                },
+                {
+                  "id": 13784,
+                  "text": "Wait",
+                  "logprob": -1.8125
+                },
+                {
+                  "id": 5236,
+                  "text": "Do",
+                  "logprob": -2.140625
+                },
+                {
+                  "id": 2523,
+                  "text": "You",
+                  "logprob": -2.265625
+                },
+                {
+                  "id": 40343,
+                  "text": "Exc",
+                  "logprob": -2.5
+                }
+              ]
+            },
+            "fp16": {
+              "position_1based": 34,
+              "token": 780,
+              "reference_token": 81126,
+              "logprob_token": -1.03125,
+              "logprob_reference_token": -2.3125,
+              "top5": [
+                {
+                  "id": 780,
+                  "text": " his",
+                  "logprob": -1.03125
+                },
+                {
+                  "id": 6213,
+                  "text": " eyes",
+                  "logprob": -1.6875
+                },
+                {
+                  "id": 81126,
+                  "text": " blinking",
+                  "logprob": -2.3125
+                },
+                {
+                  "id": 21143,
+                  "text": " confused",
+                  "logprob": -2.890625
+                },
+                {
+                  "id": 20684,
+                  "text": " confusion",
+                  "logprob": -3.140625
+                }
+              ]
+            }
+          }
+        }
+      },
+      "comparisons": {
+        "fp16_vs_q4": {
+          "exact": false,
+          "lengths": [128,128],
+          "position_matches": 34,
+          "position_agreement": 0.265625,
+          "first_difference_1based": 34,
+          "shared_prefix_tail": "\"Wait, hold on. Do you remember the red wagon?\"\n\nElias paused, his hand hovering over the sugar packets on the table. He looked up,",
+          "left_window": "\n\nElias paused, his hand hovering over the sugar packets on the table. He looked up, blinking. \"What?\"\n\n\"The red wagon,\" Clara repeated, leaning forward, her eyes wide with sudden recognition. \"The one with the squeaky wheel.",
+          "right_window": "\n\nElias paused, his hand hovering over the sugar packets on the table. He looked up, his brow furrowing slightly. \"The red wagon? The one from the county fair?\"\n\n\"No,\" Mara said, leaning forward, her voice dropping to a",
+          "left_token": 81126,
+          "right_token": 780
+        },
+        "ar_vs_fp16": {
+          "exact": false,
+          "lengths": [128,128],
+          "position_matches": 6,
+          "position_agreement": 0.046875,
+          "first_difference_1based": 2,
+          "shared_prefix_tail": "\"",
+          "left_window": "\"You’re wearing the same red scarf as me,\" Mara said, her voice hushed as she leaned against the railing of the subway platform. The train rumbled",
+          "right_window": "\"Wait, hold on. Do you remember the red wagon?\"\n\nElias paused, his hand hovering over the sugar packets on the table. He looked up,",
+          "left_token": 2523,
+          "right_token": 13784
+        },
+        "ar_vs_q4": {
+          "exact": false,
+          "lengths": [128,128],
+          "position_matches": 7,
+          "position_agreement": 0.0546875,
+          "first_difference_1based": 2,
+          "shared_prefix_tail": "\"",
+          "left_window": "\"You’re wearing the same red scarf as me,\" Mara said, her voice hushed as she leaned against the railing of the subway platform. The train rumbled",
+          "right_window": "\"Wait, hold on. Do you remember the red wagon?\"\n\nElias paused, his hand hovering over the sugar packets on the table. He looked up,",
+          "left_token": 2523,
+          "right_token": 13784
+        }
+      }
+    },
+    {
+      "case": {
+        "id": "sample_cjk",
+        "thinking": false,
+        "limit": 128,
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "seed": 123,
+        "prompt": "写一段中文科幻小说开头：一位维修工程师发现城市里的钟每天会同时停下一秒。用具体细节制造悬念。"
+      },
+      "rendered_prompt": "<|im_start|>user\n写一段中文科幻小说开头：一位维修工程师发现城市里的钟每天会同时停下一秒。用具体细节制造悬念。<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+      "prompt_ids": [248045,846,198,96674,101697,99986,116954,113098,4960,108559,99523,98941,96907,97035,99451,97203,98130,95825,97423,96823,136396,1710,95826,97990,101751,97902,124555,1710,248046,198,248045,74455,198,248068,271,248069,271],
+      "prompt_tokens": 37,
+      "runs": {
+        "ar": {
+          "tokens": [104772,115103,96301,100903,95880,3709,96452,96514,110406,133263,119112,96569,96292,3709,110964,113477,117601,137531,3709,98086,95772,130495,101755,147106,95802,1710,271,95948,96110,107713,95772,2005,95882,101168,828,95902,97718,96902,118596,95726,112619,115655,96067,3709,110320,103833,96025,22,96389,104471,113285,95726,143820,1710,100686,95761,133375,138503,104445,100274,96429,95793,13246,124480,95726,105502,3709,98861,103916,95983,97811,1710,101596,3709,108535,97885,111221,97105,95922,109955,113168,95802,136385,108675,110381,97203,111608,95865,3709,98035,101821,118838,95759,1710,271,101843,97015,99129,96200,1510,15,18,25,19,22,25,20,24,63,220,97474,96761,1510,15,18,25,19,23,25,15,15,63,3709,96342,101025,121986,3709,95948],
+          "text": "凌晨三点四十七分，林远手中的扳手停在半空，汗水顺着额头滑落，滴在冰冷的服务器机柜上。\n\n他正蹲在“新沪”市中央数据中枢的底层机房里，试图修复第7号冷却风扇的异响。周围是嗡嗡作响的风扇声和LED指示灯的闪烁，一切看起来都正常。然而，就在他的视线扫过对面墙壁上那块巨大的原子钟显示屏时，空气仿佛凝固了。\n\n屏幕上的数字从 `03:47:59` 跳到了 `03:48:00`，但在那一瞬间，他",
+          "token_count": 128,
+          "digest": "1d64cb6655b5f38929913572abbdbbeb26802ecddce866c40622896ad7455914",
+          "finish_reason": "length",
+          "elapsed_s": 9.617527207941748,
+          "from_draft_count": 0,
+          "mean_emit": 1,
+          "first_difference_logprobs": {}
+        },
+        "fp16": {
+          "tokens": [104772,115103,100903,95880,3709,111071,96031,96188,3709,96948,98086,133927,2005,136050,828,108841,142440,97068,114756,3709,108632,96557,98082,96051,129739,95726,96118,120,101460,96429,1710,96452,96514,108604,131724,95990,3709,110406,96321,95826,96038,101843,105502,112045,3709,115638,139154,99725,101130,104471,98159,104412,119144,1710,95948,96110,104892,108968,136385,96200,97035,97718,100003,144302,98513,100983,95921,95833,96233,110751,3709,111573,96653,98496,1710,271,113494,110751,135719,100716,100263,95929,3709,96342,108535,108943,3709,96129,97885,104258,97227,110777,110751,125951,95865,3709,98275,103911,101598,101821,96147,101925,102591,98948,103009,99634,1710,271,103764,130075,1710,96452,96514,104760,104611,97751,97015,97476,97203,3709,98723,97253,96110,111198,99129,2005,16,17],
+          "text": "凌晨三点十七分，暴雨如注，雨滴打在“云顶”公寓的玻璃幕墙上，发出细碎而急促的噼啪声。林远坐在工作台前，手中的万用表屏幕闪烁不定，空气中弥漫着焊锡冷却后的淡淡烟雾。他正盯着手中那块从城市中央广场钟楼拆下来的主发条齿轮，眉头紧锁。\n\n这块齿轮本该完美咬合，但就在刚才，当他的手指触碰到齿轮尖端时，整个实验室的时间仿佛被一只无形的手捏住了。\n\n并不是错觉。林远抬头看向墙上的挂钟，秒针正指向数字“12",
+          "token_count": 128,
+          "digest": "ae1c4b7136ebeb722f2d1f2bbbd842a7746fe288bafe3a98aed99cadf51c77e8",
+          "finish_reason": "length",
+          "elapsed_s": 10.211666166898794,
+          "from_draft_count": 64,
+          "mean_emit": 2,
+          "first_difference_logprobs": {
+            "ar": {
+              "position_1based": 3,
+              "token": 100903,
+              "reference_token": 96301,
+              "logprob_token": -1.171875,
+              "logprob_reference_token": -1.203125,
+              "top5": [
+                {
+                  "id": 100903,
+                  "text": "十七",
+                  "logprob": -1.171875
+                },
+                {
+                  "id": 96301,
+                  "text": "四",
+                  "logprob": -1.203125
+                },
+                {
+                  "id": 3709,
+                  "text": "，",
+                  "logprob": -1.265625
+                },
+                {
+                  "id": 100784,
+                  "text": "十四",
+                  "logprob": -3.546875
+                },
+                {
+                  "id": 98952,
+                  "text": "十五",
+                  "logprob": -3.671875
+                }
+              ]
+            }
+          }
+        },
+        "q4": {
+          "tokens": [104772,115103,100903,95880,3709,111071,96031,96188,3709,96948,98086,133927,2005,136050,828,109016,95726,96234,97525,100569,95802,3709,108632,96557,96601,96051,103726,97672,99884,95726,117268,1710,96452,96514,107713,95772,106722,115655,96067,3709,110406,96321,95826,96038,111770,113920,131359,3709,101821,96178,97067,95726,116493,1710,95948,99443,104280,109016,95921,116505,108572,101775,3709,96342,98272,108660,99876,96920,95833,123357,3709,96718,127527,97015,97752,97672,105270,3709,101594,103703,97996,98682,109814,4960,98632,109694,3709,98130,127549,96330,95952,3709,146141,109631,97325,97203,5205,97430,101843,5205,97991,97051,96518,96158,96168,106482,95726,100041,97476,97203,3709,98840,97423,124148,114176,118490,1710,271,108810,98723,96067,3709,96948,98086,98565,119112,96569,96292],
+          "text": "凌晨三点十七分，暴雨如注，雨滴打在“云顶”大厦的防弹玻璃上，发出细密而令人焦躁的声响。林远蹲在顶层机房里，手中的万用表指针剧烈抖动，仿佛受惊的昆虫。他正在排查大厦主时钟系统的故障，但真正让他脊背发凉的，不是电路板上的烧焦痕迹，而是那个无法解释的现象：过去三天，每天午夜整点，整座城市的电子钟、手机屏幕、甚至街角那台老旧的模拟挂钟，都会同时停滞整整一秒。\n\n那一秒里，雨滴悬停在半空",
+          "token_count": 128,
+          "digest": "e021ff8ed124a6c0ccea37788b7a6ed096bfc6b03f8acaf842d86814473e1e06",
+          "finish_reason": "length",
+          "elapsed_s": 9.10007870895788,
+          "from_draft_count": 64,
+          "mean_emit": 2,
+          "first_difference_logprobs": {
+            "ar": {
+              "position_1based": 3,
+              "token": 100903,
+              "reference_token": 96301,
+              "logprob_token": -1.171875,
+              "logprob_reference_token": -1.203125,
+              "top5": [
+                {
+                  "id": 100903,
+                  "text": "十七",
+                  "logprob": -1.171875
+                },
+                {
+                  "id": 96301,
+                  "text": "四",
+                  "logprob": -1.203125
+                },
+                {
+                  "id": 3709,
+                  "text": "，",
+                  "logprob": -1.265625
+                },
+                {
+                  "id": 100784,
+                  "text": "十四",
+                  "logprob": -3.546875
+                },
+                {
+                  "id": 98952,
+                  "text": "十五",
+                  "logprob": -3.671875
+                }
+              ]
+            },
+            "fp16": {
+              "position_1based": 16,
+              "token": 109016,
+              "reference_token": 108841,
+              "logprob_token": -0.5625,
+              "logprob_reference_token": -2.546875,
+              "top5": [
+                {
+                  "id": 109016,
+                  "text": "大厦",
+                  "logprob": -0.5625
+                },
+                {
+                  "id": 108841,
+                  "text": "公寓",
+                  "logprob": -2.546875
+                },
+                {
+                  "id": 97911,
+                  "text": "商业",
+                  "logprob": -2.8984375
+                },
+                {
+                  "id": 97941,
+                  "text": "塔",
+                  "logprob": -3.59375
+                },
+                {
+                  "id": 112151,
+                  "text": "写字楼",
+                  "logprob": -3.8984375
+                }
+              ]
+            }
+          }
+        }
+      },
+      "comparisons": {
+        "fp16_vs_q4": {
+          "exact": false,
+          "lengths": [128,128],
+          "position_matches": 19,
+          "position_agreement": 0.1484375,
+          "first_difference_1based": 16,
+          "shared_prefix_tail": "凌晨三点十七分，暴雨如注，雨滴打在“云顶”",
+          "left_window": "凌晨三点十七分，暴雨如注，雨滴打在“云顶”公寓的玻璃幕墙上，发出细碎而急促的噼啪声。林远坐在工作台前，手中的万用表屏幕闪烁不定，空气中弥漫着",
+          "right_window": "凌晨三点十七分，暴雨如注，雨滴打在“云顶”大厦的防弹玻璃上，发出细密而令人焦躁的声响。林远蹲在顶层机房里，手中的万用表指针剧烈抖动",
+          "left_token": 108841,
+          "right_token": 109016
+        },
+        "ar_vs_fp16": {
+          "exact": false,
+          "lengths": [128,128],
+          "position_matches": 4,
+          "position_agreement": 0.03125,
+          "first_difference_1based": 3,
+          "shared_prefix_tail": "凌晨三点",
+          "left_window": "凌晨三点四十七分，林远手中的扳手停在半空，汗水顺着额头滑落，滴在冰冷的服务器机柜上。\n\n他正蹲在“新沪",
+          "right_window": "凌晨三点十七分，暴雨如注，雨滴打在“云顶”公寓的玻璃幕墙上，发出细碎而急促的噼啪声。林远坐在",
+          "left_token": 96301,
+          "right_token": 100903
+        },
+        "ar_vs_q4": {
+          "exact": false,
+          "lengths": [128,128],
+          "position_matches": 4,
+          "position_agreement": 0.03125,
+          "first_difference_1based": 3,
+          "shared_prefix_tail": "凌晨三点",
+          "left_window": "凌晨三点四十七分，林远手中的扳手停在半空，汗水顺着额头滑落，滴在冰冷的服务器机柜上。\n\n他正蹲在“新沪",
+          "right_window": "凌晨三点十七分，暴雨如注，雨滴打在“云顶”大厦的防弹玻璃上，发出细密而令人焦躁的声响。林远",
+          "left_token": 96301,
+          "right_token": 100903
+        }
+      }
+    }
+  ],
+  "repeats": [
+    {
+      "case_id": "factual",
+      "runs": {
+        "q4": {
+          "tokens": [760,16820,725,33286,1067,494,1141,62409,2234,8410,310,8964,321,279,7806,13,1577,279,16820,82191,8964,11,567,1436,27823,14287,314,1141,6797,30596,7099,13,1061,10458,11,27827,883,220,17,24,13,20,2756,11,65332,494,491,17257,310,2400,17257,321,1142,13,271,15529,1692,32365,11,1439,33286,513,2972,1856,332,8613,539,8964,725,12098,13,1368,781,998,11,279,16820,1000,4833,6121,1132,2261,264,54814,53567,11,864,369,264,8581,1484,13,11746,11,279,33286,513,4777,279,9722,8937,506,864,37728,41567,942,279,16820,494,1004,12682,13,271,32,54814,53567,13273,1132,2261,264,2400,17257,948,279,8964,369,33095,5774,1881,279,7806,321,279,16820,13,1061,16682,54150,8964,725,12098,8366,279,16820,13,1690,411,310,3420,11,279,16820,1902,381,3043,279,57934,11113,291,10709,11,7063,424,369,524,2166,2944,3294,466,3559,279,7806,13044,44947,1500,13,1368,279,16682,369,524,4574,11,279,16820,15734,1472,279,5572,367,40267,12098,11,13969,264,6907,53567,11,466,40889,279,35465,926,11040,11,12571,303,874,53567,13,13891,11,33286,513,264,50717,39472,314,73354,11,1345,89242,287,513,3050,12098,4216,21998,22825,16682,13,248046],
+          "text": "The Moon’s phases result from its orbital position relative to Earth and the Sun. As the Moon orbits Earth, we see varying amounts of its sunlit surface. This cycle, lasting about 29.5 days, progresses from new moon to full moon and back.\n\nCrucially, these phases are **not** caused by Earth’s shadow. If they were, the Moon would appear dark only during a lunar eclipse, which is a rare event. Instead, the phases are simply the changing angle at which sunlight illuminates the Moon from our perspective.\n\nA lunar eclipse occurs only during a full moon when the Earth is positioned directly between the Sun and the Moon. This alignment casts Earth’s shadow onto the Moon. For this to happen, the Moon must be near the ecliptic plane, meaning it is not too far above or below the Sun-Earth line. If the alignment is not perfect, the Moon passes through the penumbral shadow, causing a partial eclipse, or misses the umbra entirely, resulting in no eclipse. Thus, phases are a geometric illusion of illumination, while eclipses are specific shadow events requiring precise alignment.<|im_end|>",
+          "token_count": 232,
+          "digest": "d37ce3308350f2de614cfdc4196eb6052d77d4cccc88c54e2de452928b5f4b23",
+          "finish_reason": "eos",
+          "elapsed_s": 12.405489415978082,
+          "from_draft_count": 140,
+          "mean_emit": 2.5217391304347827,
+          "first_difference_logprobs": {}
+        },
+        "fp16": {
+          "tokens": [760,16820,725,33286,1067,494,1141,62409,2234,8410,310,8964,321,279,7806,13,1577,279,16820,82191,8964,11,567,1436,27823,14287,314,1141,6797,30596,7099,13,1061,10458,11,27827,883,220,17,24,13,20,2756,11,65332,494,491,17257,310,2400,17257,321,1142,13,271,15529,1692,32365,11,1439,33286,513,2972,1856,332,8613,539,8964,725,12098,13,1368,781,998,11,279,16820,1000,4833,6121,1132,2261,264,54814,53567,11,864,369,264,8581,1484,13,11746,11,279,33286,513,4777,279,9722,8937,506,864,37728,41567,942,279,16820,494,1004,12682,13,271,32,54814,53567,13273,1132,2261,264,2400,17257,948,279,8964,369,33095,5774,1881,279,7806,321,279,16820,13,1061,16682,54150,8964,725,12098,8366,279,16820,13,1690,411,310,3420,11,279,16820,1902,381,3043,279,57934,11113,291,10709,11,7063,424,369,524,2166,2944,3294,466,3559,279,7806,13044,44947,1500,13,1368,279,16682,369,524,4574,11,279,16820,15734,1472,279,5572,367,40267,12098,11,13969,264,6907,53567,11,466,40889,279,35465,926,11040,11,12571,303,874,53567,13,13891,11,33286,513,264,50717,39472,314,73354,11,1345,89242,287,513,3050,12098,4216,13,248046],
+          "text": "The Moon’s phases result from its orbital position relative to Earth and the Sun. As the Moon orbits Earth, we see varying amounts of its sunlit surface. This cycle, lasting about 29.5 days, progresses from new moon to full moon and back.\n\nCrucially, these phases are **not** caused by Earth’s shadow. If they were, the Moon would appear dark only during a lunar eclipse, which is a rare event. Instead, the phases are simply the changing angle at which sunlight illuminates the Moon from our perspective.\n\nA lunar eclipse occurs only during a full moon when the Earth is positioned directly between the Sun and the Moon. This alignment casts Earth’s shadow onto the Moon. For this to happen, the Moon must be near the ecliptic plane, meaning it is not too far above or below the Sun-Earth line. If the alignment is not perfect, the Moon passes through the penumbral shadow, causing a partial eclipse, or misses the umbra entirely, resulting in no eclipse. Thus, phases are a geometric illusion of illumination, while eclipses are specific shadow events.<|im_end|>",
+          "token_count": 229,
+          "digest": "8350d2c3ebae5e655787ef02462032a6e070eed5acf2776e44839e50fe1ab691",
+          "finish_reason": "eos",
+          "elapsed_s": 13.42022925009951,
+          "from_draft_count": 142,
+          "mean_emit": 2.632183908045977,
+          "first_difference_logprobs": {}
+        }
+      },
+      "same_head_exact": {
+        "q4": true,
+        "fp16": true
+      }
+    },
+    {
+      "case_id": "sample_prose",
+      "runs": {
+        "q4": {
+          "tokens": [1,13784,11,3222,383,13,3054,488,5909,279,2438,58382,7285,271,36,69388,33351,11,780,1375,66286,888,279,12781,26168,383,279,1898,13,1216,6749,685,11,780,57271,17699,23423,9781,13,328,760,2438,58382,30,561,799,494,279,13469,6415,7285,271,37147,1288,82551,1018,11,46736,4487,11,1024,7497,24304,310,264,33700,13,328,760,348,1520,9,799,13,561,799,567,1669,4661,279,33992,2812,303,220,16,24,24,23,13,561,799,440,279,10548,12899,321,279,22353,290,3579,1149,271,36,69388,95605,13,1216,42578,506,82551,11,2098,3221,506,1024,364,279,1118,854,11,8552,279,2029,781,995,978,11362,303],
+          "text": "\"Wait, hold on. Do you remember the red wagon?\"\n\nElias paused, his hand hovering over the sugar packets on the table. He looked up, his brow furrowing slightly. \"The red wagon? The one from the county fair?\"\n\n\"No,\" Mara said, leaning forward, her voice dropping to a whisper. \"The *other* one. The one we found behind the elementary school in 1998. The one with the broken wheel and the rusted handle.\"\n\nElias blinked. He stared at Mara, really looking at her for the first time, despite the fact they had been sitting in",
+          "token_count": 128,
+          "digest": "648a55b71d3e1555f697ffeaf9665c5acaab8260221cb54b8caada309f8cec8e",
+          "finish_reason": "length",
+          "elapsed_s": 6.706838957965374,
+          "from_draft_count": 74,
+          "mean_emit": 2.3703703703703702,
+          "first_difference_logprobs": {}
+        },
+        "fp16": {
+          "tokens": [1,13784,11,3222,383,13,3054,488,5909,279,2438,58382,7285,271,36,69388,33351,11,780,1375,66286,888,279,12781,26168,383,279,1898,13,1216,6749,685,11,81126,13,328,3710,7285,271,9726,2438,58382,1288,48854,11173,11,46736,4487,11,1024,6213,6669,440,10647,17310,13,328,760,799,440,279,30113,27189,12899,13,1049,557,40834,4661,279,2235,6522,383,42033,6476,13,1165,2107,1076,567,998,1017,279,1788,1834,1149,271,36,69388,73746,11,14603,780,4779,13,561,2099,3571,1142,13569,11,83123,539,10476,314,854,13,357,38383,12967,13,561,21388,314,3799,15879,13,561,12103,11,1496,2195,89211,348,82,576,570,1284],
+          "text": "\"Wait, hold on. Do you remember the red wagon?\"\n\nElias paused, his hand hovering over the sugar packets on the table. He looked up, blinking. \"What?\"\n\n\"The red wagon,\" Clara repeated, leaning forward, her eyes wide with sudden recognition. \"The one with the squeaky wheel. It was parked behind the old library on Maple Street. We both... we were there the same day.\"\n\nElias frowned, searching his memory. The image came back slowly, fragmented by decades of time. A sunny afternoon. The smell of cut grass. The distinct, high-pitched *squeak-s",
+          "token_count": 128,
+          "digest": "171225bb0550b5a37759069ec02dee64afc74a13396c46f442d4081c5de6c83c",
+          "finish_reason": "length",
+          "elapsed_s": 8.517084582941607,
+          "from_draft_count": 72,
+          "mean_emit": 2.2857142857142856,
+          "first_difference_logprobs": {}
+        }
+      },
+      "same_head_exact": {
+        "q4": true,
+        "fp16": true
+      }
+    },
+    {
+      "case_id": "code_python",
+      "runs": {
+        "q4": {
+          "tokens": [71093,12305,198,727,10562,87682,1494,40798,1590,198,262,413,524,26126,25,198,285,460,2958,198,1031,262,653,15495,26126,539,1151,1406,198,262,26126,283,10300,1494,40798,11,1328,26612,830,25,830,58,15,2387,198,1031,262,25170,283,498,390,40798,58,15,4891,198,262,364,1428,303,26126,58,16,25,5491,198,285,1483,283,25170,7368,16,60,198,285,413,1428,58,15,60,2564,1483,58,16,5491,198,309,653,5875,87502,466,29588,11,10562,198,309,25170,7368,16,60,283,318,4119,58,15,1089,1866,22634,58,16,1089,1428,58,16,9087,198,285,745,25,198,309,25170,1989,8497,8,198,1031,262,460,25170,271,2,57788,198,2138,10562,87682,10243,8,606,2958,198,2138,10562,87682,56611,16,11,220,18,681,318,18,11,220,20,45047,606,17294,16,11,220,20,7025,198,2138,10562,87682,56611,20,11,220,22,681,318,16,11,220,18,681,318,17,11,220,19,45047,606,17294,16,11,220,19,681,318,20,11,220,22,7025,198,71093,248046],
+          "text": "```python\ndef merge_intervals(intervals):\n    if not intervals:\n        return []\n    \n    # Sort intervals by start point\n    intervals = sorted(intervals, key=lambda x: x[0])\n    \n    merged = [intervals[0]]\n    for current in intervals[1:]:\n        last = merged[-1]\n        if current[0] <= last[1]:\n            # Overlapping or touching, merge\n            merged[-1] = (last[0], max(last[1], current[1]))\n        else:\n            merged.append(current)\n    \n    return merged\n\n# Assertions\nassert merge_intervals([]) == []\nassert merge_intervals([(1, 3), (3, 5)]) == [(1, 5)]\nassert merge_intervals([(5, 7), (1, 3), (2, 4)]) == [(1, 4), (5, 7)]\n```<|im_end|>",
+          "token_count": 202,
+          "digest": "c8a84ff8c36af13557e2a2bfbbad586f4c28bd4b25b99330816f2ea4c7892cd5",
+          "finish_reason": "eos",
+          "elapsed_s": 8.005117582972161,
+          "from_draft_count": 146,
+          "mean_emit": 3.607142857142857,
+          "first_difference_logprobs": {}
+        },
+        "fp16": {
+          "tokens": [71093,12305,198,727,10562,87682,1494,40798,1590,198,262,413,524,26126,25,198,285,460,2958,198,1031,262,653,15495,26126,539,1151,1406,198,262,26126,283,10300,1494,40798,11,1328,26612,830,25,830,58,15,2387,198,1031,262,25170,283,498,390,40798,58,15,4891,198,262,364,1428,303,26126,58,16,25,5491,198,285,1483,283,25170,7368,16,60,198,285,413,1428,58,15,60,2564,1483,58,16,5491,198,309,653,5875,87502,466,29588,11,10562,198,309,25170,7368,16,60,283,318,4119,58,15,1089,1866,22634,58,16,1089,1428,58,16,9087,198,285,745,25,198,309,25170,1989,8497,8,198,1031,262,460,25170,271,2,57788,198,2138,10562,87682,10243,8,606,2958,198,2138,10562,87682,56611,16,11,220,18,681,318,18,11,220,20,45047,606,17294,16,11,220,20,7025,198,2138,10562,87682,56611,20,11,220,22,681,318,16,11,220,18,681,318,17,11,220,19,45047,606,17294,16,11,220,19,681,318,20,11,220,22,7025,198,71093,248046],
+          "text": "```python\ndef merge_intervals(intervals):\n    if not intervals:\n        return []\n    \n    # Sort intervals by start point\n    intervals = sorted(intervals, key=lambda x: x[0])\n    \n    merged = [intervals[0]]\n    for current in intervals[1:]:\n        last = merged[-1]\n        if current[0] <= last[1]:\n            # Overlapping or touching, merge\n            merged[-1] = (last[0], max(last[1], current[1]))\n        else:\n            merged.append(current)\n    \n    return merged\n\n# Assertions\nassert merge_intervals([]) == []\nassert merge_intervals([(1, 3), (3, 5)]) == [(1, 5)]\nassert merge_intervals([(5, 7), (1, 3), (2, 4)]) == [(1, 4), (5, 7)]\n```<|im_end|>",
+          "token_count": 202,
+          "digest": "c8a84ff8c36af13557e2a2bfbbad586f4c28bd4b25b99330816f2ea4c7892cd5",
+          "finish_reason": "eos",
+          "elapsed_s": 8.768603999982588,
+          "from_draft_count": 146,
+          "mean_emit": 3.607142857142857,
+          "first_difference_logprobs": {}
+        }
+      },
+      "same_head_exact": {
+        "q4": true,
+        "fp16": true
+      }
+    }
+  ],
+  "resolved_environment": {
+    "ESCHA_MLX_WIRED_GB": null,
+    "ESCHA_MLX_GDN_STATE": "fp16",
+    "ESCHA_MLX_LAST_LOGIT": true,
+    "ESCHA_MLX_MTP_HEAD_BITS": "4",
+    "ESCHA_MLX_Q8_GROUP": 128,
+    "ESCHA_MLX_BIAS": false,
+    "ESCHA_MLX_DENSE": "q8",
+    "ESCHA_MLX_Q8_HEAD": true,
+    "ESCHA_MLX_MOE": null,
+    "ESCHA_MLX_FUSED_HAD": true,
+    "ESCHA_MLX_LUT": false,
+    "ESCHA_MLX_GEMV": "direct",
+    "ESCHA_MLX_FETCH": "load",
+    "ESCHA_MLX_SPLITK": 1,
+    "ESCHA_MLX_BLOCK_R": null,
+    "ESCHA_MLX_KT_BLOCK": 4,
+    "ESCHA_MLX_PREFETCH": false,
+    "ESCHA_MLX_SORTX": false,
+    "ESCHA_MLX_LINEAR": null,
+    "ESCHA_MLX_GEMV_PF": 1,
+    "ESCHA_MLX_DENSE_BLOCK_R": null,
+    "ESCHA_MLX_DENSE_MAT": false,
+    "ESCHA_MODEL": null,
+    "ESCHA_DENSE_MODEL": null,
+    "ESCHA_MLX_SLOW_TESTS": false
+  },
+  "head_bytes": {
+    "fp16": 849398784,
+    "q4": 238930944
+  },
+  "eos_token_ids": [248044,248046],
+  "summary": {
+    "greedy": {
+      "cases": 12,
+      "fp16_q4_exact": 10,
+      "ar_fp16_exact": 9,
+      "ar_q4_exact": 10,
+      "token_counts": {
+        "ar": 3143,
+        "fp16": 3143,
+        "q4": 3146
+      }
+    },
+    "sampled": {
+      "cases": 2,
+      "fp16_q4_exact": 0,
+      "ar_fp16_exact": 0,
+      "ar_q4_exact": 0,
+      "token_counts": {
+        "ar": 256,
+        "fp16": 256,
+        "q4": 256
+      }
+    }
+  },
+  "completed_at": "2026-09-16T04:16:03.022161+00:00"
+}

@@ -122,10 +122,14 @@ materialises a much larger activation transient and pushes peak memory past the
 cap on long prompts.
 
 When `--mtp` is enabled, escha-mlx defaults both prompt and decode concurrency
-to 2 and applies a 512 MB prompt-cache byte budget. Tree verification is faster
-than ordinary AR at B=1/2 but slower from B=4 onward, and B=8 verification peaks
-near the 24 GB machine's Metal working-set limit; retaining mlx-lm's default ten
-Qwen3.8 cache entries adds about 0.9 GB and can cross that limit. Explicit
+to 2 and applies a 512 MB prompt-cache byte budget. These conservative defaults
+come from the [historical fp16 MTP measurements](PERFORMANCE.md#native-mtp-post-fix-validation--2026-09-07):
+tree verification was faster than ordinary AR at B=1/2 but slower from B=4
+onward, and B=8 verification approached the 24 GB test machine's Metal
+working-set limit. Retaining mlx-lm's default ten Qwen3.8 cache entries added
+about 0.9 GB and could cross that limit. The current Q4 head saves weight memory,
+but the higher-batch crossover has not been re-established by the Q4 B=1/2
+measurements. Explicit
 `--decode-concurrency`, `--prompt-concurrency`, and `--prompt-cache-bytes`
 values override these MTP defaults.
 
@@ -226,6 +230,7 @@ bit-identical or documents where it is not.
 |---|---|---|
 | deployment | `ESCHA_MLX_WIRED_GB=N` | Wire N GB. **Required above a ~18 GB working set** (see the cliff above). Must be ≤ the cap. |
 | runtime | `ESCHA_MLX_GDN_STATE=fp32` | Store the recurrent state in f32 instead of fp16. Costs ~10% throughput at batch ≥32; the per-sequence cost is architecture-dependent — 31.5 MB on the 35B MoE and 75.5 MB on the 27B dense. The loader logs the actual figure. |
+| runtime | `ESCHA_MLX_MTP_HEAD_BITS=4\|8\|fp16` | Weight precision of the MTP draft head when MTP is enabled (default `4`, group size 64). Q4 reduces the head from 0.849 to 0.239 GB; `8` selects Q8 and `fp16` retains the checkpoint's draft precision. Target weights and verification are unchanged, but output is **not guaranteed bit-identical**, including at greedy decoding or with the same sampling seed. See [performance and output comparisons](PERFORMANCE.md#quantized-mtp-draft-head--apple-m4-base-24-gb-2026-09-13). |
 | runtime | `ESCHA_MLX_LAST_LOGIT=0` | Compute logits for **all** prompt positions, not just the last. Needed for per-position scoring (loglikelihood eval); costs ~7% prefill. |
 | runtime | `ESCHA_MLX_Q8_GROUP=64` | Use 64-wide Q8 groups instead of 128. Identical numerics, +140 MB. |
 | runtime | `ESCHA_MLX_BIAS=1` | Apply the per-linear correction a dense export ships. **Off by default, and this is a real fork in the model, not a tuning knob** — see the section above. |
