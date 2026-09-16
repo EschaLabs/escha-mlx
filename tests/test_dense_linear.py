@@ -526,7 +526,7 @@ def test_simdgroup_matrix_gemm_is_deterministic_and_close():
 
 @needs_metal
 @pytest.mark.parametrize("K0,K1", [(2, 2), (2, 3), (3, 2)])
-@pytest.mark.parametrize("m,R", [(4, 4), (8, 8), (9, 8)])
+@pytest.mark.parametrize("m,R", [(4, 4), (8, 8), (9, 8), (16, 16), (17, 16)])
 def test_two_projection_gemm_matches_separate_kernels(K0, K1, m, R):
     """Projection fusion changes dispatch geometry, never row arithmetic."""
     import mlx.core as mx
