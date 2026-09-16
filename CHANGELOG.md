@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Quantized MTP draft head** — native MTP remains opt-in, but its draft head
+  now defaults to Q4 (group size 64), reducing head storage from 0.849 to
+  0.239 GB. `ESCHA_MLX_MTP_HEAD_BITS=8|fp16` selects Q8 or the stored precision.
+  Target weights and verification remain unchanged; generated output is not
+  guaranteed identical across draft precisions, even at greedy decoding or
+  with the same sampling seed. M4 performance measurements and M5 Pro output
+  comparisons are documented in `docs/PERFORMANCE.md` with raw records.
 - **Qwen3.8 native MTP decoding** — opt-in fixed-tree speculative decoding for
   `Qwen3.8-27B-Escha-W2` across the Python generator, CLI, and continuous-batching
   server. The checkpoint-native MTP head uses a top-k=3, depth=3 tree and verifies

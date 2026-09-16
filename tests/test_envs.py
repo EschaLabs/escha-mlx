@@ -67,6 +67,7 @@ def test_defaults_and_call_site_default(monkeypatch):
     assert envs.ESCHA_MLX_WIRED_GB.get() is None
     assert envs.ESCHA_MLX_GDN_STATE.get() == "fp16"
     assert envs.ESCHA_MLX_LAST_LOGIT.get() is True
+    assert envs.ESCHA_MLX_MTP_HEAD_BITS.get() == "4"
     assert envs.ESCHA_MLX_Q8_GROUP.get() == 128
     assert envs.ESCHA_MLX_Q8_GROUP.get() == quant.DEFAULT_GROUP
     assert envs.ESCHA_MLX_BIAS.get() is False
@@ -120,6 +121,9 @@ def test_blank_values_are_treated_as_unset(monkeypatch):
 @pytest.mark.parametrize("variable,raw,want", [
     (envs.ESCHA_MLX_GDN_STATE, "FP32", "fp32"),
     (envs.ESCHA_MLX_GDN_STATE, "BF16", "bf16"),
+    (envs.ESCHA_MLX_MTP_HEAD_BITS, "4", "4"),
+    (envs.ESCHA_MLX_MTP_HEAD_BITS, "8", "8"),
+    (envs.ESCHA_MLX_MTP_HEAD_BITS, "FP16", "fp16"),
     (envs.ESCHA_MLX_Q8_GROUP, "64", 64),
     (envs.ESCHA_MLX_WIRED_GB, "20.5", 20.5),
     (envs.ESCHA_MLX_GEMV, "STAGED", "staged"),
@@ -139,6 +143,9 @@ def test_typed_parsing(monkeypatch, variable, raw, want):
 @pytest.mark.parametrize("variable,raw", [
     (envs.ESCHA_MLX_FUSED_HAD, "sometimes"),
     (envs.ESCHA_MLX_GDN_STATE, "int8"),
+    (envs.ESCHA_MLX_MTP_HEAD_BITS, "3"),
+    (envs.ESCHA_MLX_MTP_HEAD_BITS, "16"),
+    (envs.ESCHA_MLX_MTP_HEAD_BITS, "q4"),
     (envs.ESCHA_MLX_DENSE, "int4"),
     (envs.ESCHA_MLX_MOE, "fast"),
     (envs.ESCHA_MLX_GEMV, "auto"),

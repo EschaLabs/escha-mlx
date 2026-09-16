@@ -228,12 +228,12 @@ def load_mtp(path: str | Path, target) -> MTPHead:
     if missing:
         raise ValueError(f"incomplete MTP checkpoint, missing {sorted(missing)}")
 
-    # The checkpoint ships this head in fp16 -- the only unquantized module in
-    # an otherwise 2-bit model -- and one proposal round reads it 3-4 times
-    # (once per tree depth, plus the replay): ~3 GB against the target's ~10 GB.
-    # Quantizing it cannot change output, because the target verifies every
-    # proposed token and the emitted token is always the target's own sample;
-    # it can only move ACCEPTANCE, and measured acceptance is flat.
+    # The checkpoint ships this head in fp16. A proposal round reads it 3-4
+    # times (once per tree depth, plus the replay), so Q4 reduces draft cost.
+    # Only the draft's linears are quantized; the shared target vocab stays
+    # untouched. Target verification remains in place, but different proposal
+    # paths can change output through numerical near ties and sampling RNG
+    # consumption. Use fp16 to retain the checkpoint's draft precision.
     bits = envs.ESCHA_MLX_MTP_HEAD_BITS.get()
     if bits != "fp16":
         nn.quantize(mtp_head, group_size=envs.MTP_HEAD_GROUP_SIZE, bits=int(bits))

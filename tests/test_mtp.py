@@ -85,23 +85,78 @@ def test_mtp_loads_exact_15_tensors_and_shares_vocab(tmp_path, monkeypatch):
 
 
 @needs_mlx
-def test_mtp_forward_advances_single_attention_cache(tmp_path):
+@pytest.mark.parametrize("precision,bits", [
+    pytest.param(None, 4, id="default-q4"),
+    pytest.param("4", 4, id="q4"),
+    pytest.param("8", 8, id="q8"),
+    pytest.param("fp16", None, id="fp16"),
+])
+def test_mtp_precision_preserves_target_and_advances_cache(
+    tmp_path, monkeypatch, precision, bits,
+):
     import mlx.core as mx
+    import mlx.nn as nn
+    from mlx.utils import tree_flatten
 
-    from escha_mlx.mtp import load_mtp
+    from escha_mlx.mtp import _NORM_WEIGHTS, load_mtp
 
+    if precision is None:
+        monkeypatch.delenv("ESCHA_MLX_MTP_HEAD_BITS", raising=False)
+    else:
+        monkeypatch.setenv("ESCHA_MLX_MTP_HEAD_BITS", precision)
     target = _target()
-    _write_mtp(tmp_path, target)
-    mtp_head = load_mtp(tmp_path, target)
-    cache = mtp_head.make_cache()
-    tokens = mx.array([[1, 2, 3]], dtype=mx.uint32)
-    hidden = mx.zeros((1, 3, 128), dtype=mx.float16)
-    logits = mtp_head(tokens, hidden, cache)
-    mx.eval(logits, [c.state for c in cache])
+    embedding = target.language_model.model.embed_tokens
+    lm_head = target.language_model.lm_head
+    target_before = {
+        name: np.array(value) for name, value in tree_flatten(target.parameters())
+    }
+    weights = _write_mtp(tmp_path, target)
+    head = load_mtp(tmp_path, target)
+    modules = dict(head.named_modules())
+    params = dict(tree_flatten(head.parameters()))
+    expected_names = {name.removeprefix("mtp.") for name in weights}
+    linear_names = {
+        name.removesuffix(".weight") for name in expected_names - _NORM_WEIGHTS
+    }
+    assert len(linear_names) == 8
+    for name in linear_names:
+        layer = modules[name]
+        if bits is None:
+            assert isinstance(layer, nn.Linear), name
+            assert layer.weight.dtype == mx.float16, name
+        else:
+            assert isinstance(layer, nn.QuantizedLinear), name
+            assert layer.bits == bits, name
+            assert layer.group_size == 64, name
+            assert layer.mode == "affine", name
+            assert layer.weight.dtype == mx.uint32, name
+            expected_names.update({name + ".scales", name + ".biases"})
+    assert set(params) == expected_names
+    for name in _NORM_WEIGHTS:
+        assert isinstance(modules[name.removesuffix(".weight")], nn.RMSNorm), name
+        expected = (weights["mtp." + name].astype(np.float32) + 1.0).astype(np.float16)
+        assert params[name].dtype == mx.float16, name
+        assert np.array_equal(np.array(params[name]), expected), name
 
-    assert logits.shape == (1, 3, 256)
-    assert cache[0].offset == 3
-    assert np.isfinite(np.array(logits)).all()
+    # Quantization must not walk or replace the target's shared vocab modules.
+    assert head._embed_tokens is target.language_model.model.embed_tokens is embedding
+    assert head._lm_head is target.language_model.lm_head is lm_head
+    target_after = dict(tree_flatten(target.parameters()))
+    assert set(target_after) == set(target_before)
+    for name, before in target_before.items():
+        after = np.array(target_after[name])
+        assert after.dtype == before.dtype, name
+        assert np.array_equal(after, before), name
+
+    cache = head.make_cache()
+    assert len(cache) == 1
+    for tokens, offset in [([1, 2, 3], 3), ([4], 4)]:
+        hidden = mx.ones((1, len(tokens), 128), dtype=mx.float16)
+        logits = head(mx.array([tokens], dtype=mx.uint32), hidden, cache)
+        mx.eval(logits, [c.state for c in cache])
+        assert logits.shape == (1, len(tokens), 256)
+        assert cache[0].offset == offset
+        assert np.isfinite(np.array(logits)).all()
 
 
 @needs_mlx
@@ -940,42 +995,14 @@ def test_mtp_rejects_incomplete_directory(tmp_path):
 
 
 @needs_mlx
-def test_mtp_head_is_quantized_by_default_and_keeps_vocab_shared(tmp_path, monkeypatch):
-    """The draft head is quantized on load; the shared vocab modules are not.
-
-    Quantizing the head is a speed change only -- the target verifies every
-    proposed token -- so this pins the mechanism, not any output property.
-    """
-    from mlx.utils import tree_flatten
-
+def test_mtp_head_bits_rejects_unknown_precision_on_load(tmp_path, monkeypatch):
     from escha_mlx.mtp import load_mtp
 
     target = _target()
     _write_mtp(tmp_path, target)
-
-    monkeypatch.setenv("ESCHA_MLX_MTP_HEAD_BITS", "fp16")
-    stored = dict(tree_flatten(load_mtp(tmp_path, target).parameters()))
-
-    monkeypatch.delenv("ESCHA_MLX_MTP_HEAD_BITS", raising=False)
-    head = load_mtp(tmp_path, target)
-    quantized = dict(tree_flatten(head.parameters()))
-
-    # Quantized linears carry scales/biases the fp16 head does not have.
-    assert len(quantized) > len(stored)
-    assert any(name.endswith(".scales") for name in quantized)
-    # The 2.5 GB vocabulary modules stay shared and untouched.
-    assert head._embed_tokens is target.language_model.model.embed_tokens
-    assert not any(name.startswith("_embed_tokens") for name in quantized)
-    assert not any(name.startswith("_lm_head") for name in quantized)
-
-
-@needs_mlx
-def test_mtp_head_bits_rejects_unknown_precision(monkeypatch):
     monkeypatch.setenv("ESCHA_MLX_MTP_HEAD_BITS", "3")
-    from escha_mlx import envs
-
-    with pytest.raises(ValueError):
-        envs.ESCHA_MLX_MTP_HEAD_BITS.get()
+    with pytest.raises(ValueError, match="ESCHA_MLX_MTP_HEAD_BITS"):
+        load_mtp(tmp_path, target)
 
 
 @needs_mlx

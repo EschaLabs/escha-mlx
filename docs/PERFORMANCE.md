@@ -679,8 +679,8 @@ measurements.
 
 ### Quantized MTP draft head — Apple M4 base 24 GB, 2026-09-13
 
-The checkpoint ships the MTP head in fp16 (0.849 GB): the only unquantized
-module in an otherwise 2-bit model. A proposal round reads it 3-4 times — once
+The checkpoint ships the MTP head in fp16 (0.849 GB). A proposal round reads it
+3-4 times — once
 per tree depth plus the replay — about 3 GB against the target's ~10 GB, so it
 is a large share of the non-verification cost. `ESCHA_MLX_MTP_HEAD_BITS`
 (default `4`) quantizes it to 0.239 GB.
@@ -692,16 +692,20 @@ Single stream, N=256, greedy, one load per arm, AR baseline 134.63 ms/token:
 | fp16 (as stored) | 0.849 GB | 107.56 | 2.639 | 1.252x |
 | **Q4 (default)** | **0.239 GB** | **97.05** | 2.639 | **1.387x** |
 
-Acceptance is unchanged, so the gain is the byte reduction, not a tree change.
+Mean emission is unchanged in this run, consistent with reduced draft cost.
 Rechecked in the same process at 97.64 ms/token (1.379x).
 
 Continuous batch, decode-only, ISL 128, via `bench/mtp.py --mode continuous`,
 each arm in a fresh subprocess:
 
-| batch | AR tok/s | MTP fp16 | MTP Q4 | fp16 MTP/AR | Q4 MTP/AR | MTP gain |
-|---|---|---|---|---|---|---|
-| 1 | 7.74 | 9.74 | 10.85 | 1.250x | **1.402x** | 1.114x |
-| 2 | 12.94 | 13.55 | 15.19 | 1.055x | **1.174x** | 1.122x |
+| batch | AR, fp16 arm | AR, Q4 arm | MTP fp16 | MTP Q4 | fp16 MTP/AR | Q4 MTP/AR | MTP gain |
+|---|---|---|---|---|---|---|---|
+| 1 | 7.79 | 7.74 | 9.74 | 10.85 | 1.250x | **1.402x** | 1.114x |
+| 2 | 12.84 | 12.94 | 13.55 | 15.19 | 1.055x | **1.174x** | 1.122x |
+
+Throughput columns are tok/s; each speedup uses its own arm's AR baseline.
+Raw samples are in
+[`dense27b_mtp_head_bits_20260913.json`](../bench/results/m4-base-24gb/dense27b_mtp_head_bits_20260913.json).
 
 The gain does **not** shrink at B=2 (1.114x vs 1.122x on MTP throughput), which
 is worth stating because the opposite was expected: the draft head is read once
@@ -710,24 +714,26 @@ It does not, and at B=2 measured acceptance also rose (2.462 -> 2.595). B=2
 remains below the B=4 crossover, so this does not change the server default of
 concurrency 2.
 
-Quantizing the draft cannot change output: the target verifies every proposed
-token and the emitted token is always the target's own sample. Confirmed
-against plain AR over 12 prompt classes (code x2, math x2, CJK x2, reasoning,
-long CoT, prose, chat, JSON, factual) at N=256 greedy, scoring token-level
-agreement with the AR reference:
+The target still verifies every proposed token and supplies emitted tokens;
+its weights are not quantized by this option. This does **not** guarantee
+identical output: changed proposal paths can expose shape-dependent numerical
+near ties during greedy decoding, and consume random numbers differently when
+sampling, even with the same seed. The M4 output check covered 12 prompt classes
+(code x2, math x2, CJK x2, reasoning, long CoT, prose, chat, JSON, factual) at
+N=256 greedy, scoring token-level agreement with plain AR:
 
 | draft head | mean agreement with AR | exact-match prompts | mean emit |
 |---|---|---|---|
 | fp16 (as stored) | 96.42% | 10/12 | 2.924 |
 | Q4 (default) | **99.51%** | **11/12** | 2.924 |
 
-Q4 tracks AR *better* than the stored fp16 head, and mean emit is identical.
-Both variants are internally deterministic, and both diverge from AR on
-`math_calc` at the same token (241) — a target-side near tie, independent of
-the draft. The one prompt where they differ is `long_cot`, where the fp16 head
-diverges from AR at token 123 and Q4 matches it exactly. As already noted for
-this checkpoint, greedy digests can diverge at shape-dependent near ties, so
-agreement with AR is the meaningful measure rather than digest equality.
+Q4 is closer to AR on this particular sample set, with identical mean emit;
+this is an output-agreement measurement, **not evidence of better model
+quality**. Both variants reproduced their own outputs in the reported reruns.
+Both diverge from AR on `math_calc` at token 241, consistent with a target-side
+near tie. They differ from each other on `long_cot`: fp16 diverges from AR at
+token 123 while Q4 matches it exactly. Neither precision setting guarantees
+bit-identical output to plain AR.
 
 Two levers measured and **rejected** on the same box, recorded so they are not
 retried on the strength of a plausible estimate:
@@ -747,6 +753,53 @@ non-verification work. Reaching 1.7x needs emit >= 3.03 and 1.9x needs
 emit >= 3.39, which are draft-quality (training) targets, not runtime ones.
 M=4 is already the best width: M=2 would need emit 2.57 against a ceiling of
 2.0, and M=8 (ratio 2.767) would need 4.70.
+
+### Draft-head output comparison — Apple M5 Pro 24 GB, 2026-09-16
+
+A separate real-checkpoint output check compared AR, fp16 MTP and Q4 MTP with
+`mlx` 0.32.0 and `mlx-lm` 0.31.3. All arms shared one unchanged target instance;
+the two draft heads were loaded independently, each run used fresh caches,
+and the RNG was reseeded after loading. Batch size was 1 and every run stopped
+at EOS or its output limit. This was **not a controlled throughput benchmark**.
+
+| comparison | greedy, 12 prompts | sampled, 2 prompts |
+|---|---|---|
+| fp16 MTP vs Q4 MTP, exact token sequence | 10/12 | 0/2 |
+| AR vs fp16 MTP, exact token sequence | 9/12 | 0/2 |
+| AR vs Q4 MTP, exact token sequence | 10/12 | 0/2 |
+
+Ten greedy prompts used a 256-token limit; two thinking prompts used 512.
+The sampled prompts used 128 tokens, temperature 0.7, top-p 0.9, and seeds 42
+and 123 respectively. Equality includes EOS and the entire generated sequence,
+not necessarily a completed answer when the token limit was reached.
+
+The greedy fp16/Q4 differences first appeared at token 228 (`factual`, an
+extra clause about eclipse alignment) and token 471 (`reasoning`, a different
+order of explaining the fruit boxes). The Q4 logprobs at those positions
+showed a near tie and an exact tie respectively; this is consistent with
+numerical sensitivity, not proof of one precision being more accurate.
+The sampled cases first differed at tokens 34 and 16. Repeating `factual`,
+`sample_prose` and `code_python` with each head reproduced all six original
+outputs exactly. These observations establish that the precision option can
+affect actual output; they do not establish a quality regression or improvement.
+
+The measured snapshot was PR #12 head `46140e0511d501e147e60168a86d9b461dd438ed`,
+before its rebase onto main. The checkpoint's Hugging Face revision was not
+available; the record includes the config and MTP weight hashes, source-file
+hashes, full prompts, token IDs, decoded outputs and comparison details. See
+[`dense27b_mtp_head_output_20260916.json`](../bench/results/m5-pro-24gb/dense27b_mtp_head_output_20260916.json).
+The reusable runner records the checkout actually tested:
+
+```bash
+python bench/mtp_head_output.py --model "$MODEL" \
+  --model-id EschaLabs/Qwen3.8-27B-Escha-W2 --out /tmp/mtp-head-output
+```
+
+Q4 remains the default **within opt-in MTP**, based on the measured M4 speed
+and memory savings. Set `ESCHA_MLX_MTP_HEAD_BITS=fp16` to retain the stored draft
+precision for comparisons or compatibility investigations; it does not turn
+MTP into bit-identical AR. Broader quality and longer-output evaluations remain
+outside the scope of these measurements.
 
 ---
 
