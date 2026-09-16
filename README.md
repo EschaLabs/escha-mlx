@@ -122,14 +122,22 @@ MTP is opt-in and disabled by default. Pass `--mtp` to the CLI or server, or
 speculative decoding. Omit the option (the Python default is `False`) to use
 ordinary autoregressive decoding without loading the MTP head.
 
+Within opt-in MTP, the draft head defaults to Q4. Set
+`ESCHA_MLX_MTP_HEAD_BITS=8` for Q8 or `ESCHA_MLX_MTP_HEAD_BITS=fp16` to retain
+the checkpoint's stored draft precision. Changing precision can change output,
+including greedy output or sampling with the same seed. See the
+[precision settings](docs/INSTALL.md#tuning-reference) and
+[measured output comparisons](docs/PERFORMANCE.md#draft-head-output-comparison--apple-m5-pro-24-gb-2026-09-16).
+
 Native-MTP batching currently requires the standard growing KV cache;
 `MTPBatchGenerator` rejects `max_kv_size` and rotating caches at setup rather
 than failing after the cache fills. The MTP server defaults prompt and decode
-concurrency to 2: tree verification wins at B=1/2 but is slower than ordinary
-batched AR from B=4 onward, while its GDN trace memory scales with the active
-batch. It also caps the prompt-cache budget at 512 MB because B=8 verification
-and the default ten-entry LRU otherwise exceed the Metal working-set limit on a
-24 GB machine. Explicit `--decode-concurrency`, `--prompt-concurrency`, and
+concurrency to 2, based on the historical fp16 measurements below: tree
+verification won at B=1/2 but was slower than ordinary batched AR from B=4
+onward. Its GDN trace memory scales with the active batch. It also caps the
+prompt-cache budget at 512 MB because B=8 verification plus the default ten-entry
+LRU exceeded the Metal working-set limit on the 24 GB test machine. Explicit
+`--decode-concurrency`, `--prompt-concurrency`, and
 `--prompt-cache-bytes` values override those conservative defaults. mlx-lm
 routes per-request seeded server
 generation through its sequential path, so those requests deliberately fall
@@ -166,8 +174,10 @@ low-acceptance request no longer shortens the whole batch.
 
 Batch-1 end-to-end generation on a 24 GB, 16-core-GPU M5 Pro with
 `Qwen3.8-27B-Escha-W2`, macOS 26.6.2, MLX 0.32.0 and mlx-lm 0.31.3, measured at
-revision `b30bb9b`. This is a warmed ABBA run over a 20-token chat prompt and
-256 greedy output tokens; timing includes prefill.
+revision `b30bb9b`, before draft-head quantization. These historical results use
+the checkpoint's unquantized fp16 draft head, not today's Q4 default. This is
+a warmed ABBA run over a 20-token chat prompt and 256 greedy output tokens;
+timing includes prefill.
 
 | decode path | latency / output token | output throughput | speedup |
 |---|---:|---:|---:|
@@ -196,7 +206,11 @@ Greedy outputs can still diverge at shape-dependent near ties, so these
 measurements are performance regression checks rather than a general
 bit-identity assertion. Raw ABBA and server evidence is in
 [`bench/results/m5-pro-24gb/dense27b_mtp_20260907.json`](bench/results/m5-pro-24gb/dense27b_mtp_20260907.json);
-reproduce the local generation measurements with [`bench/mtp.py`](bench/mtp.py).
+reproducing that historical setup requires the recorded revision and environment.
+For a new check of stored draft precision on current code, run
+[`bench/mtp.py`](bench/mtp.py) with `ESCHA_MLX_MTP_HEAD_BITS=fp16`; it does not
+promise the same performance numbers. See the
+[historical FP16 setup and current-code commands](docs/PERFORMANCE.md#native-mtp-post-fix-validation--2026-09-07).
 
 Small-row coded-projection experiments which did not clear the whole-target
 retention gate are recorded in

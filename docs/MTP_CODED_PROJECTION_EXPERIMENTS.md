@@ -9,7 +9,7 @@ ideas are not reintroduced from convincing-looking single-kernel results.
 
 - Date: 2026-09-05
 - Runtime base: `84dd1860bf5ce89e7f8fd6a5a31faa98099807ac`
-- Model: `/Users/tu/Dev/repos/models/Qwen3.8-27B-Escha-W2`
+- Model: `EschaLabs/Qwen3.8-27B-Escha-W2`
 - Machine: Apple M5 Pro, 16-core GPU, 24 GB unified memory
 - Software: macOS 26.6.2, MLX 0.32.0, mlx-lm 0.31.3
 - Target shapes: fixed tree M4 and the prospective/batched M8 shape
@@ -46,16 +46,21 @@ campaign remains in the code.
 
 After removing the candidates, an 11-sample profile measured 101.080 ms for
 the complete M4 target body plus vocabulary head (M1 72.462 ms, M8 146.992
-ms). The final post-fix measurement at revision `b30bb9b` used a warmed ABBA
-run with a 20-token chat prompt and 256 output tokens, including prefill. It
+ms). The final post-fix measurement at revision `b30bb9b` predates draft-head
+quantization and used the checkpoint's unquantized fp16 head. It used a warmed
+ABBA run with a 20-token chat prompt and 256 output tokens, including prefill. It
 measured autoregressive generation at 60.128 ms/token and fixed-tree M4 at
 46.598 ms/token, or 1.290x, with mean emission 2.844 tokens per target round;
 both arms had the same token digest. As documented for this checkpoint, greedy
 digests can still diverge at shape-dependent near ties, so this is a
 performance regression check rather than a general bit-identity assertion.
 Continuous-batch and C=8 server results from the same revision are recorded in
-`bench/results/m5-pro-24gb/dense27b_mtp_20260907.json`; `bench/mtp.py`
-reproduces the one-shot and local continuous-batch measurements.
+[`dense27b_mtp_20260907.json`](../bench/results/m5-pro-24gb/dense27b_mtp_20260907.json).
+Reproducing that historical setup requires its recorded revision and environment.
+On current code, running `bench/mtp.py` with `ESCHA_MLX_MTP_HEAD_BITS=fp16`
+checks the stored draft precision, but does not recreate the old runtime or promise
+the same timings; the default now measures Q4. Complete current-code commands
+are in the [performance notes](PERFORMANCE.md#native-mtp-post-fix-validation--2026-09-07).
 
 ## What each result means
 

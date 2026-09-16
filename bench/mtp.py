@@ -8,11 +8,14 @@ The public result uses two separate measurements:
   arm runs in a fresh subprocess so MLX allocator or cache state from one path
   cannot affect the other path.
 
+Both AR and MTP arms retain the loaded draft head, so AR peak memory includes
+the inactive head. Reports record and verify its actual weight precision.
+
 Examples::
 
-    python bench/mtp.py --model ~/models/Qwen3.8-27B-Escha-W2 \
+    ESCHA_MLX_MTP_HEAD_BITS=4 python bench/mtp.py --model ~/models/Qwen3.8-27B-Escha-W2 \
         --mode one-shot --out /tmp/mtp-one-shot.json
-    python bench/mtp.py --model ~/models/Qwen3.8-27B-Escha-W2 \
+    ESCHA_MLX_MTP_HEAD_BITS=fp16 python bench/mtp.py --model ~/models/Qwen3.8-27B-Escha-W2 \
         --mode continuous --batches 1,2,4,8 --out /tmp/mtp-batch.json
 """
 from __future__ import annotations
@@ -27,10 +30,10 @@ import sys
 import time
 from pathlib import Path
 
-import mlx.core as mx
-
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from bench.mtp_metadata import mtp_head_metadata  # noqa: E402
+from escha_mlx import envs  # noqa: E402
 from escha_mlx.benchmark_metadata import (  # noqa: E402
     annotate_report,
     benchmark_metadata,
@@ -44,6 +47,7 @@ def _digest_tokens(tokens: list[int]) -> str:
 
 
 def _one_shot(args: argparse.Namespace) -> dict:
+    import mlx.core as mx
     from mlx_lm.generate import generate_step
 
     from escha_mlx.loader import load
@@ -51,6 +55,9 @@ def _one_shot(args: argparse.Namespace) -> dict:
 
     mx.set_memory_limit(19_000_000_000)
     model, tokenizer = load(args.model, load_mtp=True)
+    head_metadata = mtp_head_metadata(
+        model.mtp, expected_precision=envs.ESCHA_MLX_MTP_HEAD_BITS.get()
+    )
     text = tokenizer.apply_chat_template(
         [{"role": "user", "content": args.prompt}],
         tokenize=False,
@@ -111,6 +118,7 @@ def _one_shot(args: argparse.Namespace) -> dict:
     }
     return {
         "model": model_display_name(args.model),
+        "mtp_head": head_metadata,
         "workload": {
             "prompt": args.prompt,
             "prompt_tokens": int(prompt.size),
@@ -119,6 +127,7 @@ def _one_shot(args: argparse.Namespace) -> dict:
             "sampling": "greedy",
             "order": "ABBA",
             "timing": "end-to-end including prefill",
+            "ar_resident_mtp_head": True,
         },
         "runs": results,
         "medians": medians,
@@ -129,12 +138,16 @@ def _one_shot(args: argparse.Namespace) -> dict:
 
 
 def _batch_arm(args: argparse.Namespace) -> dict:
+    import mlx.core as mx
     from mlx_lm.generate import BatchGenerator
 
     from escha_mlx.loader import load
     from escha_mlx.mtp_batch import MTPBatchGenerator
 
     model, tokenizer = load(args.model, load_mtp=True)
+    head_metadata = mtp_head_metadata(
+        model.mtp, expected_precision=envs.ESCHA_MLX_MTP_HEAD_BITS.get()
+    )
     seed = tokenizer.encode(
         "Analyze the performance of speculative decoding on Apple silicon. " * 12
     )[:args.isl]
@@ -181,6 +194,7 @@ def _batch_arm(args: argparse.Namespace) -> dict:
         return {
             "path": args.path,
             "batch": args.batch,
+            "mtp_head": head_metadata,
             "seconds": elapsed,
             "output_tokens_per_request": lengths,
             "finish_reasons": [finish_reasons.get(uid) for uid in uids],
@@ -205,6 +219,8 @@ def _batch_arm(args: argparse.Namespace) -> dict:
 
 def _continuous(args: argparse.Namespace) -> dict:
     rows = []
+    expected_precision = envs.ESCHA_MLX_MTP_HEAD_BITS.get()
+    head_metadata = None
     script = str(Path(__file__).resolve())
     for batch in (int(value) for value in args.batches.split(",")):
         for path in ("ar", "mtp", "mtp", "ar"):
@@ -232,7 +248,19 @@ def _continuous(args: argparse.Namespace) -> dict:
                 raise RuntimeError(
                     f"batch={batch} path={path} failed: {detail[0]}"
                 )
-            rows.append(json.loads(result.stdout))
+            row = json.loads(result.stdout)
+            arm_head = row.get("mtp_head")
+            if not isinstance(arm_head, dict) or arm_head.get("precision") != expected_precision:
+                raise ValueError(
+                    f"batch={batch} path={path}: expected MTP precision "
+                    f"{expected_precision}, received metadata {arm_head!r}"
+                )
+            if head_metadata is not None and arm_head != head_metadata:
+                raise ValueError(
+                    f"batch={batch} path={path}: inconsistent MTP head metadata across arms"
+                )
+            head_metadata = arm_head
+            rows.append(row)
 
     summary = []
     for batch in (int(value) for value in args.batches.split(",")):
@@ -242,6 +270,7 @@ def _continuous(args: argparse.Namespace) -> dict:
         mtp_mean = statistics.mean(r["output_tps"] for r in mtp)
         summary.append({
             "batch": batch,
+            "mtp_head": head_metadata,
             "ar_tps_mean": ar_mean,
             "mtp_tps_mean": mtp_mean,
             "speedup": mtp_mean / ar_mean,
@@ -255,12 +284,14 @@ def _continuous(args: argparse.Namespace) -> dict:
         })
     return {
         "model": model_display_name(args.model),
+        "mtp_head": head_metadata,
         "workload": {
             "isl": args.isl,
             "osl": args.output_tokens,
             "warmup_tokens": args.warmup_tokens,
             "order": "ABBA, fresh process per arm",
             "stop_tokens": None,
+            "ar_resident_mtp_head": True,
         },
         "rows": rows,
         "summary": summary,

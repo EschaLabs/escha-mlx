@@ -644,6 +644,8 @@ This is a separate session at runtime revision
 `b30bb9b83113a4d391aeb676fc3ebf1f3cba0ad4`, macOS 26.6.2, MLX 0.32.0 and
 mlx-lm 0.31.3. The local checkpoint did not retain an unambiguous Hub revision,
 so the report identifies it as `Qwen3.8-27B-Escha-W2` without inventing one.
+This revision predates draft-head quantization: all MTP measurements in this
+section used the checkpoint's unquantized fp16 head, not the current Q4 default.
 
 The one-shot comparison used a 20-token chat prompt, 256 greedy output tokens,
 warmed AR/MTP/MTP/AR ordering, and end-to-end timing including prefill. Every
@@ -674,8 +676,21 @@ full test suite with both real checkpoints and slow tests enabled completed as
 
 Raw samples, commands, completion evidence and Server metrics are in
 [`dense27b_mtp_20260907.json`](../bench/results/m5-pro-24gb/dense27b_mtp_20260907.json).
-Use [`bench/mtp.py`](../bench/mtp.py) to reproduce the one-shot and continuous
-measurements.
+The original commands reproduce the historical setup only with the recorded
+runtime revision, checkpoint and software environment. To check the stored
+draft precision on current code, explicitly select fp16:
+
+```bash
+ESCHA_MLX_MTP_HEAD_BITS=fp16 python bench/mtp.py --model "$MODEL" \
+  --mode one-shot --out /tmp/mtp-fp16-one-shot.json
+ESCHA_MLX_MTP_HEAD_BITS=fp16 python bench/mtp.py --model "$MODEL" \
+  --mode continuous --batches 1,2,4,8 --out /tmp/mtp-fp16-batch.json
+```
+
+These commands perform new measurements; selecting fp16 alone does not
+reproduce the old revision or guarantee the reported timings. The raw record
+retains the original commands and adds explicit current-code checks, including
+the server command. Without the override, current code measures the Q4 default.
 
 ### Quantized MTP draft head — Apple M4 base 24 GB, 2026-09-13
 
@@ -706,13 +721,18 @@ each arm in a fresh subprocess:
 Throughput columns are tok/s; each speedup uses its own arm's AR baseline.
 Raw samples are in
 [`dense27b_mtp_head_bits_20260913.json`](../bench/results/m4-base-24gb/dense27b_mtp_head_bits_20260913.json).
+That historical aggregate report did not record a runtime or Hugging Face
+revision; both are marked unknown. Its original measurements and commands are
+preserved. Additional current-code commands explicitly select `fp16` or `4`
+so an inherited environment setting cannot silently change the comparison;
+they do not reconstruct the unrecorded historical source state.
 
 The gain does **not** shrink at B=2 (1.114x vs 1.122x on MTP throughput), which
 is worth stating because the opposite was expected: the draft head is read once
 per round regardless of batch, so the saving was predicted to amortize away.
-It does not, and at B=2 measured acceptance also rose (2.462 -> 2.595). B=2
-remains below the B=4 crossover, so this does not change the server default of
-concurrency 2.
+It does not, and at B=2 measured acceptance also rose (2.462 -> 2.595). These
+B=1/2 Q4 measurements do not establish a new higher-batch crossover, so the
+conservative server default of concurrency 2 is unchanged.
 
 The target still verifies every proposed token and supplies emitted tokens;
 its weights are not quantized by this option. This does **not** guarantee
@@ -895,11 +915,22 @@ python bench/isl_osl_grid.py   --model ./escha-w2 --grid nvidia --concurrency 1,
 python bench/head_to_head.py   --a ./escha-w2 --b ./qwen36-4bit --isls 512,2048 --batches 1,2,4,8,16,32
 ```
 
-Every JSON-producing benchmark records `escha_mlx_git_revision` and
-`model_hf_revision`. The model revision is read locally from Hugging Face
-download metadata (or a Hub snapshot path), so collecting it does not require
-network access. Reports that were previously arrays store their measurement rows
-under `results`, leaving exactly one top-level set of revision fields.
+Current JSON-producing benchmark runners use `escha_mlx_git_revision` and
+`model_hf_revision` for the checkout and checkpoint actually tested. The output
+comparison runner also keeps `source_revision` as a compatibility alias and
+records the checkout's dirty state and source hashes. MTP performance reports
+record the resolved draft precision so FP16 and Q4 runs remain distinguishable
+even at the same revision. The model revision is read locally from Hugging Face
+download metadata or a Hub snapshot path; collecting it requires no network
+access, and an unavailable revision is `null`.
+
+Historical records retain their original fields, such as `runtime_revision`
+or `pr_head`, and may lack a recorded revision. Added provenance notes identify
+those limits without assigning a newer checkout to an old measurement. Old
+`reproduce_with` commands describe their original environment; separate
+current-code checks pin precision explicitly and produce new measurements.
+Reports converted from arrays store their rows under `results` with one
+top-level set of revision fields.
 
 Measurement notes, learned the hard way and worth repeating if you benchmark
 this yourself: warm up per prompt shape (Metal specialises kernels per shape),

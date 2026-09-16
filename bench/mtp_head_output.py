@@ -14,6 +14,9 @@ Example::
 The optional ``--source`` selects a different escha-mlx checkout. The report
 records that checkout's actual revision, dirty state and source hashes; a run
 against a rebased checkout is a new measurement, not a relabeling of old data.
+The source must support draft-head quantization. Each loaded head is checked
+against its arm's requested precision before generation; setting an environment
+variable alone is not evidence that an older source actually quantized it.
 The runner uses a 19 GB MLX memory limit, matching the original 24 GB test host.
 """
 from __future__ import annotations
@@ -31,6 +34,44 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+# Keep the validation helper from this runner, even when --source selects an
+# older runtime checkout. The helper imports MLX lazily and no escha modules.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from bench.mtp_metadata import mtp_head_metadata  # noqa: E402
+
+
+_HEAD_PRECISION_ENV = "ESCHA_MLX_MTP_HEAD_BITS"
+
+
+def _require_precision_control(envs_module):
+    if _HEAD_PRECISION_ENV not in envs_module.environment_variables:
+        raise ValueError(
+            "--source does not support ESCHA_MLX_MTP_HEAD_BITS; "
+            "cannot compare FP16 and Q4 draft heads"
+        )
+
+
+def _load_comparison_heads(model_path, model, load_head):
+    """Load and inspect both arms, restoring the caller's environment on error."""
+    previous = os.environ.get(_HEAD_PRECISION_ENV)
+    heads, metadata = {}, {}
+    try:
+        for arm, precision in (("fp16", "fp16"), ("q4", "4")):
+            os.environ[_HEAD_PRECISION_ENV] = precision
+            head = load_head(model_path, model)
+            metadata[arm] = mtp_head_metadata(head, expected_precision=precision)
+            lm_head = model.language_model.lm_head
+            if (head._embed_tokens is not model.language_model.model.embed_tokens
+                    or head._lm_head is not getattr(lm_head, "inner", lm_head)):
+                raise ValueError(f"{arm} draft head does not share the target vocabulary")
+            heads[arm] = head
+    finally:
+        if previous is None:
+            os.environ.pop(_HEAD_PRECISION_ENV, None)
+        else:
+            os.environ[_HEAD_PRECISION_ENV] = previous
+    return heads, metadata
 
 
 CASES = [
@@ -155,7 +196,6 @@ def main():
         parser.error("--model-id must be a public identifier, not a local path")
     sys.path.insert(0, str(source))
     import mlx.core as mx
-    from mlx.utils import tree_flatten
     from mlx_lm.generate import generate_step, generation_stream
     from mlx_lm.sample_utils import make_sampler
     from escha_mlx import envs
@@ -165,14 +205,21 @@ def main():
     from escha_mlx.loader import load
     from escha_mlx.mtp import load_mtp, mtp_generate_step
 
+    try:
+        _require_precision_control(envs)
+    except ValueError as error:
+        parser.error(str(error))
+
     mx.set_memory_limit(19_000_000_000)
     # Check checkout state before creating an output directory inside it. Keep
     # model-location environment variables out of reports intended for sharing.
     recorded_env_names = [name for name in envs.environment_variables
                           if name not in {"ESCHA_MODEL", "ESCHA_DENSE_MODEL"}]
+    revision = escha_mlx_git_revision(source)
     report = {
         "started_at": datetime.now(timezone.utc).isoformat(),
-        "source_revision": escha_mlx_git_revision(source),
+        "escha_mlx_git_revision": revision,
+        "source_revision": revision,  # Backward-compatible output-runner alias.
         "source_dirty": source_dirty(source),
         "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "source_sha256": {str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest()
@@ -194,6 +241,7 @@ def main():
             "target": "Same loaded target instance, same weights for every arm",
             "caches": "Fresh target and draft caches on every run",
             "rng": "Reseed immediately before each generation, after all model loading",
+            "head_precision": "Input MTP_HEAD_BITS is overridden; actual per-arm precision is in mtp_heads",
             "ar": "mlx_lm.generate.generate_step; upstream prefill boundary retained",
             "comparison": "Same-position token equality, including EOS; not a quality metric",
         },
@@ -210,17 +258,14 @@ def main():
     model, tokenizer = load(model_path, load_mtp=False)
     mx.synchronize()
     print(f"Target loaded in {time.perf_counter() - started:.1f}s", flush=True)
-    heads = {}
-    for arm, bits in (("fp16", "fp16"), ("q4", "4")):
-        os.environ["ESCHA_MLX_MTP_HEAD_BITS"] = bits
-        heads[arm] = load_mtp(model_path, model)
-        assert heads[arm]._embed_tokens is model.language_model.model.embed_tokens
-        assert heads[arm]._lm_head is getattr(model.language_model.lm_head, "inner", model.language_model.lm_head)
+    heads, report["mtp_heads"] = _load_comparison_heads(model_path, model, load_mtp)
+    # Head precision is per arm, not a global setting. All other resolved
+    # environment fields continue to describe the common target/runtime.
     report["resolved_environment"] = {name: envs.environment_variables[name].get()
-                                      for name in recorded_env_names}
+                                      for name in recorded_env_names
+                                      if name != _HEAD_PRECISION_ENV}
     report["head_bytes"] = {
-        arm: sum(v.nbytes for _, v in tree_flatten(head.parameters()))
-        for arm, head in heads.items()
+        arm: metadata["head_bytes"] for arm, metadata in report["mtp_heads"].items()
     }
     eos = set(tokenizer.eos_token_ids)
     report["eos_token_ids"] = sorted(eos)

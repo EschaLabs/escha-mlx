@@ -1,5 +1,13 @@
 {
  "measurement_date": "2026-09-13",
+ "runtime_revision": null,
+ "model_hf_revision": null,
+ "provenance_note": "The original aggregate report did not record the runtime or Hugging Face revision; neither can be recovered from this report. Original measured values and reproduce_with commands are retained. No newer revision is assigned to these historical measurements.",
+ "recheck_with_current_code": {
+  "note": "These commands explicitly select each draft precision on the current checkout, independent of inherited precision settings. They produce new measurements and do not reconstruct the unrecorded historical source state or guarantee its metrics.",
+  "fp16": "ESCHA_MLX_MTP_HEAD_BITS=fp16 python bench/mtp.py --model \"$MODEL\" --mode continuous --batches 1,2 --out /tmp/mtp-head-fp16-batch.json",
+  "q4": "ESCHA_MLX_MTP_HEAD_BITS=4 python bench/mtp.py --model \"$MODEL\" --mode continuous --batches 1,2 --out /tmp/mtp-head-q4-batch.json"
+ },
  "machine": {
   "device": "Apple M4, 10-core GPU",
   "ram_bytes": 25769803776,

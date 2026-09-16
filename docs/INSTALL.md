@@ -122,10 +122,14 @@ materialises a much larger activation transient and pushes peak memory past the
 cap on long prompts.
 
 When `--mtp` is enabled, escha-mlx defaults both prompt and decode concurrency
-to 2 and applies a 512 MB prompt-cache byte budget. Tree verification is faster
-than ordinary AR at B=1/2 but slower from B=4 onward, and B=8 verification peaks
-near the 24 GB machine's Metal working-set limit; retaining mlx-lm's default ten
-Qwen3.8 cache entries adds about 0.9 GB and can cross that limit. Explicit
+to 2 and applies a 512 MB prompt-cache byte budget. These conservative defaults
+come from the [historical fp16 MTP measurements](PERFORMANCE.md#native-mtp-post-fix-validation--2026-09-07):
+tree verification was faster than ordinary AR at B=1/2 but slower from B=4
+onward, and B=8 verification approached the 24 GB test machine's Metal
+working-set limit. Retaining mlx-lm's default ten Qwen3.8 cache entries added
+about 0.9 GB and could cross that limit. The current Q4 head saves weight memory,
+but the higher-batch crossover has not been re-established by the Q4 B=1/2
+measurements. Explicit
 `--decode-concurrency`, `--prompt-concurrency`, and `--prompt-cache-bytes`
 values override these MTP defaults.
 

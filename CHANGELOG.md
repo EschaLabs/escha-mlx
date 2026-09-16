@@ -9,6 +9,9 @@
   guaranteed identical across draft precisions, even at greedy decoding or
   with the same sampling seed. M4 performance measurements and M5 Pro output
   comparisons are documented in `docs/PERFORMANCE.md` with raw records.
+  Benchmark reports record resolved draft precision; historical records retain
+  their original measurements and gain provenance notes and explicit current-code
+  comparison commands.
 - **Qwen3.8 native MTP decoding** — opt-in fixed-tree speculative decoding for
   `Qwen3.8-27B-Escha-W2` across the Python generator, CLI, and continuous-batching
   server. The checkpoint-native MTP head uses a top-k=3, depth=3 tree and verifies
@@ -18,8 +21,9 @@
   Previous-round GDN traces are released before constructing the next tree. On a
   24 GB M5 Pro, MTP servers default prompt/decode concurrency to 2 and cap the prompt
   LRU at 512 MB; explicit CLI values still win. Post-fix validation completed 16/16
-  C=8 requests at ISL/OSL 128/96 with no errors or short outputs. A warmed batch-1
-  ABBA measured 21.46 versus 16.63 output tok/s (1.290x); continuous-batch MTP was
+  C=8 requests at ISL/OSL 128/96 with no errors or short outputs. The historical
+  `b30bb9b` run used an unquantized fp16 draft head: warmed batch-1 ABBA measured
+  21.46 versus 16.63 output tok/s (1.290x); continuous-batch MTP was
   beneficial at B=1/2 and slower than AR at B=4/8, so it is not presented as a
   universal batched-decode accelerator. Raw results and the reproducer live under
   `bench/results/m5-pro-24gb/dense27b_mtp_20260907.json` and `bench/mtp.py`.
